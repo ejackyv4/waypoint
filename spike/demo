@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+#
+# Waypoint PoC — demo control.
+#
+#   ./spike/demo start     start the servers (API, content, mock SaaS)
+#   ./spike/demo mobile    start Metro and open the iOS simulator
+#   ./spike/demo reset     wipe everything and re-seed for a fresh demo
+#   ./spike/demo stop      stop the servers (leaves Metro alone)
+#   ./spike/demo status    what is running, and the URLs
+#
+# The LAN address is detected each time and written into the mobile config,
+# because a device cannot reach "localhost" and the IP changes with the network.
+
+set -uo pipefail
+cd "$(dirname "$0")/.."          # repo root — ingest uses paths relative to it
+
+APP_PORT=8090
+CONTENT_PORT=8091
+SAAS_PORT=8092
+METRO_PORT=8082                  # 8081 is often taken by another Expo project
+API_KEY=wp_demo_key_123
+DATA_DIR=spike/data
+SEED_ZIP=spike/corpus/RuntimeBasicCalls_SCORM12.zip
+LOG=/tmp/waypoint-demo.log
+METRO_LOG=/tmp/waypoint-metro.log
+
+b()  { printf '\033[1m%s\033[0m\n' "$1"; }
+ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
+no() { printf '  \033[31m✕\033[0m %s\n' "$1"; }
+dim(){ printf '  \033[2m%s\033[0m\n' "$1"; }
+
+lan_ip() {
+  for i in en0 en1 en2; do
+    ip=$(ipconfig getifaddr "$i" 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return; }
+  done
+  echo "localhost"
+}
+HOST=$(lan_ip)
+
+metro_up() { curl -fs -o /dev/null --max-time 2 "http://localhost:$METRO_PORT/status" 2>/dev/null; }
+
+servers_up() { curl -fs -o /dev/null --max-time 2 "http://$HOST:$APP_PORT/api/health" 2>/dev/null; }
+
+stop_servers() {
+  # kill -9 by PID. pkill has silently missed this process before, leaving a
+  # server holding an unlinked database and serving stale data.
+  local pids; pids=$(pgrep -f "spike/api/server.mjs" || true)
+  [ -n "$pids" ] && { echo "$pids" | xargs kill -9 2>/dev/null; sleep 1; }
+  pgrep -f "spike/api/server.mjs" >/dev/null && { no "servers would not stop"; return 1; }
+  return 0
+}
+
+start_servers() {
+  stop_servers || return 1
+  HOST=$HOST APP_PORT=$APP_PORT CONTENT_PORT=$CONTENT_PORT SAAS_PORT=$SAAS_PORT \
+    WAYPOINT_API_KEY=$API_KEY nohup node spike/api/server.mjs >"$LOG" 2>&1 &
+  for _ in $(seq 1 20); do servers_up && break; sleep 0.4; done
+  if ! servers_up; then
+    no "servers failed to start — last lines of $LOG:"
+    grep -v Warning "$LOG" | tail -6 | sed 's/^/      /'
+    return 1
+  fi
+  ok "servers running on $HOST"
+}
+
+seed_content() {
+  local code
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$HOST:$APP_PORT/api/ingest" \
+    -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"zip\":\"$SEED_ZIP\",\"program_id\":\"golf-101\",\"title\":\"Golf Explained\"}")
+  [ "$code" = "200" ] && ok "content ingested — Golf Explained (SCORM 1.2)" \
+                      || no "ingest failed (HTTP $code) — is $SEED_ZIP present?"
+}
+
+sync_mobile_config() {
+  cat > spike/mobile/config.js <<EOF
+/** Written by ./spike/demo — a device cannot reach "localhost". */
+export const API_BASE = "http://$HOST:$APP_PORT";
+/** Northwood's own system. The app is a client of both. */
+export const SAAS_BASE = "http://$HOST:$SAAS_PORT";
+EOF
+  ok "mobile config pointed at http://$HOST:$APP_PORT"
+}
+
+urls() {
+  echo
+  b "Demo URLs"
+  printf '  %-16s %s\n' "Mock SaaS"    "http://$HOST:$SAAS_PORT"
+  printf '  %-16s %s\n' "Learner site" "http://$HOST:$APP_PORT/learn"
+  printf '  %-16s %s\n' "Admin console" "http://$HOST:$APP_PORT/console"
+  echo
+}
+
+script() {
+  echo
+  b "Demo script"
+  dim "1. Mock SaaS      → pick a customer, pick Golf Explained, Assign & create login"
+  dim "2. Copy the email and password it shows you"
+  dim "3. Learner site   → sign in, Start course, work through it, finish the quiz"
+  dim "4. Mock SaaS      → the completion appears within a few seconds"
+  echo
+  dim "Customers already set up:  Dana Whitfield (cust-1041)"
+  dim "                           Marcus Oyelaran (cust-2298)"
+  echo
+}
+
+case "${1:-start}" in
+
+  start)
+    b "Starting Waypoint demo"
+    start_servers || exit 1
+    [ -f "$DATA_DIR/waypoint.db" ] || seed_content
+    sync_mobile_config
+    urls; script
+    dim "Mobile app:  ./spike/demo mobile"
+    dim "Fresh slate: ./spike/demo reset"
+    echo
+    ;;
+
+  reset)
+    b "Resetting to a clean slate"
+    stop_servers || exit 1
+    # NOTE: the database lives in spike/data, NOT spike/api/data.
+    rm -rf "$DATA_DIR"
+    ok "all learners, registrations and completions deleted"
+    start_servers || exit 1
+    seed_content
+    sync_mobile_config
+    urls; script
+    ;;
+
+  stop)
+    b "Stopping"
+    stop_servers && ok "servers stopped"
+    pids=$(pgrep -f "expo start --port $METRO_PORT" || true)
+    [ -n "$pids" ] && { echo "$pids" | xargs kill 2>/dev/null; ok "Metro stopped"; } \
+                   || dim "Metro was not running"
+    ;;
+
+  mobile|app)
+    servers_up || { no "servers are not running — ./spike/demo start first"; exit 1; }
+    sync_mobile_config
+    b "Opening the mobile app"
+
+    # 1. Metro. Start it in the background if it is not already up, so this
+    #    command never blocks the terminal and is safe to run repeatedly.
+    if metro_up; then
+      ok "Metro already running on $METRO_PORT"
+    else
+      (cd spike/mobile && nohup npx expo start --port "$METRO_PORT" \
+        >"$METRO_LOG" 2>&1 &) >/dev/null 2>&1
+      for _ in $(seq 1 40); do metro_up && break; sleep 0.5; done
+      if metro_up; then ok "Metro started on $METRO_PORT"
+      else
+        no "Metro would not start — last lines of $METRO_LOG:"
+        tail -8 "$METRO_LOG" | sed 's/^/      /'
+        exit 1
+      fi
+    fi
+
+    # 2. A booted simulator. Boot the first available iPhone if none is up.
+    if ! xcrun simctl list devices | grep -q "(Booted)"; then
+      dev=$(xcrun simctl list devices available \
+            | grep -oE 'iPhone [^(]*\([0-9A-F-]{36}\)' | head -1 \
+            | grep -oE '[0-9A-F-]{36}')
+      [ -n "$dev" ] && xcrun simctl boot "$dev" 2>/dev/null
+      open -a Simulator 2>/dev/null
+      for _ in $(seq 1 30); do
+        xcrun simctl list devices | grep -q "(Booted)" && break; sleep 1
+      done
+    fi
+    xcrun simctl list devices | grep -q "(Booted)" \
+      && ok "simulator booted" || { no "no simulator available"; exit 1; }
+    open -a Simulator 2>/dev/null
+
+    # 3. Open the app. Terminate first so a reload always picks up changes.
+    xcrun simctl terminate booted host.exp.Exponent >/dev/null 2>&1
+    sleep 1
+    xcrun simctl openurl booted "exp://$HOST:$METRO_PORT" >/dev/null 2>&1 \
+      && ok "app opening — first launch takes a few seconds to bundle" \
+      || no "could not open the app"
+    dim "Metro logs: tail -f $METRO_LOG"
+    echo
+    ;;
+
+  status)
+    b "Waypoint demo status"
+    servers_up && ok "servers up on $HOST" || no "servers down"
+    metro_up && ok "Metro up on $METRO_PORT" || no "Metro down (./spike/demo mobile)"
+    if servers_up; then
+      python3 - "$HOST" "$APP_PORT" "$SAAS_PORT" <<'PY'
+import json, sys, urllib.request
+host, app, saas = sys.argv[1], sys.argv[2], sys.argv[3]
+g = lambda u, k: json.load(urllib.request.urlopen(u, timeout=3))[k]
+try:
+    print(f"  \033[2mregistrations: {len(g(f'http://{host}:{app}/api/console/registrations','registrations'))}"
+          f"   completions: {len(g(f'http://{host}:{saas}/api/results','results'))}"
+          f"   catalog: {len(g(f'http://{host}:{saas}/api/catalog','content'))}\033[0m")
+except Exception as e:
+    print(f"  (couldn't read counts: {e})")
+PY
+    fi
+    urls
+    ;;
+
+  *)
+    b "Waypoint demo"
+    dim "./spike/demo start    start the servers"
+    dim "./spike/demo mobile   open the app in the iOS simulator"
+    dim "./spike/demo reset    wipe and re-seed for a fresh demo"
+    dim "./spike/demo stop     stop the servers"
+    dim "./spike/demo status   what's running"
+    echo
+    ;;
+esac

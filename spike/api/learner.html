@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waypoint — My Learning</title>
+<style>
+:root{
+  --brand:#2563eb; --brand-dark:#1d4ed8; --brand-soft:#eff6ff;
+  --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --faint:#94a3b8;
+  --line:#e2e8f0; --bg:#eef2f6; --surface:#fff;
+  --ok:#059669; --ok-soft:#ecfdf5; --err:#dc2626; --err-soft:#fef2f2;
+  --shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.05);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --ink:#f1f5f9; --ink-2:#cbd5e1; --muted:#94a3b8; --faint:#64748b;
+  --line:#1e293b; --bg:#0b1120; --surface:#0f172a; --brand-soft:#1e293b;
+  --ok-soft:#052e23; --err-soft:#2b0f0f; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+     font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+
+.topbar{background:var(--surface);border-bottom:1px solid var(--line);
+        padding:0 24px;height:68px;display:flex;align-items:center;gap:12px}
+.mark{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:#fff;
+      background:linear-gradient(135deg,var(--brand),#60a5fa)}
+.wordmark{font-weight:650;font-size:17px;letter-spacing:-.01em}
+.who{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:14px;color:var(--muted)}
+.link{background:none;border:0;color:var(--brand);font:inherit;font-weight:600;cursor:pointer;padding:0}
+.link:hover{text-decoration:underline}
+
+.wrap{max-width:760px;margin:0 auto;padding:24px 24px 70px}
+
+/* condensed case profile */
+.profbar{background:var(--surface);border-bottom:1px solid var(--line);
+         padding:16px 24px;display:flex;align-items:center;gap:15px}
+.avatar{border-radius:50%;display:grid;place-items:center;color:#fff;flex:0 0 auto;
+        font-weight:700;width:52px;height:52px;font-size:18px;user-select:none}
+.profbar .nm{font-size:19px;font-weight:700;letter-spacing:-.3px}
+.profbar .mt{font-size:13.5px;color:var(--muted);margin-top:1px}
+
+/* tabs */
+.tabs{background:var(--surface);border-bottom:1px solid var(--line);display:flex;
+      padding:0 24px;max-width:100%;overflow-x:auto}
+.tab{background:none;border:0;font:inherit;font-size:15px;font-weight:600;cursor:pointer;
+     color:var(--muted);padding:14px 4px;margin-right:26px;display:flex;align-items:center;gap:8px;
+     border-bottom:2px solid transparent}
+.tab:hover{color:var(--ink-2)}
+.tab.on{color:var(--brand);font-weight:700;border-bottom-color:var(--brand)}
+.badge{min-width:20px;height:20px;border-radius:10px;background:var(--err);color:#fff;
+       font-size:12px;font-weight:800;display:grid;place-items:center;padding:0 6px}
+
+.visitcard{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+           padding:18px 20px;box-shadow:var(--shadow);margin-bottom:14px}
+.visitcard .top{display:flex;gap:12px;align-items:flex-start}
+.visitcard h3{margin:0;flex:1;font-size:17px;letter-spacing:-.2px}
+.visitcard .note{margin-top:10px;padding:11px 13px;background:var(--bg);border-radius:9px;
+                 font-size:14px;color:var(--ink-2);line-height:1.5}
+
+/* ---- sign in ---- */
+.signin{max-width:390px;margin:8vh auto;padding:0 20px;text-align:center}
+.signin .mark{width:56px;height:56px;border-radius:16px;margin:0 auto 16px}
+.signin h1{font-size:26px;margin:0;letter-spacing:-.5px}
+.signin p.sub{color:var(--muted);margin:4px 0 26px}
+.field{text-align:left;margin-bottom:14px}
+label{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+input{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:11px;
+      font:inherit;font-size:16px;background:var(--surface);color:var(--ink)}
+input:focus{outline:2px solid var(--brand);outline-offset:-1px}
+button.primary{appearance:none;border:0;cursor:pointer;font:inherit;font-size:16px;font-weight:650;
+       width:100%;padding:15px;border-radius:12px;background:var(--brand);color:#fff;margin-top:12px}
+button.primary:hover{background:var(--brand-dark)}
+button.primary:disabled{opacity:.55;cursor:default}
+.error{background:var(--err-soft);color:var(--err);border:1px solid #fecaca;
+       border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:16px;text-align:left;font-weight:600}
+
+/* ---- program cards ---- */
+h2.pagetitle{font-size:21px;letter-spacing:-.3px;margin:0 0 3px}
+p.pagesub{color:var(--muted);margin:0 0 22px;font-size:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+      padding:20px;box-shadow:var(--shadow);margin-bottom:14px}
+.cardtop{display:flex;gap:12px;align-items:flex-start}
+.cardtop h3{margin:0;flex:1;font-size:18px;letter-spacing:-.2px}
+.meta{color:var(--muted);font-size:13.5px;margin-top:6px}
+.pill{padding:4px 11px;border-radius:999px;font-size:12px;font-weight:650;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.err{background:var(--err-soft);color:var(--err)}
+.pill.go{background:var(--brand-soft);color:var(--brand)}
+.pill.muted{background:var(--bg);color:var(--muted)}
+.cta{display:block;width:100%;margin-top:16px;padding:14px;border:0;border-radius:11px;
+     background:var(--brand);color:#fff;font:inherit;font-size:15.5px;font-weight:650;cursor:pointer}
+.cta:hover{background:var(--brand-dark)}
+.empty{padding:44px 20px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* The learner site. Signs in against Waypoint, lists what this person has
+   been assigned, and opens the player with a short-lived launch ticket.
+   The session token here is person-scoped: it can list and it can request
+   tickets. It cannot write to a registration. */
+const API = "";                                  // same origin as this page
+const SAAS = "__SAAS_ORIGIN__";                  // Northwood's own system
+const app = document.getElementById("app");
+const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]));
+const dur = s => { s = Math.max(0, Math.round(+s || 0));
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
+
+let auth = null, caseData = null, tab = "programs";
+try { auth = JSON.parse(sessionStorage.getItem("wp.auth") || "null"); } catch {}
+
+/* Deterministic color per person, matching the mobile app. */
+function avatarHtml(name) {
+  const initials = String(name || "?").split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  let h = 0; for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `<div class="avatar" style="background:hsl(${h} 42% 42%)" aria-hidden="true">${esc(initials)}</div>`;
+}
+
+const fmtVisit = t => t ? new Date(t).toLocaleString(undefined,
+  { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : "—";
+
+/* Northwood's case data, fetched with the Waypoint token. Their side asks
+   Waypoint who the token belongs to rather than trusting this page. */
+async function loadCase(markSeen) {
+  try {
+    const r = await fetch(`${SAAS}/api/me/case${markSeen ? "?seen=1" : ""}`,
+      { headers: { Authorization: `Bearer ${auth.token}` } });
+    caseData = r.ok ? await r.json() : null;
+  } catch { caseData = null; }
+}
+
+const save = a => { auth = a;
+  try { a ? sessionStorage.setItem("wp.auth", JSON.stringify(a))
+          : sessionStorage.removeItem("wp.auth"); } catch {} };
+
+function signInView(error) {
+  app.innerHTML = `
+    <div class="signin">
+      <div class="mark"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11l19-9-9 19-2-8-8-2z"/></svg></div>
+      <h1>Waypoint</h1>
+      <p class="sub">Sign in to your learning</p>
+      ${error ? `<div class="error">${esc(error)}</div>` : ""}
+      <form id="f">
+        <div class="field"><label for="u">Email</label>
+          <input id="u" type="email" autocomplete="username" placeholder="you@example.com" required></div>
+        <div class="field"><label for="p">Password</label>
+          <input id="p" type="password" autocomplete="current-password" placeholder="••••••••" required></div>
+        <button class="primary" id="go" type="submit">Sign in</button>
+      </form>
+    </div>`;
+  document.getElementById("f").onsubmit = async e => {
+    e.preventDefault();
+    const btn = document.getElementById("go");
+    btn.disabled = true; btn.textContent = "Signing in…";
+    try {
+      const r = await fetch(`${API}/api/auth/login`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: document.getElementById("u").value.trim(),
+                               password: document.getElementById("p").value })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Sign in failed");
+      save({ token: d.token, person: d.person });
+      listView();
+    } catch (err) {
+      signInView(String(err.message || err));
+    }
+  };
+}
+
+async function listView() {
+  app.innerHTML = `<div class="wrap"><p class="pagesub">Loading…</p></div>`;
+  let d;
+  try {
+    const r = await fetch(`${API}/api/me/assignments`,
+      { headers: { Authorization: `Bearer ${auth.token}` } });
+    if (r.status === 401) { save(null); return signInView("Your session expired. Please sign in again."); }
+    d = await r.json();
+  } catch { return signInView("Couldn't reach Waypoint."); }
+
+  await loadCase(false);
+  const who = auth.person?.name || auth.person?.subject_id || "";
+  const subject = caseData?.subject;
+  const unseen = caseData?.unseen_visits || 0;
+  const cards = (d.programs || []).map(p => {
+    const done = p.completion_status === "completed";
+    const passed = p.success_status === "passed", failed = p.success_status === "failed";
+    const started = p.registration_id && p.completion_status !== "not attempted";
+    const suspended = p.exit_mode === "suspend";
+    return `<div class="card">
+      <div class="cardtop">
+        <h3>${esc(p.title)}</h3>
+        <span class="pill ${done ? "ok" : started ? "go" : "muted"}">
+          ${done ? "Completed" : started ? "In progress" : "Not started"}</span>
+      </div>
+      <div class="meta">SCORM ${esc(p.scorm_version)}${p.attempt ? ` · Attempt ${p.attempt}` : ""}${
+        p.score_raw != null ? ` · Score ${p.score_raw}${p.score_max ? `/${p.score_max}` : ""}` : ""}${
+        p.total_seconds ? ` · ${dur(p.total_seconds)}` : ""}</div>
+      ${(passed || failed) ? `<div class="meta" style="color:${passed ? "var(--ok)" : "var(--err)"};font-weight:650">
+          ${passed ? "Passed" : "Not passed"}</div>` : ""}
+      <button class="cta" data-program="${esc(p.program_id)}">
+        ${suspended ? "Resume course" : done ? "Retake course" : started ? "Continue" : "Start course"}</button>
+    </div>`;
+  }).join("");
+
+  app.innerHTML = `
+    <header class="topbar">
+      <span class="mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11l19-9-9 19-2-8-8-2z"/></svg></span>
+      <span class="wordmark">Waypoint</span>
+      <span class="who">${esc(who)}<button class="link" id="out">Sign out</button></span>
+    </header>
+    <div class="wrap">
+      <h2 class="pagetitle">My Learning</h2>
+      <p class="pagesub">Programmes assigned to you.</p>
+      ${cards || `<div class="card empty">Nothing assigned yet.</div>`}
+    </div>`;
+
+  document.getElementById("out").onclick = () => { save(null); signInView(); };
+  app.querySelectorAll("[data-program]").forEach(b => b.onclick = () => launch(b));
+}
+
+async function launch(btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Opening…";
+  try {
+    const r = await fetch(`${API}/api/me/launch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify({ program_id: btn.dataset.program })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    // The player lives on the content origin. Tickets last ~60s, so this
+    // must open immediately after being issued.
+    location.href = d.launch_url;
+  } catch (e) {
+    btn.disabled = false; btn.textContent = label;
+    alert(e.message || e);
+  }
+}
+
+auth ? listView() : signInView();
+</script>
+</body>
+</html>

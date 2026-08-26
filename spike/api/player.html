@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waypoint</title>
+<style>
+/* ==================================================================
+   Waypoint player chrome.
+
+   Everything here belongs to us. The course owns only what is inside
+   the frame, and it cannot be trusted to provide a working exit, to
+   say whether anything was saved, or to tell the learner where they
+   stand — so all of that lives out here.
+================================================================== */
+:root{
+  --brand:#2563eb; --brand-dark:#1d4ed8; --brand-soft:#eff6ff;
+  --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --faint:#94a3b8;
+  --line:#e2e8f0; --bg:#eef2f6; --surface:#ffffff;
+  --ok:#059669; --ok-soft:#ecfdf5; --warn:#d97706; --warn-soft:#fffbeb;
+  --err:#dc2626; --err-soft:#fef2f2;
+  --shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.05);
+  --shadow-lg:0 8px 32px rgba(15,23,42,.12);
+  --radius:12px;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --ink:#f1f5f9; --ink-2:#cbd5e1; --muted:#94a3b8; --faint:#64748b;
+    --line:#1e293b; --bg:#0b1120; --surface:#0f172a;
+    --brand-soft:#1e293b; --ok-soft:#052e23; --warn-soft:#2c1a06; --err-soft:#2b0f0f;
+    --shadow:0 1px 2px rgba(0,0,0,.4); --shadow-lg:0 8px 32px rgba(0,0,0,.5);
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--sans); font-size:15px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  display:flex; flex-direction:column;
+}
+
+/* ---------------- header ---------------- */
+.topbar{
+  flex:0 0 auto; background:var(--surface); border-bottom:1px solid var(--line);
+  padding:0 24px; height:68px; display:flex; align-items:center; gap:20px;
+}
+.brand{display:flex; align-items:center; gap:12px; flex:0 0 auto}
+/* Swap this <img> for the real logo. Sized to fit 32px height. */
+.brand img{height:30px; width:auto; display:block}
+.brand .wordmark{
+  display:flex; align-items:center; gap:9px;
+  font-weight:650; font-size:17px; letter-spacing:-.01em; color:var(--ink);
+}
+.brand .mark{
+  width:30px; height:30px; border-radius:9px; flex:0 0 auto;
+  background:linear-gradient(135deg,var(--brand),#60a5fa);
+  display:grid; place-items:center; color:#fff;
+}
+.divider{width:1px; height:30px; background:var(--line); flex:0 0 auto}
+
+.titles{min-width:0; flex:1 1 auto}
+.titles h1{
+  margin:0; font-size:16px; font-weight:600; letter-spacing:-.01em; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.titles .meta{
+  margin-top:2px; font-size:12.5px; color:var(--muted);
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+}
+.dot{width:3px; height:3px; border-radius:50%; background:var(--faint); flex:0 0 auto}
+
+.controls{display:flex; align-items:center; gap:14px; flex:0 0 auto}
+
+/* status chip */
+.chip{
+  display:inline-flex; align-items:center; gap:7px;
+  padding:6px 12px; border-radius:999px; font-size:13px; font-weight:550;
+  background:var(--brand-soft); color:var(--brand); white-space:nowrap;
+}
+.chip.ok{background:var(--ok-soft); color:var(--ok)}
+.chip.warn{background:var(--warn-soft); color:var(--warn)}
+.chip.err{background:var(--err-soft); color:var(--err)}
+.chip .led{width:7px; height:7px; border-radius:50%; background:currentColor; flex:0 0 auto}
+.chip.saving .led{animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* buttons — deliberately large and obvious */
+.btn{
+  appearance:none; border:0; cursor:pointer; font-family:inherit;
+  font-size:14.5px; font-weight:600; letter-spacing:-.005em;
+  padding:11px 22px; border-radius:10px;
+  display:inline-flex; align-items:center; gap:9px;
+  transition:background .15s, box-shadow .15s, transform .05s;
+}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.btn-primary{background:var(--brand); color:#fff; box-shadow:var(--shadow)}
+.btn-primary:hover{background:var(--brand-dark)}
+.btn-ghost{background:transparent; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--line)}
+.btn-ghost:hover{background:var(--line)}
+.btn-lg{padding:14px 30px; font-size:15.5px; border-radius:11px}
+
+/* ---------------- alert banner ---------------- */
+.banner{
+  flex:0 0 auto; display:none; align-items:center; gap:12px;
+  padding:12px 24px; font-size:14px; font-weight:500;
+  background:var(--err-soft); color:var(--err);
+  border-bottom:1px solid color-mix(in srgb, var(--err) 22%, transparent);
+}
+.banner.show{display:flex}
+.banner svg{flex:0 0 auto}
+
+/* ---------------- stage ---------------- */
+.stage{
+  flex:1 1 auto; min-height:0; position:relative;
+  padding:20px 24px; display:flex;
+}
+
+/* ---------------- footer ----------------
+   Platform chrome below the content, so the course sits visibly inside
+   a container rather than bleeding into the page. */
+.actionbar{
+  flex:0 0 auto; background:var(--surface); border-top:1px solid var(--line);
+  padding:14px 24px; height:76px;
+  display:flex; align-items:center; justify-content:space-between; gap:20px;
+}
+.actionbar .hint{
+  display:flex; align-items:center; gap:9px; min-width:0;
+  color:var(--muted); font-size:13.5px; line-height:1.4;
+}
+.actionbar .hint svg{flex:0 0 auto; color:var(--faint)}
+.actionbar .hint span{overflow:hidden; text-overflow:ellipsis}
+.frame{
+  flex:1; min-height:0; position:relative;
+  background:#fff; border-radius:var(--radius);
+  box-shadow:var(--shadow); overflow:hidden;
+  border:1px solid var(--line);
+}
+.frame iframe{width:100%; height:100%; border:0; display:block; background:#fff}
+
+/* ---------------- overlays ---------------- */
+.overlay{
+  position:absolute; inset:0; display:none; overflow:auto; max-width:100%;
+  align-items:center; justify-content:center; padding:32px;
+  background:var(--surface); border-radius:var(--radius); z-index:5;
+}
+.overlay.show{display:flex}
+.card{max-width:440px; width:100%; text-align:center}
+.card .icon{
+  width:60px; height:60px; border-radius:50%; margin:0 auto 20px;
+  display:grid; place-items:center;
+  background:var(--ok-soft); color:var(--ok);
+}
+.card .icon.err{background:var(--err-soft); color:var(--err)}
+.card .icon.neutral{background:var(--brand-soft); color:var(--brand)}
+.card h2{margin:0 0 8px; font-size:21px; font-weight:650; letter-spacing:-.02em}
+.card p{margin:0 0 24px; color:var(--muted); font-size:14.5px; line-height:1.6}
+
+.results{
+  text-align:left; border:1px solid var(--line); border-radius:11px;
+  overflow:hidden; margin-bottom:24px; background:var(--bg);
+}
+.results .row{
+  display:flex; justify-content:space-between; align-items:center; gap:12px;
+  padding:12px 14px; font-size:14px; min-width:0;
+}
+.results dt,.results dd{min-width:0; overflow-wrap:anywhere}
+.results .row + .row{border-top:1px solid var(--line)}
+.results dt{color:var(--muted)}
+.results dd{margin:0; font-weight:650; color:var(--ink)}
+.pill{
+  padding:3px 10px; border-radius:999px; font-size:12.5px; font-weight:650;
+  background:var(--ok-soft); color:var(--ok);
+}
+.pill.fail{background:var(--err-soft); color:var(--err)}
+.pill.neutral{background:var(--brand-soft); color:var(--brand)}
+
+.spinner{
+  width:34px; height:34px; margin:0 auto 18px;
+  border:3px solid var(--line); border-top-color:var(--brand);
+  border-radius:50%; animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.footnote{margin-top:20px; font-size:12.5px; color:var(--faint); line-height:1.6}
+
+/* Inside the mobile app the native shell provides the header, the exit
+   button and the surrounding frame. Showing ours too gives the learner
+   two of everything — including two Exit buttons that behave differently. */
+body.embedded .topbar,
+body.embedded .actionbar{display:none}
+body.embedded .stage{padding:0}
+body.embedded .frame{border-radius:0; border:0; box-shadow:none; overflow:auto}
+/* On iOS an iframe expands to its content width rather than scrolling, so
+   legacy fixed-width courses stretch .frame far past the screen. An overlay
+   positioned against that frame gets centred in 800px and lands off-screen.
+   Pin it to the VIEWPORT instead. */
+body.embedded .overlay{
+  position:fixed; inset:0; border-radius:0; padding:16px;
+  width:100vw; max-width:100vw;
+}
+/* Long labels must wrap rather than push the row wider than the screen. */
+body.embedded .results .row{flex-wrap:wrap; row-gap:2px}
+body.embedded .card h2{font-size:19px}
+
+@media (max-width:860px){
+  .actionbar .hint{display:none}          /* the button is what matters on small screens */
+  .actionbar{justify-content:flex-end}
+}
+@media (max-width:720px){
+  .topbar{height:auto; padding:12px 16px; flex-wrap:wrap; gap:12px}
+  .titles{order:3; flex-basis:100%}
+  .controls{margin-left:auto}
+  .stage{padding:12px}
+  .actionbar{padding:12px 16px; height:auto}
+  .actionbar .btn{width:100%; justify-content:center}
+  .divider{display:none}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <!-- Replace this block with <img src="/your-logo.svg" alt="Company"> -->
+    <div class="wordmark">
+      <span class="mark" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l19-9-9 19-2-8-8-2z"/>
+        </svg>
+      </span>
+      Waypoint
+    </div>
+  </div>
+
+  <div class="divider" aria-hidden="true"></div>
+
+  <div class="titles">
+    <h1 id="courseTitle">Loading…</h1>
+    <div class="meta" id="courseMeta"></div>
+  </div>
+
+  <div class="controls">
+    <span class="chip" id="saveChip"><span class="led"></span><span id="saveText">Connecting</span></span>
+  </div>
+</header>
+
+<div class="banner" id="banner" role="alert">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2.2" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+  <span id="bannerText"></span>
+</div>
+
+<main class="stage">
+  <div class="frame">
+    <iframe id="frame" title="Course content"></iframe>
+
+    <div class="overlay show" id="loading">
+      <div class="card">
+        <div class="spinner"></div>
+        <h2>Opening your course</h2>
+        <p>Verifying your launch link…</p>
+      </div>
+    </div>
+
+    <div class="overlay" id="end"></div>
+  </div>
+</main>
+
+<!-- Our footer. Brackets the content so the white card reads clearly as
+     "the course" and everything outside it as "the platform". The course's
+     own Previous/Next/Exit live inside that card and are not ours to style. -->
+<footer class="actionbar">
+  <div class="hint">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><path d="M12 16v-4m0-4h.01"/>
+    </svg>
+    <span>Use the course's own buttons to move through the content. Your progress saves automatically.</span>
+  </div>
+  <button class="btn btn-primary btn-lg" id="exitBtn">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+    </svg>
+    Save &amp; Exit
+  </button>
+</footer>
+
+<script>
+/* ------------------------------------------------------------------
+   The player lives on the CONTENT origin, same-origin with the course.
+
+   That is deliberate: the ADL API discovery algorithm walks
+   window.parent looking for the adapter, and cross-origin that throws
+   a SecurityError rather than returning it. So the adapter sits next
+   to the content, and this page talks to the app API over CORS.
+   Course JavaScript can reach the adapter — by design. It cannot
+   reach the application's session — also by design.
+
+   Every write goes straight to the server. Courses do not call Commit.
+------------------------------------------------------------------ */
+const API = "__APP_ORIGIN__";
+
+/* A native shell is present when React Native injects its bridge. */
+const EMBEDDED = typeof window.ReactNativeWebView !== "undefined";
+if (EMBEDDED) document.body.classList.add("embedded");
+
+const el = id => document.getElementById(id);
+const $title = el("courseTitle"), $meta = el("courseMeta");
+const $chip = el("saveChip"), $chipText = el("saveText");
+const $banner = el("banner"), $bannerText = el("bannerText");
+
+let regId = null, session = null, cmi = {}, is2004 = false;
+let initialized = false, terminated = false, lastError = "0";
+let pending = 0, failed = 0, sessionStart = null;
+
+const ERR = { "0":"No error","101":"General exception","103":"Already initialized",
+  "112":"Termination before initialization","122":"Retrieve data before initialization",
+  "132":"Store data before initialization","201":"Invalid argument error",
+  "301":"Not initialized","401":"Undefined data model element" };
+
+/* ---------------- save-state indicator ----------------
+   A failed write must never look like a success. */
+function setSaveState(){
+  $chip.className = "chip" + (failed ? " err" : pending ? " saving" : " ok");
+  $chipText.textContent = failed ? `${failed} unsaved` : pending ? "Saving" : "Saved";
+  $banner.classList.toggle("show", failed > 0);
+  if (failed) $bannerText.textContent =
+    "We can't reach the server, so your recent progress isn't saved yet. " +
+    "Stay on this page — we'll keep trying.";
+}
+
+async function post(path, body){
+  pending++; setSaveState();
+  try {
+    const r = await fetch(API + path, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json",
+                /* Scoped to this registration only. Minted by redeeming the
+                   launch ticket; useless against anyone else's record. */
+                ...(session ? { Authorization: `Bearer ${session}` } : {}) },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    failed = 0;
+    return await r.json();
+  } catch (e) {
+    failed++;
+    console.error("write failed:", path, e);
+    return null;
+  } finally { pending--; setSaveState(); }
+}
+
+/* ---------------- boot ---------------- */
+(async function boot(){
+  const token = new URL(location.href).searchParams.get("ticket");
+  if (!token) return fatal("No launch link",
+    "This page can only be opened from a valid course link. Launch the course from your program list.");
+
+  const res = await post("/api/runtime/redeem", { token });
+  if (!res || res.error) return fatal("This link can't be used",
+    res?.error === "ticket expired" ? "Your launch link has expired. Launch links are valid for a short time only — please open the course again from your program list."
+    : res?.error === "ticket already used" ? "This launch link has already been used. Please open the course again from your program list."
+    : "We couldn't verify your launch link. Please open the course again from your program list.");
+
+  const reg = res.registration;
+  regId = reg.id;
+  session = res.session;
+  is2004 = /2004/.test(res.content.scorm_version);
+
+  cmi = is2004 ? {
+    "cmi.completion_status": reg.completion_status, "cmi.success_status": reg.success_status,
+    "cmi.entry": reg.entry, "cmi.location": reg.location, "cmi.suspend_data": reg.suspend_data,
+    "cmi.score.raw": s(reg.score_raw), "cmi.score.min": s(reg.score_min),
+    "cmi.score.max": s(reg.score_max), "cmi.score.scaled": s(reg.score_scaled),
+    "cmi.total_time": secs(reg.total_seconds, true), "cmi.session_time": "",
+    "cmi.learner_id": String(reg.person_id), "cmi.learner_name": "Learner",
+    "cmi.credit": "credit", "cmi.mode": "normal", "cmi.exit": "", "cmi._version": "1.0"
+  } : {
+    "cmi.core.lesson_status": lessonStatus(reg), "cmi.core.entry": reg.entry,
+    "cmi.core.lesson_location": reg.location, "cmi.suspend_data": reg.suspend_data,
+    "cmi.core.score.raw": s(reg.score_raw), "cmi.core.score.min": s(reg.score_min),
+    "cmi.core.score.max": s(reg.score_max),
+    "cmi.core.total_time": secs(reg.total_seconds, false), "cmi.core.session_time": "",
+    "cmi.core.student_id": String(reg.person_id), "cmi.core.student_name": "Learner",
+    "cmi.core.credit": "credit", "cmi.core.lesson_mode": "normal", "cmi.core.exit": ""
+  };
+
+  $title.textContent = res.content.title || "Course";
+  $meta.innerHTML =
+      `<span>Attempt ${reg.attempt}</span><span class="dot"></span>`
+    + `<span>${reg.entry === "resume" ? "Resuming where you left off" : "New attempt"}</span>`
+    + `<span class="dot"></span><span>SCORM ${res.content.scorm_version}</span>`;
+
+  setSaveState();
+  el("frame").src = res.content.launch_url;
+  el("loading").classList.remove("show");
+})();
+
+const s = v => (v === null || v === undefined ? "" : String(v));
+
+/* Collapse our two columns back into 1.2's single field for the course's
+   benefit. We store them apart; the course is handed the shape it expects. */
+function lessonStatus(reg){
+  if (reg.success_status === "passed") return "passed";
+  if (reg.success_status === "failed") return "failed";
+  return reg.completion_status === "completed" ? "completed"
+       : reg.completion_status === "not attempted" ? "not attempted" : "incomplete";
+}
+function secs(total, iso){
+  total = Math.max(0, +total || 0);
+  if (iso) return `PT${Math.floor(total/3600)}H${Math.floor(total%3600/60)}M${(total%60).toFixed(2)}S`;
+  const p = (n,w) => String(Math.floor(n)).padStart(w,"0");
+  return `${p(total/3600,4)}:${p(total%3600/60,2)}:${p(total%60,2)}.00`;
+}
+const humanTime = t => {
+  t = Math.max(0, Math.round(+t||0));
+  const h = Math.floor(t/3600), m = Math.floor(t%3600/60), sec = t%60;
+  return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
+};
+
+/* ---------------- the adapter the course discovers ---------------- */
+function doInit(){
+  if (initialized){ lastError = "103"; return "false"; }
+  if (!regId){ lastError = "102"; return "false"; }
+  initialized = true; sessionStart = Date.now(); lastError = "0";
+  return "true";
+}
+function doGet(key){
+  if (!initialized){ lastError = "122"; return ""; }
+  if (!(key in cmi)){ lastError = "401"; return ""; }
+  lastError = "0"; return cmi[key];
+}
+function doSet(key, val){
+  if (!initialized){ lastError = "132"; return "false"; }
+  lastError = "0";
+  cmi[key] = String(val);
+  post(`/api/runtime/${regId}/set`, { key, value: String(val) });   // every write, immediately
+  return "true";
+}
+function doTerminate(){
+  if (!initialized || terminated){ lastError = "112"; return "false"; }
+  terminated = true; lastError = "0";
+
+  /* If the course never reported its own session_time, report it for them.
+     Wall clock is a worse measure than the course's, but silence is worse
+     than both. */
+  const key = is2004 ? "cmi.session_time" : "cmi.core.session_time";
+  if (!cmi[key] && sessionStart)
+    doSet(key, secs(Math.round((Date.now() - sessionStart)/1000), is2004));
+
+  showEnding();
+  post(`/api/runtime/${regId}/terminate`, {}).then(r => {
+    notifyNative({ type: "session_ended", registration: r?.registration ?? null,
+                   webhook: r?.webhook ?? null });
+    // Native draws the results screen when there is a shell to draw it.
+    if (!EMBEDDED) showResults(r);
+  });
+  return "true";
+}
+
+window.API_1484_11 = {
+  Initialize: doInit, Terminate: doTerminate, GetValue: doGet, SetValue: doSet,
+  Commit: () => (initialized ? "true" : "false"),
+  GetLastError: () => lastError, GetErrorString: c => ERR[c] || "Unknown error",
+  GetDiagnostic: c => ERR[c] || ""
+};
+window.API = {
+  LMSInitialize: doInit, LMSFinish: doTerminate, LMSGetValue: doGet, LMSSetValue: doSet,
+  LMSCommit: () => (initialized ? "true" : "false"),
+  LMSGetLastError: () => lastError, LMSGetErrorString: c => ERR[c] || "Unknown error",
+  LMSGetDiagnostic: c => ERR[c] || ""
+};
+
+/* ---------------- screens ---------------- */
+function overlay(html){
+  const e = el("end"); e.innerHTML = html; e.classList.add("show");
+
+  /* "Done" returns the learner to wherever they came from. In the real
+     product that is the app or the program list; here the best we can
+     do is close the tab, and window.close() silently fails on a tab the
+     script did not open — so say so rather than appearing broken. */
+  const done = el("doneBtn");
+  if (done) done.onclick = () => {
+    // In the app, hand back to the native shell so it can return the
+    // learner to their program list. In a browser there is nowhere to
+    // go, so close the tab if we opened it and say so plainly if not.
+    if (EMBEDDED) return notifyNative({ type: "exit" });
+    window.close();
+    setTimeout(() => {
+      done.disabled = true;
+      done.style.opacity = ".55";
+      done.style.cursor = "default";
+      done.textContent = "You can close this window";
+    }, 120);
+  };
+}
+
+function fatal(title, msg){
+  el("loading").classList.remove("show");
+  $title.textContent = "Course unavailable";
+  $meta.textContent = "";
+  $chip.className = "chip err"; $chipText.textContent = "Not started";
+  overlay(`<div class="card">
+    <div class="icon err">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg>
+    </div>
+    <h2>${title}</h2><p>${msg}</p></div>`);
+}
+
+function showEnding(){
+  if (EMBEDDED) return;   // native shows its own
+  overlay(`<div class="card"><div class="spinner"></div>
+    <h2>Saving your progress</h2><p>Just a moment…</p></div>`);
+}
+
+function showResults(r){
+  const reg = r?.registration;
+  if (!reg) return overlay(`<div class="card">
+    <div class="icon err">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg>
+    </div>
+    <h2>We couldn't confirm your results</h2>
+    <p>Your session ended, but we weren't able to read the final result back.
+       Please contact your administrator before retaking this course.</p></div>`);
+
+  const passed = reg.success_status === "passed";
+  const failedQ = reg.success_status === "failed";
+  const done = reg.completion_status === "completed";
+  const scored = reg.score_raw !== null && reg.score_raw !== undefined;
+
+  const head = passed ? "Course passed" : failedQ ? "Course not passed"
+             : done ? "Course completed" : "Progress saved";
+  const sub  = passed ? "Nice work — your result has been recorded."
+             : failedQ ? "You completed the course but didn't reach the pass mark."
+             : done ? "You've reached the end of this course."
+             : "You can pick up where you left off next time.";
+
+  overlay(`<div class="card">
+    <div class="icon ${failedQ ? "err" : done ? "" : "neutral"}">
+      ${failedQ
+        ? `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`
+        : done
+        ? `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`
+        : `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>`}
+    </div>
+    <h2>${head}</h2><p>${sub}</p>
+    <dl class="results">
+      <div class="row"><dt>Status</dt><dd>${done ? "Completed" : "In progress"}</dd></div>
+      ${reg.success_status !== "unknown" ? `<div class="row"><dt>Result</dt>
+        <dd><span class="pill ${failedQ ? "fail" : ""}">${passed ? "Passed" : "Not passed"}</span></dd></div>` : ""}
+      ${scored ? `<div class="row"><dt>Score</dt>
+        <dd>${reg.score_raw}${reg.score_max ? ` / ${reg.score_max}` : ""}</dd></div>` : ""}
+      <div class="row"><dt>Time spent</dt><dd>${humanTime(reg.total_seconds)}</dd></div>
+      <div class="row"><dt>Attempt</dt><dd>${reg.attempt}</dd></div>
+    </dl>
+    <button class="btn btn-primary btn-lg" id="doneBtn">Done</button>
+    <div class="footnote">${
+      r.webhook?.delivered ? "Your result has been sent to your record."
+      : r.webhook?.skipped ? "Saved. Reporting to the main system is not configured in this environment."
+      : "Saved here, but we couldn't notify the main system yet — it will be retried."
+    }</div>
+  </div>`);
+}
+
+/* Exit is OURS and must always work — including when the course is
+   blank, broken or hung. */
+el("exitBtn").onclick = () => {
+  if (initialized && !terminated) return doTerminate();
+  // Already finished. Previously this did nothing at all — the button
+  // looked live and was dead.
+  if (terminated) return EMBEDDED ? notifyNative({ type: "exit" })
+                                  : el("doneBtn")?.click();
+  overlay(`<div class="card">
+    <div class="icon neutral">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg>
+    </div>
+    <h2>Course closed</h2>
+    <p>This course never started a tracked session, so there was nothing to save.</p></div>`);
+};
+
+/* ------------------------------------------------------------------
+   Hooks for the native shell.
+
+   On a phone the OS kills backgrounded apps without warning and
+   Terminate never arrives, so native calls __waypointFlush() the moment
+   the app leaves the foreground. Every SetValue is already persisted;
+   what would otherwise be lost is the elapsed time, so that is what
+   this writes.
+------------------------------------------------------------------ */
+window.__waypointSuspendAndExit = function(){
+  if (!initialised || terminated) { notifyNative({ type: "exit" }); return false; }
+  // Mark it resumable, then end the session properly so the server closes
+  // the attempt and reports the state onward.
+  doSet(is2004 ? "cmi.exit" : "cmi.core.exit", "suspend");
+  doTerminate();
+  return true;
+};
+
+window.__waypointFlush = function(){
+  if (!initialized || terminated || !sessionStart) return false;
+  const key = is2004 ? "cmi.session_time" : "cmi.core.session_time";
+  doSet(key, secs(Math.round((Date.now() - sessionStart)/1000), is2004));
+  return true;
+};
+
+/* Let the native shell know the session is over so it can pop back to
+   the program list rather than stranding the learner in a dead frame. */
+function notifyNative(payload){
+  try { window.ReactNativeWebView?.postMessage(JSON.stringify(payload)); } catch(e){}
+}
+
+/* The app gets backgrounded and killed without warning, so Terminate
+   often never arrives. Flush what we can on the way out. */
+addEventListener("pagehide", () => {
+  if (initialized && !terminated && regId)
+    /* sendBeacon cannot set headers, so the session travels in the body.
+       The server accepts either. */
+    navigator.sendBeacon?.(`${API}/api/runtime/${regId}/terminate`,
+      new Blob([JSON.stringify({ session })], { type:"application/json" }));
+});
+</script>
+</body>
+</html>

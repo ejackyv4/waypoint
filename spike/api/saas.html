@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwood Corrections</title>
+<style>
+/* Deliberately NOT Waypoint's blue. During the demo it must be obvious at a
+   glance which system you are looking at. */
+:root{
+  --brand:#0f766e; --brand-dark:#115e59; --brand-soft:#f0fdfa;
+  --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --faint:#94a3b8;
+  --line:#e2e8f0; --bg:#f6f7f9; --surface:#fff;
+  --ok:#059669; --ok-soft:#ecfdf5; --err:#dc2626; --err-soft:#fef2f2;
+  --amber:#b45309; --amber-soft:#fffbeb;
+  --shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.05);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+     font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+
+.topbar{background:var(--surface);border-bottom:1px solid var(--line);
+        padding:0 28px;height:66px;display:flex;align-items:center;gap:13px}
+.mark{width:32px;height:32px;border-radius:9px;background:var(--brand);
+      display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px}
+.brandname{font-weight:700;font-size:17px;letter-spacing:-.02em}
+.tag{font-size:12px;color:var(--muted);border:1px solid var(--line);
+     padding:3px 9px;border-radius:999px;margin-left:2px}
+.spacer{flex:1}
+a.plain{color:var(--brand);font-size:14px;font-weight:600;text-decoration:none;cursor:pointer}
+a.plain:hover{text-decoration:underline}
+
+.wrap{max-width:1120px;margin:0 auto;padding:24px 28px 70px}
+.crumb{font-size:13.5px;color:var(--muted);margin-bottom:18px}
+.crumb a{color:var(--brand);text-decoration:none;font-weight:600;cursor:pointer}
+.crumb a:hover{text-decoration:underline}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+       box-shadow:var(--shadow);overflow:hidden}
+.panel h2{margin:0;padding:15px 18px;font-size:14.5px;font-weight:650;
+          border-bottom:1px solid var(--line)}
+.panel .body{padding:18px}
+.foot{padding:11px 18px;border-top:1px solid var(--line);color:var(--faint);font-size:12px}
+.hint{color:var(--muted);font-size:13px;margin:0 0 16px;line-height:1.6}
+
+h1.page{font-size:22px;letter-spacing:-.3px;margin:0 0 3px}
+p.pagesub{color:var(--muted);font-size:14px;margin:0 0 22px}
+.roster{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.subjcard{display:flex;gap:14px;align-items:center;padding:18px;cursor:pointer;
+          background:var(--surface);border:1px solid var(--line);border-radius:14px;
+          box-shadow:var(--shadow);text-align:left;width:100%;font:inherit;margin:0}
+.subjcard:hover{border-color:var(--brand);background:var(--brand-soft)}
+.subjcard .nm{font-weight:700;font-size:16px}
+.subjcard .id{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin-top:2px}
+
+.avatar{border-radius:50%;display:grid;place-items:center;color:#fff;flex:0 0 auto;
+        font-weight:700;letter-spacing:.5px;user-select:none}
+.avatar.sm{width:48px;height:48px;font-size:16px}
+.avatar.lg{width:96px;height:96px;font-size:31px}
+
+.profhead{display:flex;gap:22px;align-items:center;padding:24px;border-bottom:1px solid var(--line)}
+.profhead .nm{font-size:24px;font-weight:700;letter-spacing:-.4px}
+.profhead .sub{color:var(--muted);font-size:14px;margin-top:3px;font-family:var(--mono)}
+.badge{display:inline-block;margin-top:9px;padding:4px 11px;border-radius:999px;
+       font-size:12.5px;font-weight:650;background:var(--brand-soft);color:var(--brand)}
+dl.demo{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0;margin:0}
+dl.demo > div{padding:15px 24px;border-bottom:1px solid var(--line)}
+dl.demo dt{font-size:12px;text-transform:uppercase;letter-spacing:.06em;
+           color:var(--muted);font-weight:650;margin-bottom:4px}
+dl.demo dd{margin:0;font-size:15px;color:var(--ink)}
+.actions{padding:20px 24px;display:flex;gap:12px;flex-wrap:wrap}
+.btn{appearance:none;border:0;cursor:pointer;font:inherit;font-size:15px;font-weight:650;
+     padding:13px 22px;border-radius:11px;background:var(--brand);color:#fff;text-decoration:none;
+     display:inline-flex;align-items:center;gap:8px}
+.btn:hover{background:var(--brand-dark)}
+.btn.ghost{background:transparent;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--line)}
+.btn.ghost:hover{background:var(--bg)}
+.btn:disabled{opacity:.5;cursor:default}
+
+.grid{display:grid;grid-template-columns:1fr 2fr;gap:20px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+label{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin:14px 0 6px}
+input[type=text],input[type=datetime-local]{width:100%;padding:11px 12px;
+       border:1px solid var(--line);border-radius:10px;font:inherit;font-size:15px;
+       background:var(--surface);color:var(--ink)}
+input:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.linkbtn{background:none;border:0;color:var(--muted);font:inherit;font-size:13px;
+         cursor:pointer;padding:0}
+.linkbtn:hover{color:var(--err);text-decoration:underline}
+.linkbtn.done{color:var(--brand);margin-right:14px;font-weight:650}
+.reqrow{padding:16px 18px;border-bottom:1px solid var(--line)}
+.reqrow:last-child{border-bottom:0}
+.reqhead{display:flex;align-items:center;gap:10px}
+.reqnote{margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:9px;
+         font-size:14px;color:var(--ink-2);line-height:1.5}
+.reqform{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.reqform input{flex:1;min-width:200px}
+.reqform .btn{margin:0;width:auto;padding:10px 18px;font-size:14px}
+.linkbtn.done:hover{color:var(--brand-dark)}
+#book{width:100%;margin-top:20px;justify-content:center}
+select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+       font:inherit;font-size:15px;background:var(--surface);color:var(--ink)}
+select:focus{outline:2px solid var(--brand);outline-offset:-1px}
+#assign{width:100%;margin-top:20px;justify-content:center}
+.readonly{padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+          background:var(--bg);color:var(--ink-2);font-size:15px}
+
+.creds{margin-top:18px;background:var(--amber-soft);border:1px solid #fde68a;
+       border-radius:12px;padding:16px}
+.creds h3{margin:0 0 4px;font-size:14px;color:var(--amber)}
+.creds p{margin:0 0 12px;font-size:12.5px;color:var(--amber);opacity:.85}
+.creds dl{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:0;
+          font-family:var(--mono);font-size:13.5px}
+.creds dt{color:var(--muted);font-family:var(--sans);font-size:13px}
+.creds dd{margin:0;font-weight:700;user-select:all}
+.creds .go{display:inline-block;margin-top:14px;font-family:var(--sans);
+           font-size:13.5px;font-weight:650;color:var(--brand);text-decoration:none}
+.creds .dismiss{width:auto;margin-left:16px;padding:0;background:none;border:0;
+                color:var(--muted);font-size:13px;font-weight:600;cursor:pointer}
+.creds .dismiss:hover{color:var(--ink-2);text-decoration:underline}
+
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+   color:var(--muted);font-weight:650;padding:10px 18px;background:var(--bg);
+   border-bottom:1px solid var(--line)}
+td{padding:14px 18px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
+.pill{display:inline-block;padding:4px 11px;border-radius:999px;font-size:12px;
+      font-weight:650;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.err{background:var(--err-soft);color:var(--err)}
+.pill.go{background:var(--brand-soft);color:var(--brand)}
+.pill.muted{background:var(--bg);color:var(--muted)}
+.pill.amber{background:var(--amber-soft);color:var(--amber)}
+/* ---- visits table ---- */
+.cWhen{width:44%}
+.cWho,.cStatus,.cActions{white-space:nowrap}
+.cActions{text-align:right}
+.primary{font-size:14.5px;color:var(--ink);font-weight:550}
+.secondary{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+.whenedit{display:flex;align-items:center;gap:9px}
+.whenedit input{width:auto;flex:1;min-width:190px;padding:9px 11px;font-size:14px}
+
+/* info icon + tooltip, so the reason does not dominate the row */
+.info{width:20px;height:20px;flex:0 0 auto;border-radius:50%;border:0;cursor:pointer;
+      background:var(--amber-soft);color:var(--amber);font:700 12px var(--sans);
+      font-style:italic;display:grid;place-items:center;position:relative;padding:0}
+.info:hover,.info:focus{background:#fde68a;outline:none}
+.info::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 9px);
+             transform:translateX(-50%);background:var(--ink);color:#fff;
+             padding:9px 12px;border-radius:8px;font:400 13px/1.5 var(--sans);
+             font-style:normal;white-space:normal;width:max-content;max-width:260px;
+             text-align:left;opacity:0;visibility:hidden;transition:opacity .12s;
+             box-shadow:0 6px 20px rgba(15,23,42,.22);z-index:20;pointer-events:none}
+.info::before{content:"";position:absolute;left:50%;bottom:calc(100% + 3px);
+              transform:translateX(-50%);border:6px solid transparent;
+              border-top-color:var(--ink);opacity:0;visibility:hidden;transition:opacity .12s;z-index:20}
+.info:hover::after,.info:focus::after,
+.info:hover::before,.info:focus::before{opacity:1;visibility:visible}
+
+/* row actions */
+.act{background:none;border:0;padding:0;margin:0 0 0 18px;width:auto;cursor:pointer;
+     font:650 13.5px var(--sans);color:var(--brand)}
+.act:hover{background:none;color:var(--brand-dark);text-decoration:underline}
+.act:first-child{margin-left:0}
+.act.quiet{color:var(--muted);font-weight:600}
+.act.quiet:hover{color:var(--err)}
+.act:disabled{opacity:.5;cursor:default;text-decoration:none}
+.empty{padding:34px 18px;text-align:center;color:var(--muted);font-size:14px}
+.err{background:var(--err-soft);color:var(--err);border:1px solid #fecaca;
+     border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="mark">N</span>
+  <span class="brandname">Northwood Corrections</span>
+  <span class="tag">Case Management</span>
+  <span class="spacer"></span>
+  <a class="plain" id="navRoster">All subjects</a>
+</header>
+
+<div class="wrap" id="view"></div>
+
+<script>
+const WAYPOINT_APP = "__WAYPOINT_APP__";
+const WAYPOINT_LEARNER = WAYPOINT_APP + "/learn";
+
+/* The roster lives on the server so both this page and the subject-facing
+   API answer from the same source. */
+let SUBJECTS = [];
+
+const el = id => document.getElementById(id);
+const view = el("view");
+const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]));
+const dur = s => { s = Math.max(0, Math.round(+s || 0));
+  const m = Math.floor(s / 60); return m ? `${m}m ${s % 60}s` : `${s}s`; };
+const when = t => t ? new Date(t).toLocaleTimeString(undefined,
+  { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+const subjectOf = id => SUBJECTS.find(s => s.subject_id === id);
+
+/* Deterministic color per person, so an avatar is recognizable at a glance. */
+function avatar(name, size) {
+  const initials = name.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `<div class="avatar ${size}" style="background:hsl(${h} 42% 42%)"
+            aria-hidden="true">${esc(initials)}</div>`;
+}
+
+/* ---------------- routing ---------------- */
+let poll = null;
+function stopPolling(){ if (poll) { clearInterval(poll); poll = null; } }
+
+function route() {
+  stopPolling();
+  const hash = location.hash.replace(/^#\/?/, "");
+  const m = hash.match(/^subject\/([^/]+)(?:\/(\w+))?/);
+  const subject = m && subjectOf(m[1]);
+  if (!subject) return renderRoster();
+  if (m[2] === "programs") return renderPrograms(subject);
+  if (m[2] === "visits")   return renderVisits(subject);
+  renderProfile(subject);
+}
+addEventListener("hashchange", route);
+el("navRoster").onclick = () => { location.hash = ""; };
+
+/* ---------------- roster ---------------- */
+function renderRoster() {
+  view.innerHTML = `
+    <h1 class="page">Subjects</h1>
+    <p class="pagesub">Select a subject to view their case file.</p>
+    <div class="roster">
+      ${SUBJECTS.map(s => `
+        <button class="subjcard" data-id="${esc(s.subject_id)}">
+          ${avatar(s.name, "sm")}
+          <div>
+            <div class="nm">${esc(s.name)}</div>
+            <div class="id">${esc(s.case_number)}</div>
+          </div>
+        </button>`).join("")}
+    </div>`;
+  view.querySelectorAll("[data-id]").forEach(b =>
+    b.onclick = () => { location.hash = `/subject/${b.dataset.id}`; });
+}
+
+/* ---------------- subject profile ---------------- */
+function renderProfile(s) {
+  view.innerHTML = `
+    <div class="crumb"><a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp; ${esc(s.name)}</div>
+    <div class="panel">
+      <div class="profhead">
+        ${avatar(s.name, "lg")}
+        <div>
+          <div class="nm">${esc(s.name)}</div>
+          <div class="sub">${esc(s.case_number)}</div>
+          <span class="badge">${esc(s.status)}</span>
+        </div>
+      </div>
+
+      <dl class="demo">
+        <div><dt>Date of birth</dt><dd>${esc(s.dob)}</dd></div>
+        <div><dt>Phone</dt><dd>${esc(s.phone)}</dd></div>
+        <div><dt>Address</dt><dd>${esc(s.address).replace(/\n/g, "<br>")}</dd></div>
+        <div><dt>Supervising officer</dt><dd>${esc(s.officer)}</dd></div>
+        <div><dt>Intake date</dt><dd>${esc(s.intake)}</dd></div>
+        <div><dt>Next review</dt><dd>${esc(s.review)}</dd></div>
+      </dl>
+
+      <div class="actions">
+        <a class="btn" id="toPrograms">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+          Programs
+        </a>
+        <a class="btn" id="toVisits">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+          </svg>
+          Visits
+        </a>
+        <button class="btn ghost" disabled>Case notes</button>
+      </div>
+    </div>`;
+  el("toRoster").onclick = () => { location.hash = ""; };
+  el("toPrograms").onclick = () => { location.hash = `/subject/${s.subject_id}/programs`; };
+  el("toVisits").onclick = () => { location.hash = `/subject/${s.subject_id}/visits`; };
+}
+
+/* ---------------- visits ---------------- */
+function renderVisits(s) {
+  // Default to 10am, three days out — a sensible starting point to edit.
+  const d = new Date(Date.now() + 3 * 864e5);
+  d.setHours(10, 0, 0, 0);
+  const localValue = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+                       .toISOString().slice(0, 16);
+
+  view.innerHTML = `
+    <div class="crumb">
+      <a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp;
+      <a id="toProfile">${esc(s.name)}</a> &nbsp;&rsaquo;&nbsp; Visits
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>Schedule a visit</h2>
+        <div class="body">
+          <p class="hint">The subject sees this in their app immediately, with an
+             unread indicator until they open it.</p>
+          <div id="visitError"></div>
+
+          <label>Subject</label>
+          <div class="readonly">${esc(s.name)} &mdash; ${esc(s.case_number)}</div>
+
+          <label for="when">Date and time</label>
+          <input type="datetime-local" id="when" value="${localValue}">
+
+          <label for="officer">Officer</label>
+          <input type="text" id="officer" value="${esc(s.officer)}">
+
+          <label for="place">Location</label>
+          <input type="text" id="place" value="${esc(s.address.split("\n")[0])}">
+
+          <label for="notes">Notes <span style="font-weight:400;color:var(--faint)">(optional)</span></label>
+          <input type="text" id="notes" placeholder="e.g. bring proof of employment">
+
+          <button class="btn" id="book">Schedule visit</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Visits</h2>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>When</th><th>Officer</th><th>Status</th><th></th></tr></thead>
+            <tbody id="vlist"><tr><td colspan="4" class="empty">No visits scheduled.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="foot">Subject Requested &rarr; Scheduled &rarr; Viewed &rarr; Accepted &rarr; Complete</div>
+      </section>
+    </div>`;
+
+  el("toRoster").onclick = () => { location.hash = ""; };
+  el("toProfile").onclick = () => { location.hash = `/subject/${s.subject_id}`; };
+
+  el("book").onclick = async () => {
+    const btn = el("book");
+    const whenVal = el("when").value;
+    if (!whenVal) { el("visitError").innerHTML = `<div class="err">Pick a date and time.</div>`; return; }
+    btn.disabled = true; btn.textContent = "Scheduling…";
+    el("visitError").innerHTML = "";
+    try {
+      const r = await fetch("/api/visits", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_id: s.subject_id,
+          scheduled_at: new Date(whenVal).toISOString(),
+          officer: el("officer").value, location: el("place").value,
+          notes: el("notes").value || null })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      el("notes").value = "";
+      loadVisits(s);
+    } catch (e) {
+      el("visitError").innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+    } finally { btn.disabled = false; btn.textContent = "Schedule visit"; }
+  };
+
+  loadVisits(s);
+  poll = setInterval(() => loadVisits(s), 3000);
+}
+
+/* 8/31/2026, 11:00 AM */
+const whenFull = t => t ? new Date(t).toLocaleString(undefined,
+  { month:"numeric", day:"numeric", year:"numeric",
+    hour:"numeric", minute:"2-digit" }) : "—";
+
+async function loadVisits(s) {
+  try {
+    const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(s.subject_id)}`)
+      .then(r => r.json());
+    const rows = (d.visits || []).filter(v => v.status !== "cancelled");
+    const body = el("vlist"); if (!body) return;
+
+    /* A poll that redraws the table mid-edit destroys the input the officer
+       is using and slams the native date picker shut. Skip this cycle while
+       anything in here has focus. */
+    const active = document.activeElement;
+    if (active && body.contains(active) && /INPUT|SELECT|TEXTAREA/.test(active.tagName)) return;
+
+    /* Anything already typed but not yet submitted survives the redraw. */
+    const typed = {};
+    body.querySelectorAll("input[id^='rq-']").forEach(i => { typed[i.id] = i.value; });
+
+    // Default for a request the officer is about to schedule.
+    const d3 = new Date(Date.now() + 3 * 864e5); d3.setHours(10, 0, 0, 0);
+    const defaultWhen = new Date(d3.getTime() - d3.getTimezoneOffset() * 60000)
+                          .toISOString().slice(0, 16);
+
+    body.innerHTML = rows.length ? rows.map(v => {
+      const requested = v.status === "requested";
+      const done = v.status === "completed";
+      const accepted = !!v.accepted_at;
+
+      /* Subject Requested → Scheduled → Viewed → Accepted → Complete */
+      const stage = requested ? { cls: "amber", label: "Subject Requested", at: v.requested_at }
+                  : done      ? { cls: "ok",    label: "Complete",  at: v.completed_at }
+                  : accepted  ? { cls: "ok",    label: "Accepted",  at: v.accepted_at }
+                  : v.seen_at ? { cls: "go",    label: "Viewed",    at: v.seen_at }
+                  :             { cls: "muted", label: "Scheduled", at: v.created_at };
+
+      /* A request has no date yet, so the officer sets one right here.
+         The reason sits behind an info icon rather than filling the row. */
+      const whenCell = requested
+        ? `<div class="whenedit">
+             <input type="datetime-local" id="rq-${v.id}" value="${defaultWhen}">
+             ${v.request_note
+               ? `<button class="info" tabindex="0"
+                    aria-label="Reason given by the subject"
+                    data-tip="${esc(v.request_note)}">i</button>`
+               : ""}
+           </div>`
+        : `<div class="primary">${esc(whenFull(v.scheduled_at))}</div>
+           ${v.location ? `<div class="secondary">${esc(v.location)}</div>` : ""}
+           ${v.notes ? `<div class="secondary">${esc(v.notes)}</div>` : ""}`;
+
+      const actions = requested
+        ? `<button class="act" data-schedule="${v.id}">Schedule</button>
+           <button class="act quiet" data-cancel="${v.id}">Decline</button>`
+        : done
+        ? `<span class="secondary">—</span>`
+        : `<button class="act" data-done="${v.id}">Mark complete</button>
+           <button class="act quiet" data-cancel="${v.id}">Cancel</button>`;
+
+      return `<tr>
+        <td class="cWhen">${whenCell}</td>
+        <td class="cWho">${esc(v.officer || s.officer || "—")}</td>
+        <td class="cStatus">
+          <span class="pill ${stage.cls}">${stage.label}</span>
+          ${stage.at ? `<div class="secondary">${esc(whenFull(stage.at))}</div>` : ""}
+          ${done && v.completed_by ? `<div class="secondary">by ${esc(v.completed_by)}</div>` : ""}
+        </td>
+        <td class="cActions">${actions}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="4" class="empty">No visits yet.</td></tr>`;
+
+    Object.entries(typed).forEach(([id, val]) => {
+      const i = el(id); if (i && val) i.value = val;
+    });
+
+    body.querySelectorAll("[data-schedule]").forEach(b => b.onclick = async () => {
+      const id = Number(b.dataset.schedule);
+      const when = el(`rq-${id}`)?.value;
+      if (!when) return;
+      b.disabled = true; b.textContent = "Scheduling…";
+      await fetch("/api/visits/schedule", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, scheduled_at: new Date(when).toISOString(),
+                               officer: s.officer,
+                               location: (s.address || "").split("\n")[0] }) });
+      loadVisits(s);
+    });
+
+    body.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = "Saving…";
+      await fetch("/api/visits/complete", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: Number(b.dataset.done), officer: s.officer }) });
+      loadVisits(s);
+    });
+
+    body.querySelectorAll("[data-cancel]").forEach(b => b.onclick = async () => {
+      await fetch("/api/visits/cancel", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: Number(b.dataset.cancel) }) });
+      loadVisits(s);
+    });
+  } catch {}
+}
+
+
+/* ---------------- programs ---------------- */
+function renderPrograms(s) {
+  view.innerHTML = `
+    <div class="crumb">
+      <a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp;
+      <a id="toProfile">${esc(s.name)}</a> &nbsp;&rsaquo;&nbsp; Programs
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>Assign a program</h2>
+        <div class="body">
+          <p class="hint">Content is pulled live from Waypoint. Assigning creates the
+             subject's login and returns credentials to hand over.</p>
+          <div id="assignError"></div>
+
+          <label>Subject</label>
+          <div class="readonly">${esc(s.name)} &mdash; ${esc(s.case_number)}</div>
+
+          <label for="program">Program</label>
+          <select id="program"><option>Loading&hellip;</option></select>
+
+          <button class="btn" id="assign">Assign &amp; create login</button>
+          <div id="creds"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Assigned programs</h2>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Program</th><th>Status</th><th>Score</th><th>Time</th><th>Updated</th><th></th></tr></thead>
+            <tbody id="enrol"><tr><td colspan="6" class="empty">Nothing assigned yet.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="foot">Polled from Waypoint every few seconds.</div>
+      </section>
+    </div>
+
+    <div style="margin-top:20px">
+      <section class="panel">
+        <h2>Completions pushed from Waypoint</h2>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Received</th><th>Program</th><th>Result</th><th>Score</th><th>Time</th></tr></thead>
+            <tbody id="results"><tr><td colspan="5" class="empty">Nothing yet.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="foot">Signed webhooks, server to server.</div>
+      </section>
+    </div>`;
+
+  el("toRoster").onclick = () => { location.hash = ""; };
+  el("toProfile").onclick = () => { location.hash = `/subject/${s.subject_id}`; };
+
+  fetch("/api/catalog").then(r => r.json()).then(d => {
+    const items = d.content || [];
+    el("program").innerHTML = items.length
+      ? items.map(c => `<option value="${esc(c.program_id)}">${esc(c.title)} &mdash; SCORM ${esc(c.scorm_version)}</option>`).join("")
+      : `<option value="">No content available</option>`;
+    if (!items.length) el("assign").disabled = true;
+  }).catch(() => {
+    el("program").innerHTML = `<option value="">Couldn't reach Waypoint</option>`;
+    el("assign").disabled = true;
+  });
+
+  el("assign").onclick = async () => {
+    const btn = el("assign"), program_id = el("program").value;
+    if (!program_id) return;
+    btn.disabled = true; btn.textContent = "Assigning\u2026";
+    el("assignError").innerHTML = "";
+    try {
+      const r = await fetch("/api/assign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject_id: s.subject_id, name: s.name, program_id })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      showCreds(s.name, d.credentials);
+      try { sessionStorage.setItem("lastCreds", JSON.stringify(
+        { subject_id: s.subject_id, name: s.name, ...d.credentials })); } catch {}
+      refresh(s);
+    } catch (e) {
+      el("assignError").innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = "Assign & create login";
+    }
+  };
+
+  restoreCreds(s);
+  refresh(s);
+  poll = setInterval(() => refresh(s), 3000);
+}
+
+/* ---------------- credentials panel ---------------- */
+function clearCreds() {
+  try { sessionStorage.removeItem("lastCreds"); } catch {}
+  const c = el("creds"); if (c) c.innerHTML = "";
+}
+
+function showCreds(name, c) {
+  const box = el("creds"); if (!box) return;
+  box.innerHTML = `
+    <div class="creds">
+      <h3>Login created for ${esc(name)}</h3>
+      <p>Shown once &mdash; hand these to the subject.</p>
+      <dl>
+        <dt>Email</dt><dd>${esc(c.login)}</dd>
+        <dt>Password</dt><dd>${esc(c.password)}</dd>
+      </dl>
+      <a class="go" href="${WAYPOINT_LEARNER}" target="_blank">Open the learner site &nearr;</a>
+      <button class="dismiss" onclick="clearCreds()">Dismiss</button>
+    </div>`;
+}
+
+/* Browser-only, so a server reset cannot clear it — hence the staleness
+   check in refresh(). */
+function restoreCreds(s) {
+  try {
+    const last = JSON.parse(sessionStorage.getItem("lastCreds") || "null");
+    if (last && last.subject_id === s.subject_id) showCreds(last.name, last);
+  } catch {}
+}
+
+/* ---------------- live data ---------------- */
+async function refresh(s) {
+  try {
+    const d = await fetch("/api/enrollments").then(r => r.json());
+    const rows = (d.enrollments || []).filter(e => e.subject_id === s.subject_id);
+    const body = el("enrol"); if (!body) return;
+
+    body.innerHTML = rows.length ? rows.map(e => {
+      const done = e.completion_status === "completed";
+      const passed = e.success_status === "passed", failed = e.success_status === "failed";
+      const started = e.completion_status && e.completion_status !== "not attempted";
+      const label = done ? (passed ? "Completed · Passed" : failed ? "Completed · Not passed" : "Completed")
+                  : started ? (e.exit_mode === "suspend" ? "In progress · saved" : "In progress")
+                  : "Not started";
+      const cls = done ? (failed ? "err" : "ok") : started ? "go" : "muted";
+      return `<tr>
+        <td>${esc(e.title)}</td>
+        <td><span class="pill ${cls}">${label}</span>${
+            e.attempt ? `<div class="mono">attempt ${e.attempt}</div>` : ""}</td>
+        <td>${e.score_raw != null ? `${e.score_raw}${e.score_max != null ? ` / ${e.score_max}` : ""}` : "—"}</td>
+        <td class="mono">${e.total_seconds ? dur(e.total_seconds) : "—"}</td>
+        <td class="mono">${when(e.last_write_at || e.assigned_at)}</td>
+        <td>${started
+          ? `<span class="mono" style="color:var(--faint)">—</span>`
+          : `<button class="linkbtn" data-cancel-prog="${esc(e.program_id)}">Cancel</button>`}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="6" class="empty">Nothing assigned yet.</td></tr>`;
+
+    // Only offered while untouched. The server enforces the same rule.
+    body.querySelectorAll("[data-cancel-prog]").forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = "Cancelling…";
+      try {
+        const r = await fetch("/api/unassign", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject_id: s.subject_id, program_id: b.dataset.cancelProg })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        clearCreds();          // the login was issued for an assignment that no longer exists
+        refresh(s);
+      } catch (e) {
+        const box = el("assignError");
+        if (box) box.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+        b.disabled = false; b.textContent = "Cancel";
+      }
+    });
+
+    // The credentials panel lives in this browser, so a server reset cannot
+    // reach it. If that subject is gone, the login is dead — drop it rather
+    // than showing a password that will not work.
+    try {
+      const last = JSON.parse(sessionStorage.getItem("lastCreds") || "null");
+      if (last && !(d.enrollments || []).some(e => e.subject_id === last.subject_id)) clearCreds();
+    } catch {}
+  } catch {}
+
+  try {
+    const d = await fetch("/api/results").then(r => r.json());
+    const rows = (d.results || []).filter(r => r.subject_id === s.subject_id);
+    const body = el("results"); if (!body) return;
+    body.innerHTML = rows.length ? rows.map(x => {
+      const p = JSON.parse(x.payload);
+      const passed = p.success_status === "passed";
+      return `<tr>
+        <td class="mono">${when(x.received_at)}</td>
+        <td>${esc(p.program_id)}</td>
+        <td><span class="pill ${passed ? "ok" : p.success_status === "failed" ? "err" : "muted"}">
+            ${esc(p.completion_status)}${p.success_status !== "unknown" ? ` · ${esc(p.success_status)}` : ""}</span></td>
+        <td>${p.score?.raw != null ? `${p.score.raw}${p.score.max != null ? ` / ${p.score.max}` : ""}` : "—"}</td>
+        <td class="mono">${dur(p.total_seconds)}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="5" class="empty">
+        Nothing yet. Complete the program on the learner site and the result arrives here.</td></tr>`;
+  } catch {}
+}
+
+/* Load the roster, then route. */
+fetch("/api/subjects").then(r => r.json()).then(d => {
+  SUBJECTS = d.subjects || [];
+  route();
+}).catch(() => {
+  view.innerHTML = `<div class="err">Couldn't load the subject roster.</div>`;
+});
+</script>
+</body>
+</html>

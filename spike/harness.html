@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waypoint SCORM Harness</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212a; --line:#2a2f3a;
+    --fg:#e6e9ef; --dim:#8b93a7; --accent:#5b9dff;
+    --get:#7ee0a0; --set:#ffcf6b; --life:#5b9dff; --warn:#ff9d5c; --err:#ff6b6b;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;height:100vh;display:flex;flex-direction:column;
+       background:var(--bg);color:var(--fg);
+       font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{display:flex;gap:10px;align-items:center;padding:10px 14px;
+         background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  header h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.3px}
+  header .ver{font:11px var(--mono);color:var(--dim);padding:2px 6px;
+              border:1px solid var(--line);border-radius:4px}
+  input[type=text],select{background:var(--panel2);color:var(--fg);
+                   border:1px solid var(--line);border-radius:6px;padding:6px 10px;
+                   font:12px var(--mono)}
+  input[type=text]{flex:1;min-width:200px}
+  select{max-width:340px}
+  button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+         border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#06101f;font-weight:600}
+  main{flex:1;display:flex;min-height:0}
+  #stage{flex:1.2;min-width:0;background:#fff;border-right:1px solid var(--line)}
+  #stage iframe{width:100%;height:100%;border:0;display:block}
+  aside{flex:1;min-width:380px;display:flex;flex-direction:column;min-height:0}
+  .sec{border-bottom:1px solid var(--line);background:var(--panel)}
+  .sec > h2{margin:0;padding:8px 12px;font-size:11px;text-transform:uppercase;
+            letter-spacing:.8px;color:var(--dim);display:flex;justify-content:space-between}
+  #state{padding:4px 12px 12px;display:grid;grid-template-columns:auto 1fr;
+         gap:3px 12px;font:12px var(--mono)}
+  #state dt{color:var(--dim)}
+  #state dd{margin:0;word-break:break-all}
+  #log{flex:1;overflow:auto;font:11.5px/1.6 var(--mono);padding:6px 0}
+  .row{display:grid;grid-template-columns:58px 76px 1fr;gap:8px;
+       padding:2px 12px;border-left:2px solid transparent}
+  .row:hover{background:var(--panel2)}
+  .t{color:var(--dim)}
+  .m{font-weight:600}
+  .life .m{color:var(--life)} .life{border-left-color:var(--life)}
+  .get  .m{color:var(--get)}
+  .set  .m{color:var(--set)}  .set{border-left-color:var(--set)}
+  .note{grid-column:1/-1;padding:3px 12px 3px 78px;color:var(--warn)}
+  .note.err{color:var(--err)}
+  .ret{color:var(--dim)}
+  .empty{padding:24px 14px;color:var(--dim);text-align:center;font-size:13px;line-height:1.7}
+  code{background:var(--panel2);padding:1px 5px;border-radius:3px;font-size:11px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Waypoint SCORM Harness</h1>
+  <span class="ver" id="detected">no API called yet</span>
+  <select id="pick" title="packages found in spike/packages/"></select>
+  <input type="text" id="url" placeholder="or a launch URL">
+  <button class="primary" id="load">Load</button>
+  <button id="reset" title="reload the harness, keeping saved learner state">Reset</button>
+  <button id="wipe" title="forget this learner's progress and start a fresh attempt">New attempt</button>
+  <button id="dump">Copy log</button>
+</header>
+
+<main>
+  <div id="stage"><div class="empty" style="color:#555;padding-top:60px">
+    Enter a course launch URL above and press Load.
+  </div></div>
+
+  <aside>
+    <div class="sec">
+      <h2>Registration state <span id="counts"></span></h2>
+      <dl id="state"></dl>
+    </div>
+    <div class="sec" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <h2>Runtime calls</h2>
+      <div id="log"><div class="empty">
+        Every call the course makes appears here.<br><br>
+        If nothing appears, the package has no runtime —<br>
+        it never looked for the API.
+      </div></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+/* ------------------------------------------------------------------
+   A deliberately dumb LMS. No server; state lives in localStorage,
+   which is enough to make resume real. Its only job is to answer the
+   course honestly and record what was said, so we can see whether a
+   real package drives SCORM correctly before any of it is built for
+   real.
+------------------------------------------------------------------ */
+
+const SUSPEND_CAP_12 = 4096;          // SCORM 1.2 hard limit. 2004 is 64000.
+let t0 = null, initialized = false, terminated = false, lastError = "0", version = null;
+let cmi = {};
+
+/* ------------------------------------------------------------------
+   What Waypoint actually stores. Two columns, never one.
+
+   SCORM 2004 already separates completion from success. SCORM 1.2
+   crams both into cmi.core.lesson_status, so a course that writes
+   "completed" and then "passed" destroys the first fact. We avoid
+   that by deriving into separate fields and letting each write
+   update ONLY the column it carries information about.
+------------------------------------------------------------------ */
+let wp = { completion: "not attempted", success: "unknown" };
+
+function applyStatus(raw){
+  switch (String(raw)) {
+    /* carries BOTH facts */
+    case "passed":        wp.completion = "completed";     wp.success = "passed";  break;
+    case "failed":        wp.completion = "completed";     wp.success = "failed";  break;
+    /* carries completion only — must NOT touch success */
+    case "completed":     wp.completion = "completed";                             break;
+    case "incomplete":    wp.completion = "incomplete";                            break;
+    case "browsed":       wp.completion = "incomplete";                            break;
+    case "not attempted": wp.completion = "not attempted";                         break;
+  }
+}
+
+const DEFAULTS_2004 = {
+  "cmi.completion_status": "not attempted",
+  "cmi.success_status":    "unknown",
+  "cmi.entry":             "ab-initio",
+  "cmi.location":          "",
+  "cmi.suspend_data":      "",
+  "cmi.score.raw":         "", "cmi.score.min":"", "cmi.score.max":"", "cmi.score.scaled":"",
+  "cmi.total_time":        "PT0H0M0S",
+  "cmi.session_time":      "",
+  "cmi.learner_id":        "subject-0001",
+  "cmi.learner_name":      "Test Learner",
+  "cmi.credit":            "credit",
+  "cmi.mode":              "normal",
+  "cmi.progress_measure":  "",
+  "cmi.scaled_passing_score":"",
+  "cmi.exit":              "",
+  "cmi._version":          "1.0"
+};
+const DEFAULTS_12 = {
+  "cmi.core.lesson_status":"not attempted",
+  "cmi.core.entry":        "ab-initio",
+  "cmi.core.lesson_location":"",
+  "cmi.suspend_data":      "",
+  "cmi.core.score.raw":    "", "cmi.core.score.min":"", "cmi.core.score.max":"",
+  "cmi.core.total_time":   "0000:00:00.00",
+  "cmi.core.session_time": "",
+  "cmi.core.student_id":   "subject-0001",
+  "cmi.core.student_name": "Test Learner",
+  "cmi.core.credit":       "credit",
+  "cmi.core.lesson_mode":  "normal",
+  "cmi.core.exit":         ""
+};
+
+const ERR = {
+  "0":"No error","101":"General exception","102":"General initialization failure",
+  "103":"Already initialized","112":"Termination before initialization",
+  "122":"Retrieve data before initialization","132":"Store data before initialization",
+  "201":"Invalid argument error","301":"Not initialized",
+  "401":"Undefined data model element","403":"Data model element is read only",
+  "405":"Data model element type mismatch"
+};
+
+const $log = document.getElementById("log");
+const $state = document.getElementById("state");
+const $counts = document.getElementById("counts");
+const $detected = document.getElementById("detected");
+let nCalls = 0, nWarn = 0;
+
+function setVersion(v){
+  if (version) return;
+  version = v;
+  cmi = Object.assign({}, v === "2004" ? DEFAULTS_2004 : DEFAULTS_12);
+  resumed = restoreState();
+  $detected.textContent = (v === "2004" ? "SCORM 2004 (API_1484_11)" : "SCORM 1.2 (API)")
+                        + ` · attempt ${attempt}`
+                        + (resumed === "resume" ? " · resumed" : "");
+  $detected.style.color = "var(--accent)";
+  if (resumed === "resume") setTimeout(() => note(
+    `Previous session ended with exit="suspend", so this is a RESUME: state restored, `
+  + `entry="resume". The course should offer to pick up where it left off.`), 0);
+  else if (resumed === "new-attempt") setTimeout(() => note(
+    `Previous session ended with a normal exit, so this is ATTEMPT ${attempt}, not a resume. `
+  + `Bookmark and suspend_data cleared; only total_time carries over.`), 0);
+  renderState();
+}
+
+function stamp(){
+  if (t0 === null) t0 = performance.now();
+  return ((performance.now() - t0)/1000).toFixed(2) + "s";
+}
+
+/* ------------------------------------------------------------------
+   Persistence. A real LMS remembers. Without this, every reload is a
+   brand new learner and "resume where I left off" cannot be tested
+   at all — the bookmark gets written and never read back.
+------------------------------------------------------------------ */
+let currentKey = null, resumed = false;
+const storeKey = () => "waypoint.cmi." + (currentKey || "unknown");
+
+let attempt = 1;
+
+function saveState(){
+  if (!version || !currentKey) return;
+  try { localStorage.setItem(storeKey(), JSON.stringify({ version, cmi, wp, attempt })); } catch(e){}
+}
+
+/* How the LAST session ended decides what this one is.
+   exit="suspend" → resume with state intact.
+   exit=""/logout → a new attempt: only total_time carries over.
+   Ignoring this hands a finished learner their old state back. */
+function restoreState(){
+  try {
+    const raw = localStorage.getItem(storeKey());
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (saved.version !== version) return false;
+
+    const is04  = version === "2004";
+    const K     = k => is04 ? `cmi.${k}` : `cmi.core.${k}`;
+    const kSusp = is04 ? "cmi.suspend_data" : "cmi.suspend_data";
+    const prevExit = saved.cmi[K("exit")] || "";
+    attempt = saved.attempt || 1;
+    if (saved.wp) wp = saved.wp;
+
+    if (prevExit === "suspend") {
+      Object.assign(cmi, saved.cmi);
+      cmi[K("entry")] = "resume";
+      cmi[K("session_time")] = "";
+      return "resume";
+    }
+    /* Normal exit. Fresh attempt — total_time accumulates across attempts,
+       everything else starts clean, including the bookmark and suspend_data. */
+    attempt += 1;
+    wp = { completion:"not attempted", success:"unknown" };
+    cmi[K("total_time")] = saved.cmi[K("total_time")] || cmi[K("total_time")];
+    cmi[K("entry")] = "ab-initio";
+    cmi[kSusp] = "";
+    return "new-attempt";
+  } catch(e){ return false; }
+}
+
+/* Two incompatible time formats, one number. This is the "normalize on
+   write" rule from CLAUDE.md, implemented so the pitfall is visible. */
+function toSeconds(s){
+  s = String(s || "").trim();
+  if (!s) return 0;
+  let m = s.match(/^(\d+):(\d{2}):(\d{2})(?:\.(\d+))?$/);        // 1.2  HHHH:MM:SS.SS
+  if (m) return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (m[4] ? +("0."+m[4]) : 0);
+  m = s.match(/^P(?:([\d.]+)Y)?(?:([\d.]+)M)?(?:([\d.]+)D)?(?:T(?:([\d.]+)H)?(?:([\d.]+)M)?(?:([\d.]+)S)?)?$/i);
+  if (m) return (+m[4]||0)*3600 + (+m[5]||0)*60 + (+m[6]||0) + (+m[3]||0)*86400;  // 2004 ISO 8601
+  return NaN;
+}
+function fromSeconds(total, is04){
+  if (is04) return `PT${Math.floor(total/3600)}H${Math.floor(total%3600/60)}M${(total%60).toFixed(2)}S`;
+  const p = (n,w) => String(Math.floor(n)).padStart(w,"0");
+  return `${p(total/3600,4)}:${p(total%3600/60,2)}:${p(total%60,2)}.${String(Math.round(total%1*100)).padStart(2,"0")}`;
+}
+
+function log(kind, method, detail, ret){
+  if (nCalls === 0) $log.innerHTML = "";
+  nCalls++;
+  const row = document.createElement("div");
+  row.className = "row " + kind;
+  row.innerHTML =
+    `<span class="t">${stamp()}</span>` +
+    `<span class="m">${method}</span>` +
+    `<span>${detail}${ret !== undefined ? ` <span class="ret">→ ${ret}</span>` : ""}</span>`;
+  $log.appendChild(row);
+  $log.scrollTop = $log.scrollHeight;
+  $counts.textContent = `${nCalls} calls` + (nWarn ? ` · ${nWarn} flagged` : "");
+}
+
+function note(msg, isError){
+  nWarn++;
+  const d = document.createElement("div");
+  d.className = "note" + (isError ? " err" : "");
+  d.textContent = (isError ? "✕ " : "⚠ ") + msg;
+  $log.appendChild(d);
+  $log.scrollTop = $log.scrollHeight;
+  $counts.textContent = `${nCalls} calls · ${nWarn} flagged`;
+}
+
+function esc(s){ return String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c])); }
+function trunc(s, n){ s = String(s); return s.length > n ? esc(s.slice(0,n)) + "…" : esc(s); }
+
+/* --- the fields that actually matter, per CLAUDE.md --- */
+function renderState(){
+  if (!version){ $state.innerHTML = '<dt style="grid-column:1/-1;color:#8b93a7">—</dt>'; return; }
+  const is04 = version === "2004";
+  const sd = cmi[is04 ? "cmi.suspend_data" : "cmi.suspend_data"] || "";
+  const rows = is04 ? [
+    ["score.raw",  cmi["cmi.score.raw"] || "—"],
+    ["score.scaled", cmi["cmi.score.scaled"] || "—"],
+    ["location",   cmi["cmi.location"] || "—"],
+    ["total_time", cmi["cmi.total_time"]],
+    ["session_time", cmi["cmi.session_time"] || "—"]
+  ] : [
+    ["score.raw",     cmi["cmi.core.score.raw"] || "—"],
+    ["lesson_location", cmi["cmi.core.lesson_location"] || "—"],
+    ["total_time",    cmi["cmi.core.total_time"]],
+    ["session_time",  cmi["cmi.core.session_time"] || "—"]
+  ];
+  const cap = is04 ? 64000 : SUSPEND_CAP_12;
+  const over = sd.length > cap;
+  rows.push(["suspend_data",
+    `${sd.length} / ${cap} chars` +
+    (over ? ' <span style="color:var(--err)">OVER LIMIT</span>' : "")]);
+
+  /* The point of the whole exercise: what the course said, and what we
+     store. In 1.2 the left column is ONE field doing two jobs. */
+  const rawStatus = is04
+    ? `${cmi["cmi.completion_status"]} / ${cmi["cmi.success_status"]}`
+    : cmi["cmi.core.lesson_status"];
+
+  $state.innerHTML =
+      `<dt style="grid-column:1/-1;color:var(--dim);font-size:10px;letter-spacing:.6px;
+                  text-transform:uppercase;margin:2px 0 4px">what the course said</dt>`
+    + `<dt>${is04 ? "completion / success" : "lesson_status"}</dt><dd>${rawStatus}</dd>`
+    + `<dt style="grid-column:1/-1;color:var(--accent);font-size:10px;letter-spacing:.6px;
+                  text-transform:uppercase;margin:10px 0 4px">what waypoint stores</dt>`
+    + `<dt>completion_status</dt><dd><b>${wp.completion}</b></dd>`
+    + `<dt>success_status</dt><dd><b>${wp.success}</b></dd>`
+    + `<dt style="grid-column:1/-1;margin:8px 0 0"></dt>`
+    + rows.map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+
+/* ---------------- shared implementation ---------------- */
+function doInit(method){
+  if (initialized){ lastError = "103"; log("life", method, "", "false — already initialized");
+                    note("Course called " + method + " twice."); return "false"; }
+  initialized = true; terminated = false; lastError = "0"; t0 = performance.now();
+  log("life", method, "", "true");
+  return "true";
+}
+function doTerminate(method){
+  if (!initialized){ lastError="112"; log("life",method,"","false — not initialized");
+                     note("Terminate before Initialize.", true); return "false"; }
+  if (terminated){ lastError="113"; log("life",method,"","false — already terminated"); return "false"; }
+  terminated = true; lastError = "0";
+
+  /* Roll session_time into total_time, as a real LMS must. Both formats
+     go through the same seconds conversion — that is the whole point. */
+  const is04 = version === "2004";
+  const sess = cmi[is04 ? "cmi.session_time" : "cmi.core.session_time"];
+  if (sess){
+    const s = toSeconds(sess), prev = toSeconds(cmi[is04 ? "cmi.total_time" : "cmi.core.total_time"]);
+    if (Number.isNaN(s)) note(`Could not parse session_time "${sess}" — unrecognised format.`, true);
+    else {
+      cmi[is04 ? "cmi.total_time" : "cmi.core.total_time"] = fromSeconds(prev + s, is04);
+      note(`session_time "${sess}" = ${s.toFixed(2)}s, added to total → ${(prev+s).toFixed(2)}s. `
+         + `Store the seconds, not the string — the two versions' formats are incompatible.`);
+    }
+  }
+  saveState();
+  log("life", method, "", "true");
+  note("Session closed cleanly and saved. In production most mobile sessions never reach this "
+     + "call — the app is backgrounded or killed first. The server must close them on a timeout.");
+
+  /* SCORM makes the LMS responsible for removing the content after Terminate.
+     A course cannot close itself, so a finished course just sits there looking
+     exactly like an unfinished one. Taking over the frame is the player's job. */
+  setTimeout(showEndOfSession, 0);
+  return "true";
+}
+function doGet(method, key){
+  if (!initialized){ lastError="122"; log("get",method,esc(key),'"" (not initialized)');
+                     note("GetValue before Initialize.", true); return ""; }
+  let v = cmi[key];
+  if (v === undefined){
+    lastError = "401"; v = "";
+    log("get", method, esc(key), '"" — undefined element');
+    note(`Unknown data model element: ${key}. A real LMS must answer 401 here.`);
+  } else {
+    lastError = "0";
+    log("get", method, esc(key), `"${trunc(v,60)}"`);
+  }
+  return v;
+}
+function doSet(method, key, val){
+  if (!initialized){ lastError="132"; log("set",method,esc(key),"false (not initialized)");
+                     note("SetValue before Initialize.", true); return "false"; }
+  lastError = "0";
+  cmi[key] = String(val);
+  log("set", method, `${esc(key)} = "${trunc(val,50)}"`, "true");
+
+  /* the pitfalls CLAUDE.md says to watch for, surfaced live */
+  if (key === "cmi.suspend_data"){
+    const cap = version === "2004" ? 64000 : SUSPEND_CAP_12;
+    if (String(val).length > cap)
+      note(`suspend_data is ${String(val).length} chars, over the ${cap} limit. `
+         + `In production this silently breaks resume — detect and log it, never truncate.`);
+  }
+  /* Derive Waypoint's two columns from whichever field carried the news. */
+  if (key === "cmi.core.lesson_status"){
+    const before = `${wp.completion} / ${wp.success}`;
+    applyStatus(val);
+    note(`1.2 packs completion AND pass/fail into one field ("${val}"). Derived → `
+       + `completion="${wp.completion}", success="${wp.success}" (was ${before}).`);
+  }
+  if (key === "cmi.completion_status"){ wp.completion = String(val); }
+  if (key === "cmi.success_status"){    wp.success    = String(val); }
+  if (key === "cmi.session_time" || key === "cmi.core.session_time")
+    note(`Time format here is "${val}". 1.2 and 2004 differ — normalize to integer seconds on write.`);
+  saveState();
+  renderState();
+  return "true";
+}
+function doCommit(method){
+  if (!initialized){ lastError="142"; log("life",method,"","false (not initialized)"); return "false"; }
+  lastError = "0";
+  saveState();
+  log("life", method, "", "true");
+  return "true";
+}
+
+/* After Terminate the player owns the screen. This is what Waypoint's
+   real player has to do: replace the content and tell the learner where
+   they stand, using the values WE hold — never asking the course. */
+function showEndOfSession(){
+  const is04 = version === "2004";
+  const done = wp.completion, pass = wp.success;
+  const raw  = is04 ? cmi["cmi.score.raw"]  : cmi["cmi.core.score.raw"];
+  const max  = is04 ? cmi["cmi.score.max"]  : cmi["cmi.core.score.max"];
+  const time = is04 ? cmi["cmi.total_time"] : cmi["cmi.core.total_time"];
+
+  const stage = document.getElementById("stage");
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:absolute;inset:0;background:var(--panel);display:flex;"
+    + "flex-direction:column;justify-content:center;align-items:center;gap:14px;text-align:center;padding:32px";
+  ov.innerHTML =
+    `<div style="font-size:15px;font-weight:600">Session ended</div>
+     <div style="font:12px var(--mono);color:var(--dim);line-height:2">
+       completion &nbsp;<b style="color:var(--fg)">${done || "—"}</b><br>
+       success &nbsp;<b style="color:var(--fg)">${pass || "—"}</b><br>
+       score &nbsp;<b style="color:var(--fg)">${raw !== "" ? `${raw} / ${max || "?"}` : "—"}</b><br>
+       total time &nbsp;<b style="color:var(--fg)">${time || "—"}</b>
+     </div>
+     <div style="max-width:34em;font-size:12px;color:var(--dim);line-height:1.7;margin-top:6px">
+       The course did not do this. After <code>Terminate</code> it kept rendering, unaware
+       it had ended. SCORM makes removing the content the LMS's job — so this screen,
+       and a working exit, belong to the player, outside the frame.
+     </div>`;
+  stage.style.position = "relative";
+  stage.appendChild(ov);
+}
+
+/* ---------------- SCORM 2004 adapter ---------------- */
+window.API_1484_11 = {
+  Initialize:      function(p){ setVersion("2004"); return doInit("Initialize"); },
+  Terminate:       function(p){ setVersion("2004"); return doTerminate("Terminate"); },
+  GetValue:        function(k){ setVersion("2004"); return doGet("GetValue", k); },
+  SetValue:        function(k,v){ setVersion("2004"); return doSet("SetValue", k, v); },
+  Commit:          function(p){ setVersion("2004"); return doCommit("Commit"); },
+  GetLastError:    function(){ return lastError; },
+  GetErrorString:  function(c){ return ERR[c] || "Unknown error"; },
+  GetDiagnostic:   function(c){ return ERR[c] || ""; }
+};
+
+/* ---------------- SCORM 1.2 adapter ---------------- */
+window.API = {
+  LMSInitialize:     function(p){ setVersion("1.2"); return doInit("LMSInitialize"); },
+  LMSFinish:         function(p){ setVersion("1.2"); return doTerminate("LMSFinish"); },
+  LMSGetValue:       function(k){ setVersion("1.2"); return doGet("LMSGetValue", k); },
+  LMSSetValue:       function(k,v){ setVersion("1.2"); return doSet("LMSSetValue", k, v); },
+  LMSCommit:         function(p){ setVersion("1.2"); return doCommit("LMSCommit"); },
+  LMSGetLastError:   function(){ return lastError; },
+  LMSGetErrorString: function(c){ return ERR[c] || "Unknown error"; },
+  LMSGetDiagnostic:  function(c){ return ERR[c] || ""; }
+};
+
+/* ---------------- controls ---------------- */
+const $url = document.getElementById("url");
+const $stage = document.getElementById("stage");
+
+function loadCourse(){
+  const u = $url.value.trim();
+  if (!u) return;
+  /* Key saved state per package, so switching courses does not
+     hand one course another course's bookmark. */
+  currentKey = u;
+  $stage.innerHTML = "";
+  const f = document.createElement("iframe");
+  f.src = u;
+  $stage.appendChild(f);
+  localStorage.setItem("waypoint.lastUrl", u);
+  setTimeout(() => {
+    if (nCalls === 0)
+      note("5 seconds in and the course has not called the API. Either it has no runtime, "
+         + "or it could not find the adapter. Check the console inside the frame.");
+  }, 5000);
+}
+
+document.getElementById("load").onclick = loadCourse;
+$url.addEventListener("keydown", e => { if (e.key === "Enter") loadCourse(); });
+document.getElementById("reset").onclick = () => location.reload();
+document.getElementById("wipe").onclick = () => {
+  const u = $url.value.trim();
+  try { localStorage.removeItem("waypoint.cmi." + u); } catch(e){}
+  location.reload();
+};
+document.getElementById("dump").onclick = () => {
+  const txt = [...$log.querySelectorAll(".row,.note")]
+    .map(n => n.textContent.replace(/\s+/g," ").trim()).join("\n");
+  navigator.clipboard.writeText(txt).then(
+    () => { const b=document.getElementById("dump"); b.textContent="Copied"; setTimeout(()=>b.textContent="Copy log",1200); });
+};
+
+/* Populate the package dropdown from packages.json, written by serve.sh.
+   Typing paths by hand is how people end up opening a course directly,
+   which fails with "Unable to find an API adapter". */
+const $pick = document.getElementById("pick");
+fetch("packages.json")
+  .then(r => r.ok ? r.json() : [])
+  .then(list => {
+    $pick.innerHTML = list.length
+      ? '<option value="">— pick a package —</option>' +
+        list.map(p => `<option value="${p.launch}">${p.name}  (${p.version})</option>`).join("")
+      : '<option value="">no packages — run ./spike/unpack.sh</option>';
+    $pick.onchange = () => { if ($pick.value){ $url.value = $pick.value; loadCourse(); } };
+  })
+  .catch(() => { $pick.innerHTML = '<option value="">packages.json missing — run ./spike/serve.sh</option>'; });
+
+try { const last = localStorage.getItem("waypoint.lastUrl"); if (last) $url.value = last; } catch(e){}
+renderState();
+</script>
+</body>
+</html>

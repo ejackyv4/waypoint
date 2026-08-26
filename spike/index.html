@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Waypoint SCORM spike</title>
+<meta http-equiv="refresh" content="0; url=harness.html">
+<style>body{font:15px/1.6 system-ui,sans-serif;max-width:34em;margin:15vh auto;padding:0 1.5em;color:#333}
+code{background:#f0f0f3;padding:2px 6px;border-radius:4px;font-size:13px}</style>
+<h1>Waypoint SCORM spike</h1>
+<p>Redirecting to <a href="harness.html">the harness</a>…</p>
+<p><strong>Load courses through the harness, never directly.</strong> A course opened as a
+top-level page cannot find the API adapter — it searches <code>window.parent</code>, and a
+top-level window has no parent. You get <em>"Unable to find an API adapter"</em>, followed by
+a resume prompt and a 404, because the sample courses handle that failure badly.</p>

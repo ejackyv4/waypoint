@@ -1,0 +1,6 @@
+data/
+corpus/
+packages/
+packages.json
+mobile/node_modules/
+mobile/.expo/

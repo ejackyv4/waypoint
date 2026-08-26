@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Expo / React Native build artifacts
+spike/mobile/.expo/
+spike/mobile/dist/
+spike/mobile/web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# PoC runtime state — the database and unpacked course content.
+# Recreated by ./spike/demo reset
+spike/data/
+spike/packages/
+spike/packages.json
+
+# SCORM test packages. Large binaries, freely re-downloadable from
+# https://scorm.com/scorm-explained/technical-scorm/golf-examples/
+spike/corpus/
+*.zip
+
+# The full session transcript as raw JSONL is 12MB of machine output.
+# The readable version, docs/session/TRANSCRIPT.md, IS committed.
+docs/session/transcript-raw.jsonl
+
+# Local env / secrets
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Client requirements document — handled outside the repo
+mytrackRequirementsAnalysis.pdf
+*.pdf

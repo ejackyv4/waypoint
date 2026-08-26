@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waypoint Console</title>
+<style>
+:root{
+  --brand:#2563eb; --brand-dark:#1d4ed8; --brand-soft:#eff6ff;
+  --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --faint:#94a3b8;
+  --line:#e2e8f0; --bg:#eef2f6; --surface:#fff;
+  --ok:#059669; --ok-soft:#ecfdf5; --warn:#d97706; --warn-soft:#fffbeb;
+  --err:#dc2626; --err-soft:#fef2f2;
+  --shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.05);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --ink:#f1f5f9; --ink-2:#cbd5e1; --muted:#94a3b8; --faint:#64748b;
+  --line:#1e293b; --bg:#0b1120; --surface:#0f172a; --brand-soft:#1e293b;
+  --ok-soft:#052e23; --warn-soft:#2c1a06; --err-soft:#2b0f0f;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+     font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.topbar{background:var(--surface);border-bottom:1px solid var(--line);
+        padding:0 28px;height:68px;display:flex;align-items:center;gap:14px}
+.mark{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:#fff;
+      background:linear-gradient(135deg,var(--brand),#60a5fa)}
+.wordmark{font-weight:650;font-size:17px;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13.5px;margin-left:4px}
+.spacer{flex:1}
+.btn{appearance:none;border:0;cursor:pointer;font:inherit;font-size:14px;font-weight:600;
+     padding:9px 18px;border-radius:9px;background:var(--brand);color:#fff}
+.btn:hover{background:var(--brand-dark)}
+.btn.ghost{background:transparent;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--line)}
+.btn.ghost:hover{background:var(--line)}
+
+.wrap{max-width:1240px;margin:0 auto;padding:26px 28px 60px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:26px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+      padding:16px 18px;box-shadow:var(--shadow)}
+.stat .n{font-size:27px;font-weight:680;letter-spacing:-.02em;line-height:1.15}
+.stat .l{color:var(--muted);font-size:13px;margin-top:2px}
+
+h2{font-size:15.5px;font-weight:650;letter-spacing:-.01em;margin:0 0 4px}
+.section{margin-bottom:32px}
+.section .lead{color:var(--muted);font-size:13.5px;margin:0 0 14px}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+       box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;
+   color:var(--muted);font-weight:600;padding:11px 16px;background:var(--bg);
+   border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:650}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.err{background:var(--err-soft);color:var(--err)}
+.pill.neutral{background:var(--brand-soft);color:var(--brand)}
+.pill.muted{background:var(--bg);color:var(--muted)}
+.empty{padding:40px 20px;text-align:center;color:var(--muted);font-size:14px}
+details.payload summary{cursor:pointer;color:var(--brand);font-size:12.5px;font-weight:600}
+details.payload pre{margin:8px 0 0;padding:12px;background:var(--bg);border-radius:8px;
+                    font-family:var(--mono);font-size:11.5px;line-height:1.6;
+                    white-space:pre-wrap;color:var(--ink-2);max-width:560px}
+.keys{display:grid;gap:10px;font-family:var(--mono);font-size:12.5px}
+.keys div{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.keys b{font-family:var(--sans);font-size:13px;color:var(--muted);font-weight:600;min-width:120px}
+.keys code{background:var(--bg);padding:4px 9px;border-radius:6px;color:var(--ink);word-break:break-all}
+.note{padding:16px 18px;font-size:13.5px;color:var(--muted);line-height:1.65}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="mark" aria-hidden="true">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
+  </span>
+  <span class="wordmark">Waypoint</span>
+  <span class="sub">Console</span>
+  <span class="spacer"></span>
+  <a class="btn ghost" href="/demo">Launch a course</a>
+  <button class="btn" id="refresh">Refresh</button>
+</header>
+
+<div class="wrap">
+  <div class="stats" id="stats"></div>
+
+  <section class="section">
+    <h2>Learner records</h2>
+    <p class="lead">Every registration captured by the platform. This is what a SCORM course reports, stored as our own columns.</p>
+    <div class="panel scroll"><table>
+      <thead><tr>
+        <th>Subject</th><th>Program</th><th>Completion</th><th>Result</th>
+        <th>Score</th><th>Time</th><th>Attempt</th><th>Suspend data</th><th>Last write</th>
+      </tr></thead>
+      <tbody id="regs"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="section">
+    <h2>Completions sent to the SaaS</h2>
+    <p class="lead">
+      Server-to-server, HMAC-signed, with a timestamp so a delivery can't be replayed.
+      The learner's browser is never involved. Here they're received by a stub standing in
+      for the real system.
+    </p>
+    <div class="panel scroll"><table>
+      <thead><tr>
+        <th>When</th><th>Subject</th><th>Status</th><th>Endpoint</th><th>Payload</th>
+      </tr></thead>
+      <tbody id="hooks"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="section">
+    <h2>Integration credentials</h2>
+    <p class="lead">What the SaaS would be issued to talk to this platform.</p>
+    <div class="panel">
+      <div class="note keys" id="keys"></div>
+      <div class="note" style="border-top:1px solid var(--line)">
+        The SaaS authenticates inbound calls with the API key. Waypoint signs outbound
+        webhooks with the shared secret, so the SaaS can verify each delivery genuinely
+        came from us. Runtime calls from the player use neither — they carry a session
+        token scoped to a single registration, so a learner can never write to anyone
+        else's record.
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const fmt = t => t ? new Date(t).toLocaleString(undefined,
+  { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" }) : "—";
+const dur = s => { s = Math.max(0, Math.round(+s||0));
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
+const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+async function load(){
+  const [rr, dd, kk] = await Promise.all([
+    fetch("/api/console/registrations").then(r => r.json()),
+    fetch("/api/console/deliveries").then(r => r.json()),
+    fetch("/api/console/keys").then(r => r.json())
+  ]);
+  const regs = rr.registrations || [], hooks = dd.deliveries || [];
+
+  /* headline numbers */
+  const completed = regs.filter(r => r.completion_status === "completed").length;
+  const passed = regs.filter(r => r.success_status === "passed").length;
+  const scored = regs.filter(r => r.score_raw != null);
+  const avg = scored.length ? Math.round(scored.reduce((a,r) => a + r.score_raw, 0) / scored.length) : null;
+  document.getElementById("stats").innerHTML = [
+    [regs.length, "Registrations"],
+    [completed, "Completed"],
+    [passed, "Passed"],
+    [avg === null ? "—" : avg + "%", "Average score"],
+    [hooks.filter(h => h.status === "delivered").length, "Completions delivered"]
+  ].map(([n,l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+
+  /* learner records */
+  document.getElementById("regs").innerHTML = regs.length ? regs.map(r => {
+    const done = r.completion_status === "completed";
+    const pass = r.success_status === "passed", fail = r.success_status === "failed";
+    // 1.2 caps suspend_data at 4096. Overflow silently breaks resume, so flag it.
+    const over = r.suspend_data_len > (/2004/.test(r.scorm_version) ? 64000 : 4096);
+    return `<tr>
+      <td class="mono">${esc(r.subject_id)}</td>
+      <td>${esc(r.title || r.program_id)}</td>
+      <td><span class="pill ${done ? "ok" : "muted"}">${esc(r.completion_status)}</span></td>
+      <td>${r.success_status === "unknown"
+            ? '<span class="pill muted">—</span>'
+            : `<span class="pill ${pass ? "ok" : fail ? "err" : "neutral"}">${esc(r.success_status)}</span>`}</td>
+      <td>${r.score_raw != null ? `${r.score_raw}${r.score_max != null ? ` / ${r.score_max}` : ""}` : "—"}</td>
+      <td>${dur(r.total_seconds)}</td>
+      <td>${r.attempt}</td>
+      <td class="mono">${r.suspend_data_len}${over ? ' <span class="pill err">over cap</span>' : ""}</td>
+      <td class="mono">${fmt(r.last_write_at)}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="9" class="empty">
+      No registrations yet. Launch a course to create one.</td></tr>`;
+
+  /* deliveries */
+  document.getElementById("hooks").innerHTML = hooks.length ? hooks.map(h => `<tr>
+      <td class="mono">${fmt(h.created_at)}</td>
+      <td class="mono">${esc(h.subject_id)}</td>
+      <td><span class="pill ${h.status === "delivered" ? "ok" : h.status === "failed" ? "err" : "muted"}">
+          ${esc(h.status)}${h.http_status ? ` ${h.http_status}` : ""}</span></td>
+      <td class="mono">${esc(h.endpoint || "—")}</td>
+      <td><details class="payload"><summary>View</summary><pre>${
+          esc(JSON.stringify(JSON.parse(h.payload), null, 2))}</pre></details></td>
+    </tr>`).join("") : `<tr><td colspan="5" class="empty">
+      No completions yet. Finish a course and its result appears here.</td></tr>`;
+
+  document.getElementById("keys").innerHTML =
+      `<div><b>API key</b><code>${esc(kk.api_key)}</code></div>`
+    + `<div><b>Webhook secret</b><code>${esc(kk.webhook_secret)}</code></div>`;
+}
+
+document.getElementById("refresh").onclick = load;
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>
