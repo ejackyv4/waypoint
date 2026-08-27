@@ -616,7 +616,11 @@ el("exitBtn").onclick = () => {
    this writes.
 ------------------------------------------------------------------ */
 window.__waypointSuspendAndExit = function(){
-  if (!initialised || terminated) { notifyNative({ type: "exit" }); return false; }
+  // `initialised` — one British spelling in a file that uses `initialized`
+  // everywhere else. The reference threw, the caller swallowed it, and the app
+  // returned to the program list having never terminated the session. It
+  // looked like it worked, because the visible half did.
+  if (!initialized || terminated) { notifyNative({ type: "exit" }); return false; }
   // Mark it resumable, then end the session properly so the server closes
   // the attempt and reports the state onward.
   doSet(is2004 ? "cmi.exit" : "cmi.core.exit", "suspend");
