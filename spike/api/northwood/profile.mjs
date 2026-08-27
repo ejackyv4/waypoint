@@ -18,7 +18,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  allSubjects, subjectByKey,
+  allSubjects, subjectByKey, saveSubject,
   vehiclesFor, saveVehicle, deleteVehicle, vehicleById,
   curfewFor, saveCurfew,
   obligationsFor, saveObligation, deleteObligation,
@@ -54,6 +54,35 @@ export const routes = {
 
   "ALL /api/subjects": async (req, res) =>
     saasJson(res, 200, { subjects: await withLogins(allSubjects().map(asProfile)) }),
+
+  /* The subject's own details. Demographics an officer maintains — not the
+     assignment decisions (which officer, which programs), which are made
+     elsewhere and are not editable from a form. */
+  "POST /api/subject": async (req, res) => {
+    const b = await readJson(req);
+    if (!b.subject_id) return saasJson(res, 400, { error: "subject_id required" });
+    if (!subjectByKey(b.subject_id))
+      return saasJson(res, 404, { error: "no such subject" });
+
+    if (b.first_name !== undefined && !String(b.first_name).trim())
+      return saasJson(res, 400, { error: "A first name is required." });
+    if (b.last_name !== undefined && !String(b.last_name).trim())
+      return saasJson(res, 400, { error: "A last name is required." });
+
+    /* Dates are stored ISO and formatted on display. Storing "17 April 1991"
+       gives you a string you cannot compare, sort, or turn into an age. */
+    for (const f of ["dob", "intake_date", "next_review"])
+      if (b[f] && !/^\d{4}-\d{2}-\d{2}$/.test(b[f]))
+        return saasJson(res, 400, { error: `${f} must be a date (YYYY-MM-DD)` });
+
+    if (b.dob && new Date(b.dob) > new Date())
+      return saasJson(res, 400, { error: "A date of birth cannot be in the future." });
+
+    if (b.email && !/^\S+@\S+\.\S+$/.test(String(b.email).trim()))
+      return saasJson(res, 400, { error: "That email address doesn't look right." });
+
+    return saasJson(res, 200, { subject: asProfile(saveSubject(b.subject_id, b)) });
+  },
 
   /* Every profile module in one call — the profile paints them together, and
      six round trips to draw one screen is six chances to look half-loaded. */

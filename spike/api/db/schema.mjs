@@ -440,6 +440,28 @@ ensureColumn("registrations", "session_seconds", "INTEGER NOT NULL DEFAULT 0");
    out, instead of the learner discovering it and nobody being able to explain
    why. Never truncate: truncation IS the bug. */
 ensureColumn("registrations", "suspend_overflow_at", "TEXT");
+
+/* Dates were seeded as display strings — "17 April 1991" — which cannot be
+   compared, sorted, or turned into an age. Same rule as SCORM time: normalise
+   on write, format on read. Migrate prose to ISO once. */
+(function isoDates() {
+  const MONTHS = ["january","february","march","april","may","june","july",
+                  "august","september","october","november","december"];
+  const toIso = v => {
+    if (!v || /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;          // already ISO
+    const m = String(v).trim().match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+    if (!m) return v;
+    const mi = MONTHS.indexOf(m[2].toLowerCase());
+    if (mi < 0) return v;
+    return `${m[3]}-${String(mi + 1).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  };
+  for (const col of ["dob", "intake_date", "next_review"]) {
+    for (const r of db.prepare(`SELECT id, ${col} AS v FROM subjects WHERE ${col} IS NOT NULL`).all()) {
+      const iso = toIso(r.v);
+      if (iso !== r.v) db.prepare(`UPDATE subjects SET ${col} = ? WHERE id = ?`).run(iso, r.id);
+    }
+  }
+})();
 // Both sides maintain employment, so the record says who touched it last.
 ensureColumn("employment", "updated_by", "TEXT");
 

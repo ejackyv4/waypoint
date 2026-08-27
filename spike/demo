@@ -4,7 +4,8 @@
 #
 #   ./spike/demo start     start the servers (API, content, mock SaaS)
 #   ./spike/demo mobile    start Metro and open the iOS simulator
-#   ./spike/demo reset     wipe everything and re-seed for a fresh demo
+#   ./spike/demo reset     wipe and re-seed (snapshots the old db first)
+#   ./spike/demo restore   put the most recent snapshot back
 #   ./spike/demo stop      stop the servers (leaves Metro alone)
 #   ./spike/demo status    what is running, and the URLs
 #
@@ -145,12 +146,38 @@ case "${1:-start}" in
     b "Resetting to a clean slate"
     stop_servers || exit 1
     # NOTE: the database lives in spike/data, NOT spike/api/data.
+    #
+    # Snapshot before destroying. A demo database holds things that cost real
+    # time to produce — a course played to completion is fifteen minutes of
+    # somebody clicking — and "reset" is one keystroke from "reset" typed by
+    # mistake. Keep the last few; they are small and gitignored.
+    if [ -f "$DATA_DIR/waypoint.db" ]; then
+      mkdir -p "$DATA_DIR/../backups"
+      snap="$DATA_DIR/../backups/waypoint-$(date +%Y%m%d-%H%M%S).db"
+      cp "$DATA_DIR/waypoint.db" "$snap" 2>/dev/null \
+        && ok "snapshot saved — $(basename "$snap")"
+      # keep the five most recent
+      ls -1t "$DATA_DIR/../backups"/waypoint-*.db 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
+    fi
     rm -rf "$DATA_DIR"
     ok "all learners, registrations and completions deleted"
     start_servers || exit 1
     seed_content
     sync_mobile_config
     urls; script
+    ;;
+
+  restore)
+    b "Restoring a snapshot"
+    ls -1t "$DATA_DIR/../backups"/waypoint-*.db 2>/dev/null | head -5 | nl -w2 -s'  ' | sed 's/^/  /'
+    latest=$(ls -1t "$DATA_DIR/../backups"/waypoint-*.db 2>/dev/null | head -1)
+    if [ -z "$latest" ]; then no "no snapshots in spike/backups"; exit 1; fi
+    stop_servers || exit 1
+    mkdir -p "$DATA_DIR"
+    cp "$latest" "$DATA_DIR/waypoint.db"
+    ok "restored $(basename "$latest")"
+    start_servers || exit 1
+    urls
     ;;
 
   stop)

@@ -15,6 +15,7 @@ spike/mobile/web-build/
 # PoC runtime state — the database and unpacked course content.
 # Recreated by ./spike/demo reset
 spike/data/
+spike/backups/
 spike/packages/
 spike/packages.json
 

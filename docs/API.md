@@ -485,6 +485,27 @@ together. `/api/reference` returns supervision kinds and levels, obligation unit
 condition categories, employment statuses, contact relationships, offices and officers —
 one call rather than a copy of each list in each client.
 
+#### The subject's own details
+
+```
+POST /api/subject   { subject_id, first_name, last_name, case_number, dob,
+                      phone, email, address_line1, address_line2, city,
+                      state, postal_code, intake_date, next_review }
+```
+
+**Merges** — only fields actually present are written, so a partial save cannot
+blank the rest of the record.
+
+**Demographics only.** `officer_id` is an allowlist omission, not an oversight:
+which officer supervises someone is an assignment decision, not a form field,
+and a payload that names it is ignored rather than obeyed.
+
+**Dates are stored ISO (`YYYY-MM-DD`) and formatted on display.** Prose is
+refused. A date stored as "17 April 1991" cannot be compared, sorted or turned
+into an age — the same rule as normalising SCORM time at the boundary. The
+console shows a birth date as *April 17, 1991 (35)*, because the age is what an
+officer is actually checking.
+
 #### Waypoint logins
 
 ```

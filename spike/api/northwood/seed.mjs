@@ -18,17 +18,17 @@ const seeded = seedRoster(
   [ { name: "R. Alvarez",  email: "r.alvarez@northwood.gov",  badge: "NC-114" },
     { name: "T. Nakamura", email: "t.nakamura@northwood.gov", badge: "NC-207" } ],
   [ { subject_id: "cust-1041", case_number: "NC-2026-0418",
-      first_name: "Dana", last_name: "Whitfield", dob: "17 April 1991",
-      phone: "(423) 555-0142", address_line1: "412 Ridgeway Ave, Apt 3B",
+      first_name: "Dana", last_name: "Whitfield", dob: "1991-04-17",
+      phone: "(423) 555-0142", email: "cust-1041@example.com", address_line1: "412 Ridgeway Ave, Apt 3B",
       city: "Kingsport", state: "TN", postal_code: "37660",
       status: "Active supervision", officer: "R. Alvarez",
-      intake_date: "3 February 2026", next_review: "15 September 2026" },
+      intake_date: "2026-02-03", next_review: "2026-09-15" },
     { subject_id: "cust-2298", case_number: "NC-2026-0511",
-      first_name: "Marcus", last_name: "Oyelaran", dob: "2 November 1986",
-      phone: "(423) 555-0197", address_line1: "77 Beechmont Rd",
+      first_name: "Marcus", last_name: "Oyelaran", dob: "1986-11-02",
+      phone: "(423) 555-0197", email: "cust-2298@example.com", address_line1: "77 Beechmont Rd",
       city: "Bristol", state: "TN", postal_code: "37620",
       status: "Probation — Level 2", officer: "T. Nakamura",
-      intake_date: "28 March 2026", next_review: "12 October 2026" } ]
+      intake_date: "2026-03-28", next_review: "2026-10-12" } ]
 );
 
 /* Demo passwords, set once on an empty database. A real deployment invites
