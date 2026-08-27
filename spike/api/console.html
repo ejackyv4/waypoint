@@ -145,10 +145,9 @@ const dur = s => { s = Math.max(0, Math.round(+s||0));
 const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
 
 async function load(){
-  const [rr, dd, kk] = await Promise.all([
+  const [rr, dd] = await Promise.all([
     fetch("/api/console/registrations").then(r => r.json()),
     fetch("/api/console/deliveries").then(r => r.json()),
-    fetch("/api/console/keys").then(r => r.json())
   ]);
   const regs = rr.registrations || [], hooks = dd.deliveries || [];
 
@@ -169,8 +168,11 @@ async function load(){
   document.getElementById("regs").innerHTML = regs.length ? regs.map(r => {
     const done = r.completion_status === "completed";
     const pass = r.success_status === "passed", fail = r.success_status === "failed";
-    // 1.2 caps suspend_data at 4096. Overflow silently breaks resume, so flag it.
-    const over = r.suspend_data_len > (/2004/.test(r.scorm_version) ? 64000 : 4096);
+    /* Overflow silently breaks resume, so it is flagged here — but the
+       authority is the server, which stamps the moment it first happened.
+       The recomputed comparison is only a fallback for older rows. */
+    const over = r.suspend_overflow_at
+              || r.suspend_data_len > (/2004/.test(r.scorm_version) ? 64000 : 4096);
     return `<tr>
       <td class="mono">${esc(r.subject_id)}</td>
       <td>${esc(r.title || r.program_id)}</td>
@@ -181,7 +183,8 @@ async function load(){
       <td>${r.score_raw != null ? `${r.score_raw}${r.score_max != null ? ` / ${r.score_max}` : ""}` : "—"}</td>
       <td>${dur(r.total_seconds)}</td>
       <td>${r.attempt}</td>
-      <td class="mono">${r.suspend_data_len}${over ? ' <span class="pill err">over cap</span>' : ""}</td>
+      <td class="mono" ${over ? `title="First exceeded the cap at ${esc(fmt(r.suspend_overflow_at))}. Stored in full — never truncated — but resume will break on any LMS that honours the limit."` : ""}>
+        ${r.suspend_data_len}${over ? ' <span class="pill err">over cap</span>' : ""}</td>
       <td class="mono">${fmt(r.last_write_at)}</td>
     </tr>`;
   }).join("") : `<tr><td colspan="9" class="empty">
@@ -200,8 +203,12 @@ async function load(){
       No completions yet. Finish a course and its result appears here.</td></tr>`;
 
   document.getElementById("keys").innerHTML =
-      `<div><b>API key</b><code>${esc(kk.api_key)}</code></div>`
-    + `<div><b>Webhook secret</b><code>${esc(kk.webhook_secret)}</code></div>`;
+  /* Deliberately not shown. The integration rule is that the API key never
+     leaves the integrator's server; a page that prints it in a browser is the
+     rule being broken by the system that states it. Both are printed to the
+     server log on start-up, which is where a server credential belongs. */
+      `<div><b>API key</b><code>server-side only &mdash; see the start-up log</code></div>`
+    + `<div><b>Webhook secret</b><code>server-side only &mdash; see the start-up log</code></div>`;
 }
 
 document.getElementById("refresh").onclick = load;

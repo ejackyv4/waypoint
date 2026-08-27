@@ -16,14 +16,40 @@
  * bug as a customer id in a URL.
  */
 
-import { createHmac, timingSafeEqual, randomBytes, scryptSync } from "node:crypto";
+import { createHmac, createHash, timingSafeEqual, randomBytes, scryptSync } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { DATA_DIR } from "./db/connect.mjs";
 
 /* In production these come from a secret store and are per-tenant.
-   Generated per boot here so the PoC is never accidentally shipped with
-   a hardcoded key. */
+   Generated rather than hardcoded so the PoC is never accidentally shipped
+   with a known key. */
 export const API_KEY        = process.env.WAYPOINT_API_KEY     || "wp_demo_" + randomBytes(12).toString("hex");
 export const WEBHOOK_SECRET = process.env.WAYPOINT_WEBHOOK_SECRET || randomBytes(24).toString("hex");
-const SESSION_SECRET        = process.env.WAYPOINT_SESSION_SECRET || randomBytes(32).toString("hex");
+
+/**
+ * The session secret MUST survive a restart.
+ *
+ * It signs the token a running course uses to save its progress. Regenerating
+ * it per boot meant every restart silently invalidated every session already
+ * in flight: the learner kept clicking, every write was refused, and the
+ * Terminate that records their completion never landed. In production a
+ * routine deploy would have done that to everyone mid-course, and the first
+ * anyone would know is a learner insisting they finished something the record
+ * says they did not.
+ *
+ * So it is persisted, owner-readable only, next to the database. An operator
+ * can still override it from a real secret store.
+ */
+const SESSION_SECRET = process.env.WAYPOINT_SESSION_SECRET || loadOrCreateSecret();
+
+function loadOrCreateSecret() {
+  const file = join(DATA_DIR, ".session-secret");
+  try { return readFileSync(file, "utf8").trim(); } catch {}
+  const secret = randomBytes(32).toString("hex");
+  writeFileSync(file, secret, { mode: 0o600 });
+  return secret;
+}
 
 const SESSION_TTL_MS = 4 * 60 * 60 * 1000;   // a course sitting open all afternoon
 
@@ -132,6 +158,56 @@ export function requireLearner(req) {
   const personId = verifyLearnerSession(token);
   if (personId === null) return { error: "session expired — please sign in again", status: 401 };
   return { ok: true, person_id: personId };
+}
+
+/* ---------------- 2c. staff signing in to the admin app ----------------
+
+   Different from the learner session on purpose.
+
+   The learner surfaces (mobile app, learner site) use a BEARER token: the
+   app cannot easily hold cookies, and it talks to two origins.
+
+   The admin app is a browser on one origin, so it uses an httpOnly COOKIE.
+   JavaScript cannot read it, which means an XSS bug on an admin page cannot
+   steal a staff session — a materially bigger risk here, since staff can see
+   every subject's record.
+
+   Sessions are stored server-side so they can be revoked; only a hash of the
+   token is kept, so a database leak does not hand over live sessions.
+------------------------------------------------------------------ */
+
+export const STAFF_COOKIE = "nw_session";
+export const STAFF_TTL_MS = 8 * 60 * 60 * 1000;    // a working day
+
+export const newStaffToken = () => randomBytes(32).toString("base64url");
+export const hashToken = t => createHash("sha256").update(String(t)).digest("hex");
+
+export function parseCookies(header = "") {
+  const out = {};
+  for (const part of String(header).split(";")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
+/** Secure is set only over HTTPS — a Secure cookie is silently dropped on
+ *  plain http, which would make the PoC appear to lose its session. */
+export function staffCookie(token, { secure = false, maxAge = STAFF_TTL_MS / 1000 } = {}) {
+  return `${STAFF_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`
+       + (secure ? "; Secure" : "");
+}
+export const clearStaffCookie = () =>
+  `${STAFF_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+
+/** Roles are checked against a list, so adding supervisor or admin later is
+ *  a change to the list rather than to every route. */
+export function allow(session, ...roles) {
+  if (!session) return { error: "sign in required", status: 401 };
+  if (roles.length && !roles.includes(session.role))
+    return { error: "you do not have access to that", status: 403 };
+  return { ok: true };
 }
 
 /* ---------------- 3. us calling the SaaS ----------------

@@ -33,6 +33,26 @@ a.plain{color:var(--brand);font-size:14px;font-weight:600;text-decoration:none;c
 a.plain:hover{text-decoration:underline}
 
 .wrap{max-width:1120px;margin:0 auto;padding:24px 28px 70px}
+.who{color:var(--muted);font-size:13.5px;margin-left:auto}
+.who b{color:var(--ink);font-weight:650}
+.who .role{background:var(--brand-soft);color:var(--brand);font-size:11px;font-weight:700;
+           padding:2px 8px;border-radius:999px;margin-left:7px;text-transform:uppercase;
+           letter-spacing:.04em}
+.linkish{background:none;border:0;padding:0;width:auto;margin:0;cursor:pointer;
+         font:600 14px var(--sans);color:var(--brand)}
+.linkish:hover{background:none;text-decoration:underline}
+
+.signin{max-width:390px;margin:9vh auto;padding:0 20px}
+.signin .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+              box-shadow:var(--shadow);padding:32px 28px}
+.signin .logo{width:52px;height:52px;border-radius:15px;background:var(--brand);
+              display:grid;place-items:center;color:#fff;font-weight:800;font-size:23px;
+              margin:0 auto 16px}
+.signin h1{font-size:21px;text-align:center;margin:0;letter-spacing:-.3px}
+.signin .sub{color:var(--muted);font-size:14px;text-align:center;margin:5px 0 24px}
+.signin label{margin-top:14px}
+.signin button{width:100%;margin-top:22px;justify-content:center}
+.signin .note{margin-top:18px;text-align:center;font-size:12.5px;color:var(--faint);line-height:1.6}
 .crumb{font-size:13.5px;color:var(--muted);margin-bottom:18px}
 .crumb a{color:var(--brand);text-decoration:none;font-weight:600;cursor:pointer}
 .crumb a:hover{text-decoration:underline}
@@ -59,6 +79,15 @@ p.pagesub{color:var(--muted);font-size:14px;margin:0 0 22px}
         font-weight:700;letter-spacing:.5px;user-select:none}
 .avatar.sm{width:48px;height:48px;font-size:16px}
 .avatar.lg{width:96px;height:96px;font-size:31px}
+/* A thick ring means the subject can sign in to Waypoint. Drawn outside the
+   circle so it never changes the avatar's size or shifts the layout. */
+.avatar.hasLogin{box-shadow:0 0 0 4px var(--surface), 0 0 0 9px var(--brand)}
+.avatar.sm.hasLogin{box-shadow:0 0 0 3px var(--surface), 0 0 0 6px var(--brand)}
+.subjcard{overflow:visible}
+.loginRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+          padding:16px 24px;border-bottom:1px solid var(--line)}
+.loginRow .lbl{font-size:13.5px;color:var(--muted);flex:1 1 auto}
+.loginRow .lbl b{color:var(--ink);font-weight:600}
 
 .profhead{display:flex;gap:22px;align-items:center;padding:24px;border-bottom:1px solid var(--line)}
 .profhead .nm{font-size:24px;font-weight:700;letter-spacing:-.4px}
@@ -70,6 +99,108 @@ dl.demo > div{padding:15px 24px;border-bottom:1px solid var(--line)}
 dl.demo dt{font-size:12px;text-transform:uppercase;letter-spacing:.06em;
            color:var(--muted);font-weight:650;margin-bottom:4px}
 dl.demo dd{margin:0;font-size:15px;color:var(--ink)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+       gap:12px;padding:20px 24px 4px}
+.tile{display:flex;align-items:center;gap:13px;text-align:left;width:100%;margin:0;
+      padding:15px 16px;background:var(--surface);border:1px solid var(--line);
+      border-radius:12px;cursor:pointer;font:inherit;color:inherit}
+.tile:hover{border-color:var(--brand);background:var(--brand-soft)}
+.tile.saved{border-color:var(--ok);background:var(--ok-soft);
+            transition:background .25s, border-color .25s}
+.ticon{width:38px;height:38px;flex:0 0 auto;border-radius:10px;background:var(--brand-soft);
+       color:var(--brand);display:grid;place-items:center}
+.ticon svg{width:20px;height:20px}
+.tbody{flex:1;min-width:0}
+.tlabel{display:block;font-weight:650;font-size:14.5px;color:var(--ink)}
+.tsum{display:block;font-size:12.5px;color:var(--muted);margin-top:2px;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tcount{background:var(--brand);color:#fff;font-size:12px;font-weight:700;
+        min-width:22px;height:22px;border-radius:11px;display:grid;place-items:center;padding:0 6px}
+
+.modalwrap{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:24px}
+.scrim{position:absolute;inset:0;background:rgba(15,23,42,.45)}
+.modal{position:relative;background:var(--surface);border-radius:16px;width:100%;
+       max-width:520px;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(15,23,42,.3)}
+.mhead{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 14px;
+       border-bottom:1px solid var(--line)}
+.mhead h3{margin:0;font-size:17px;letter-spacing:-.2px}
+.mhead p{margin:2px 0 0;font-size:13.5px;color:var(--muted)}
+.mclose{margin-left:auto;background:none;border:0;font-size:26px;line-height:1;color:var(--faint);
+        cursor:pointer;padding:0;width:auto}
+.mclose:hover{background:none;color:var(--ink)}
+.mbody{padding:18px 22px 22px}
+.mbody label{margin-top:14px}
+.mbody label:first-child{margin-top:0}
+.opt{font-weight:400;color:var(--faint)}
+.mlist{border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-bottom:16px}
+.mrow{display:flex;align-items:center;gap:14px;padding:13px 15px;border-bottom:1px solid var(--line)}
+.mrow:last-child{border-bottom:0}
+.mrow > div:first-child{flex:1;min-width:0}
+.mrow-t{font-weight:650;font-size:14.5px}
+.mrow-s{font-size:12.5px;color:var(--muted);margin-top:2px}
+.mrow-a{display:flex;align-items:center;gap:12px;white-space:nowrap}
+.mempty{color:var(--muted);font-size:14px;margin:0 0 16px}
+.mform{border-top:1px solid var(--line);padding-top:16px;margin-top:4px}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mactions{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin-top:20px}
+.btn.small{width:auto;margin:0;padding:10px 20px;font-size:14.5px}
+.addbtn{width:100%;justify-content:center}
+.mnote{font-size:12.5px;color:var(--faint);margin:12px 0 0;line-height:1.6}
+.mfoot{display:flex;align-items:center;justify-content:flex-end;gap:14px;margin-top:20px}
+.btn.small.danger{background:var(--err);border-color:var(--err);color:#fff}
+.btn.small.danger:hover{background:#b91c1c}
+.check{display:flex;align-items:center;gap:10px;margin:0 0 16px;font-weight:600;font-size:14.5px}
+.check input{width:auto;margin:0}
+/* ---- agreement page ---- */
+.agHead{margin-bottom:18px;padding:20px 22px}
+.agTitle{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}
+.agTitle > div:first-child{flex:1}
+.agGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
+.agGrid label{margin:0 0 5px}
+.ro{padding:10px 0;font-size:15px;font-weight:600}
+.agActions{display:flex;align-items:center;justify-content:flex-end;gap:14px;margin-top:18px}
+.agSection{margin-bottom:14px}
+.agSection h2{display:flex;align-items:center;gap:9px}
+.cnt{background:var(--bg);color:var(--muted);font-size:11.5px;font-weight:700;
+     padding:2px 8px;border-radius:999px}
+.cond{display:flex;gap:16px;align-items:flex-start;padding:13px 0;border-bottom:1px solid var(--line)}
+.cond:last-of-type{border-bottom:0}
+.condbody{flex:1;font-size:14.5px;line-height:1.6}
+.condside{display:flex;align-items:center;gap:12px;white-space:nowrap}
+.addcond{display:flex;align-items:center;gap:14px;margin-top:14px;
+         padding-top:14px;border-top:1px solid var(--line)}
+.tplsel{flex:1;font-size:14px;padding:9px 11px}
+textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;
+         font:inherit;font-size:14.5px;line-height:1.6;color:var(--ink);
+         background:var(--surface);resize:vertical}
+textarea:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.sigs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:640px){.sigs{grid-template-columns:1fr}}
+.sig{border:1px dashed var(--line);border-radius:12px;padding:16px;min-height:104px}
+.sig.on{border-style:solid;border-color:var(--ok);background:var(--ok-soft)}
+.sigrole{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;
+         color:var(--muted);font-weight:650;margin-bottom:8px}
+.signame{font-size:17px;font-weight:700;font-family:Georgia,"Times New Roman",serif;font-style:italic}
+.sigdate{font-size:12.5px;color:var(--muted);margin-top:4px}
+.sigwait{font-size:13.5px;color:var(--faint);line-height:1.5}
+.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,14px);
+       background:var(--ink);color:#fff;padding:13px 22px;border-radius:11px;
+       font-size:14.5px;font-weight:600;z-index:90;opacity:0;
+       transition:opacity .2s,transform .2s;box-shadow:0 8px 28px rgba(15,23,42,.3)}
+.toast.in{opacity:1;transform:translate(-50%,0)}
+.toast.err{background:var(--err)}
+.toast.warn{background:var(--amber)}
+
+.quoted{padding:13px 15px;background:var(--bg);border-left:3px solid var(--brand);
+        border-radius:0 9px 9px 0;font-size:14.5px;line-height:1.6;color:var(--ink-2)}
+
+.levels{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:2px}
+.lvl{display:flex;align-items:center;gap:9px;padding:11px 13px;border:1px solid var(--line);
+     border-radius:10px;cursor:pointer;font-size:14.5px;font-weight:600;margin:0}
+.lvl:hover{border-color:var(--brand)}
+.lvl.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.lvl input{width:auto;margin:0}
+
 .actions{padding:20px 24px;display:flex;gap:12px;flex-wrap:wrap}
 .btn{appearance:none;border:0;cursor:pointer;font:inherit;font-size:15px;font-weight:650;
      padding:13px 22px;border-radius:11px;background:var(--brand);color:#fff;text-decoration:none;
@@ -141,6 +272,11 @@ tr:last-child td{border-bottom:0}
 .cActions{text-align:right}
 .primary{font-size:14.5px;color:var(--ink);font-weight:550}
 .secondary{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+/* Officer notes recorded against a visit. Append-only, so they stack. */
+.vnote{margin-top:8px;padding:9px 11px;background:var(--bg);border-left:3px solid var(--brand);
+       border-radius:0 8px 8px 0;font-size:13.5px;color:var(--ink-2);line-height:1.5;
+       white-space:normal}
+.vnote span{display:block;margin-top:5px;font-size:11.5px;color:var(--faint)}
 .whenedit{display:flex;align-items:center;gap:9px}
 .whenedit input{width:auto;flex:1;min-width:190px;padding:9px 11px;font-size:14px}
 
@@ -172,6 +308,26 @@ tr:last-child td{border-bottom:0}
 .empty{padding:34px 18px;text-align:center;color:var(--muted);font-size:14px}
 .err{background:var(--err-soft);color:var(--err);border:1px solid #fecaca;
      border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
+.warn{background:var(--amber-soft);color:var(--amber);border:1px solid #fde68a;
+      border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
+.byline{font-size:11px;font-weight:700;color:var(--brand);background:var(--brand-soft);
+        border-radius:999px;padding:2px 8px;margin-left:8px;vertical-align:1px;
+        text-transform:uppercase;letter-spacing:.04em}
+a.tel{color:inherit;text-decoration:none;border-bottom:1px dotted var(--faint)}
+a.tel:hover{color:var(--brand);border-bottom-color:var(--brand)}
+.ackHist{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+.ackHistTop{font-size:11.5px;font-weight:800;color:var(--muted);
+            text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.ackHistRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:7px 0;
+            font-size:13.5px;border-bottom:1px solid var(--line)}
+.ackHistRow:last-child{border-bottom:0}
+.ackHistWhen{color:var(--ink-2);font-weight:600}
+.ackHistTag{background:var(--amber-soft);color:var(--amber);border:1px solid #fde68a;
+            border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
+.snapshot{margin:0;font-family:var(--mono);font-size:12px;line-height:1.6;
+          white-space:pre-wrap;word-break:break-word;background:var(--bg);
+          border:1px solid var(--line);border-radius:10px;padding:14px;
+          max-height:56vh;overflow:auto;color:var(--ink-2)}
 </style>
 </head>
 <body>
@@ -181,10 +337,13 @@ tr:last-child td{border-bottom:0}
   <span class="brandname">Northwood Corrections</span>
   <span class="tag">Case Management</span>
   <span class="spacer"></span>
+  <span class="who" id="who"></span>
   <a class="plain" id="navRoster">All subjects</a>
+  <button class="plain linkish" id="signout">Sign out</button>
 </header>
 
 <div class="wrap" id="view"></div>
+<div id="gate"></div>
 
 <script>
 const WAYPOINT_APP = "__WAYPOINT_APP__";
@@ -203,12 +362,27 @@ const when = t => t ? new Date(t).toLocaleTimeString(undefined,
   { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
 const subjectOf = id => SUBJECTS.find(s => s.subject_id === id);
 
+/* Stored as 24-hour "HH:MM" because that sorts and compares; shown as
+   12-hour because that is how people read a curfew. */
+function to12h(hhmm) {
+  if (!hhmm) return "";
+  const [h, m] = String(hhmm).split(":").map(Number);
+  if (Number.isNaN(h)) return hhmm;
+  const period = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m ?? 0).padStart(2, "0")} ${period}`;
+}
+
 /* Deterministic color per person, so an avatar is recognizable at a glance. */
-function avatar(name, size) {
+function avatar(name, size, hasLogin = false) {
   const initials = name.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
   let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return `<div class="avatar ${size}" style="background:hsl(${h} 42% 42%)"
-            aria-hidden="true">${esc(initials)}</div>`;
+  // The ring carries meaning, so it is announced rather than left decorative.
+  return `<div class="avatar ${size}${hasLogin ? " hasLogin" : ""}"
+            style="background:hsl(${h} 42% 42%)"
+            title="${hasLogin ? "Has a Waypoint login" : "No Waypoint login"}"
+            role="img" aria-label="${esc(name)}${hasLogin ? " — has a Waypoint login" : ""}"
+            >${esc(initials)}</div>`;
 }
 
 /* ---------------- routing ---------------- */
@@ -221,6 +395,7 @@ function route() {
   const m = hash.match(/^subject\/([^/]+)(?:\/(\w+))?/);
   const subject = m && subjectOf(m[1]);
   if (!subject) return renderRoster();
+  if (m[2] === "agreement") return renderAgreement(subject);
   if (m[2] === "programs") return renderPrograms(subject);
   if (m[2] === "visits")   return renderVisits(subject);
   renderProfile(subject);
@@ -236,7 +411,7 @@ function renderRoster() {
     <div class="roster">
       ${SUBJECTS.map(s => `
         <button class="subjcard" data-id="${esc(s.subject_id)}">
-          ${avatar(s.name, "sm")}
+          ${avatar(s.name, "sm", s.has_login)}
           <div>
             <div class="nm">${esc(s.name)}</div>
             <div class="id">${esc(s.case_number)}</div>
@@ -253,13 +428,16 @@ function renderProfile(s) {
     <div class="crumb"><a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp; ${esc(s.name)}</div>
     <div class="panel">
       <div class="profhead">
-        ${avatar(s.name, "lg")}
+        ${avatar(s.name, "lg", s.has_login)}
         <div>
           <div class="nm">${esc(s.name)}</div>
           <div class="sub">${esc(s.case_number)}</div>
           <span class="badge">${esc(s.status)}</span>
         </div>
       </div>
+
+      <div class="loginRow" id="loginRow"></div>
+      <div id="creds"></div>
 
       <dl class="demo">
         <div><dt>Date of birth</dt><dd>${esc(s.dob)}</dd></div>
@@ -269,6 +447,8 @@ function renderProfile(s) {
         <div><dt>Intake date</dt><dd>${esc(s.intake)}</dd></div>
         <div><dt>Next review</dt><dd>${esc(s.review)}</dd></div>
       </dl>
+
+      <div class="tiles" id="tiles"></div>
 
       <div class="actions">
         <a class="btn" id="toPrograms">
@@ -285,12 +465,199 @@ function renderProfile(s) {
           </svg>
           Visits
         </a>
+        <a class="btn ghost" id="toAgreement">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <path d="M14 2v6h6M9 13h6M9 17h4"/></svg>
+          Supervision Agreement
+        </a>
         <button class="btn ghost" disabled>Case notes</button>
       </div>
     </div>`;
   el("toRoster").onclick = () => { location.hash = ""; };
   el("toPrograms").onclick = () => { location.hash = `/subject/${s.subject_id}/programs`; };
   el("toVisits").onclick = () => { location.hash = `/subject/${s.subject_id}/visits`; };
+  el("toAgreement").onclick = () => { location.hash = `/subject/${s.subject_id}/agreement`; };
+  paintLoginRow(s);
+  loadDetail(s);
+}
+
+/* Every acknowledgment the subject has given, with the text each referred to. */
+async function paintAckHistory(a, subj) {
+  const box = el("ackHistory"); if (!box || !a?.id) return;
+  let list = [];
+  try {
+    const d = await fetch(`/api/agreement/acknowledgments?agreement_id=${a.id}`).then(r => r.json());
+    list = d.acknowledgments || [];
+  } catch { return; }
+  if (list.length < 1) return;
+
+  box.innerHTML = `
+    <div class="ackHist">
+      <div class="ackHistTop">Acknowledgment history</div>
+      ${list.map((x, i) => `
+        <div class="ackHistRow">
+          <span class="ackHistWhen">${esc(whenFull(x.acknowledged_at))}</span>
+          ${i === 0 && !a.subject_signed_at
+            ? `<span class="ackHistTag">withdrawn by amendment</span>` : ""}
+          <button class="linkbtn" data-ack="${x.id}">View what was accepted</button>
+        </div>`).join("")}
+    </div>`;
+
+  box.querySelectorAll("[data-ack]").forEach(b => b.onclick = async () => {
+    try {
+      const d = await fetch(`/api/agreement/acknowledgment?id=${b.dataset.ack}`).then(r => r.json());
+      showModal("Accepted text",
+        `Exactly as it read when ${esc(subj.name)} accepted it on `
+        + `${esc(whenFull(d.acknowledgment.acknowledged_at))}.`,
+        `<pre class="snapshot">${esc(d.acknowledgment.snapshot)}</pre>`);
+    } catch { toast("Couldn't load that acknowledgment", "err"); }
+  });
+}
+
+/* ---------------- Waypoint login ----------------
+   A login belongs to the subject, not to any program they were given. It is
+   created once, deliberately, and survives every assignment after it. */
+function paintLoginRow(s) {
+  const row = el("loginRow"); if (!row) return;
+  row.innerHTML = s.has_login ? `
+    <div class="lbl"><b>Waypoint login active</b> &mdash; ${esc(s.login || s.subject_id + "@example.com")}</div>
+    <button class="btn small ghost" id="lg_reset">Reset password</button>` : `
+    <div class="lbl">No Waypoint login. ${esc(s.name.split(" ")[0])} cannot sign in to the
+      app or the learner site until one is created.</div>
+    <button class="btn small" id="lg_create">Create Waypoint Login</button>`;
+
+  const go = async (reset, btn) => {
+    btn.disabled = true;
+    btn.textContent = reset ? "Resetting\u2026" : "Creating\u2026";
+    try {
+      const d = await api("/api/subject/login", { subject_id: s.subject_id, reset });
+      s.has_login = true;
+      s.login = d.credentials.login;
+      showCreds(s.name, d.credentials);
+      paintLoginRow(s);
+      // The ring is on the roster too, so that copy has to learn about it.
+      const inList = SUBJECTS.find(x => x.subject_id === s.subject_id);
+      if (inList) { inList.has_login = true; inList.login = d.credentials.login; }
+      const av = document.querySelector(".profhead .avatar");
+      if (av) av.classList.add("hasLogin");
+      toast(reset ? "Password reset" : "Login created");
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = reset ? "Reset password" : "Create Waypoint Login";
+      toast(String(e.message || e), "err");
+    }
+  };
+
+  if (el("lg_create")) el("lg_create").onclick = e => go(false, e.currentTarget);
+  if (el("lg_reset")) el("lg_reset").onclick = async e => {
+    const btn = e.currentTarget;
+    const yes = await confirmModal({
+      title: `Reset ${s.name}'s password?`,
+      body: "Their current password stops working immediately, and the new one is shown "
+          + "only once. If they are mid-course they will be signed out.",
+      confirmLabel: "Reset password"
+    });
+    if (yes) go(true, btn);
+  };
+}
+
+/* ---------------- profile detail tiles ---------------- */
+let DETAIL = null;
+
+const ICON = {
+  vehicle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3v-5l2-5h14l2 5v5h-2"/>
+    <circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5"/></svg>`,
+  curfew:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>
+    <path d="M12 7v5l3 2"/></svg>`,
+  docs:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+    <path d="M14 2v6h6M9 13h6M9 17h4"/></svg>`,
+  contacts:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+    <circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  employ:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/>
+    <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M2 13h20"/></svg>`,
+  travel:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>
+    <path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg>`,
+  service: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l2 2 4-4"/>
+    <rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4"/></svg>`
+};
+
+async function loadDetail(s) {
+  try {
+    const [d1, d2] = await Promise.all([
+      fetch(`/api/subject/detail?subject_id=${encodeURIComponent(s.subject_id)}`).then(r => r.json()),
+      fetch(`/api/documents?subject_id=${encodeURIComponent(s.subject_id)}`).then(r => r.json())
+    ]);
+    DETAIL = { ...d1, documents: d2.documents || [] };
+  } catch { DETAIL = { vehicles: [], curfew: null, community_service: [], documents: [] }; }
+  renderTiles(s);
+}
+
+function renderTiles(s) {
+  const box = el("tiles"); if (!box) return;
+  const v = DETAIL?.vehicles || [];
+  const c = DETAIL?.curfew;
+  const cs = DETAIL?.community_service || [];
+  const tp = DETAIL?.travel_permit;
+  const emp = DETAIL?.employment;
+  const kin = DETAIL?.contacts || [];
+  const docs = DETAIL?.documents || [];
+
+  const done = cs.filter(o => o.status === "complete").length;
+  const hours = cs.reduce((a, o) => a + (Number(o.required_quantity) || 0), 0);
+
+  const tile = (key, label, summary, count) => `
+    <button class="tile" data-tile="${key}">
+      <span class="ticon">${ICON[key]}</span>
+      <span class="tbody">
+        <span class="tlabel">${label}</span>
+        <span class="tsum">${summary}</span>
+      </span>
+      ${count ? `<span class="tcount">${count}</span>` : ""}
+    </button>`;
+
+  box.innerHTML =
+      tile("vehicle", "Vehicles",
+           v.length ? v.map(x => [x.year, x.make, x.model].filter(Boolean).join(" ")).join(", ")
+                    : "None on record", v.length)
+    + tile("curfew", "Curfew",
+           c?.active ? `${esc(c.start_time)} – ${esc(c.end_time)}` : "No curfew", "")
+    + tile("contacts", "Family & Contacts",
+           kin.length
+             ? kin.slice(0, 2).map(c => `${c.name} (${c.relationship})`).join(", ")
+               + (kin.length > 2 ? ` +${kin.length - 2} more` : "")
+             : "None on record", kin.length)
+    + tile("employ", "Employment",
+           (!emp || emp.status === "not_employed" ? "Not employed"
+              : emp.status === "self_employed" ? "Self-employed"
+              : emp.company_name || "Employed")
+           + (emp?.updated_by === "subject" ? " &middot; reported by subject" : ""), "")
+    + tile("travel", "Travel Permit",
+           !tp || tp.level === "none" ? "None permitted"
+             : isExpired(tp) ? `${travelLabel(tp.level)} — expired ${asDate(tp.expires_on)}`
+             : `${travelLabel(tp.level)}${tp.expires_on ? ` until ${asDate(tp.expires_on)}` : ""}`, "")
+    + tile("docs", "Documents",
+           docs.length ? `${docs.length} on file · latest ${asDate((docs[0].created_at || "").slice(0,10))}`
+                       : "None on file", docs.length)
+    + tile("service", "Community Service",
+           cs.length ? `${done}/${cs.length} complete · ${hours} hrs` : "None assigned", cs.length);
+
+  box.querySelectorAll("[data-tile]").forEach(b =>
+    b.onclick = () => openModal(b.dataset.tile, s));
+
+  if (window.__savedTile) {
+    const t = box.querySelector(`[data-tile="${window.__savedTile}"]`);
+    window.__savedTile = null;
+    if (t) { t.classList.add("saved"); setTimeout(() => t.classList.remove("saved"), 1400); }
+  }
 }
 
 /* ---------------- visits ---------------- */
@@ -367,6 +734,7 @@ function renderVisits(s) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       el("notes").value = "";
+      toast(`Visit scheduled for ${whenFull(new Date(whenVal).toISOString())}`);
       loadVisits(s);
     } catch (e) {
       el("visitError").innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
@@ -429,7 +797,11 @@ async function loadVisits(s) {
            </div>`
         : `<div class="primary">${esc(whenFull(v.scheduled_at))}</div>
            ${v.location ? `<div class="secondary">${esc(v.location)}</div>` : ""}
-           ${v.notes ? `<div class="secondary">${esc(v.notes)}</div>` : ""}`;
+           ${v.notes ? `<div class="secondary">${esc(v.notes)}</div>` : ""}
+           ${(v.notes_log || []).map(n => `
+             <div class="vnote">${esc(n.body)}
+               <span>${esc(n.author || "")}${n.author ? " · " : ""}${esc(whenFull(n.created_at))}</span>
+             </div>`).join("")}`;
 
       const actions = requested
         ? `<button class="act" data-schedule="${v.id}">Schedule</button>
@@ -460,27 +832,30 @@ async function loadVisits(s) {
       const when = el(`rq-${id}`)?.value;
       if (!when) return;
       b.disabled = true; b.textContent = "Scheduling…";
-      await fetch("/api/visits/schedule", { method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, scheduled_at: new Date(when).toISOString(),
-                               officer: s.officer,
-                               location: (s.address || "").split("\n")[0] }) });
+      const okd = await writeVisit("/api/visits/schedule",
+        { id, scheduled_at: new Date(when).toISOString(), officer: s.officer,
+          location: (s.address || "").split("\n")[0] },
+        `Visit scheduled for ${whenFull(new Date(when).toISOString())}`);
+      if (!okd) { b.disabled = false; b.textContent = "Schedule"; return; }
       loadVisits(s);
     });
 
     body.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
       b.disabled = true; b.textContent = "Saving…";
-      await fetch("/api/visits/complete", { method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: Number(b.dataset.done), officer: s.officer }) });
+      const okd = await writeVisit("/api/visits/complete",
+        { id: Number(b.dataset.done), officer: s.officer }, "Visit marked complete");
+      if (!okd) { b.disabled = false; b.textContent = "Mark complete"; return; }
       loadVisits(s);
     });
 
     body.querySelectorAll("[data-cancel]").forEach(b => b.onclick = async () => {
-      await fetch("/api/visits/cancel", { method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: Number(b.dataset.cancel) }) });
-      loadVisits(s);
+      const yes = await confirmModal({
+        title: "Cancel this visit?",
+        body: `${s.name.split(" ")[0]} sees the cancellation in their app immediately.`,
+        confirmLabel: "Cancel visit" });
+      if (!yes) return;
+      if (await writeVisit("/api/visits/cancel", { id: Number(b.dataset.cancel) },
+                           "Visit cancelled")) loadVisits(s);
     });
   } catch {}
 }
@@ -498,8 +873,8 @@ function renderPrograms(s) {
       <section class="panel">
         <h2>Assign a program</h2>
         <div class="body">
-          <p class="hint">Content is pulled live from Waypoint. Assigning creates the
-             subject's login and returns credentials to hand over.</p>
+          <p class="hint">Content is pulled live from Waypoint. The subject needs a
+             Waypoint login to open what you assign &mdash; create one from their profile.</p>
           <div id="assignError"></div>
 
           <label>Subject</label>
@@ -508,8 +883,7 @@ function renderPrograms(s) {
           <label for="program">Program</label>
           <select id="program"><option>Loading&hellip;</option></select>
 
-          <button class="btn" id="assign">Assign &amp; create login</button>
-          <div id="creds"></div>
+          <button class="btn" id="assign">Assign program</button>
         </div>
       </section>
 
@@ -564,25 +938,1067 @@ function renderPrograms(s) {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      showCreds(s.name, d.credentials);
-      try { sessionStorage.setItem("lastCreds", JSON.stringify(
-        { subject_id: s.subject_id, name: s.name, ...d.credentials })); } catch {}
+      if (d.needs_login) {
+        el("assignError").innerHTML =
+          `<div class="warn">Assigned, but ${esc(s.name.split(" ")[0])} has no Waypoint
+             login and cannot open it. Create one from their profile.</div>`;
+      }
+      toast(`${el("program").selectedOptions[0].text.split(" — ")[0]} assigned`);
       refresh(s);
     } catch (e) {
       el("assignError").innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
     } finally {
-      btn.disabled = false; btn.textContent = "Assign & create login";
+      btn.disabled = false; btn.textContent = "Assign program";
     }
   };
 
-  restoreCreds(s);
   refresh(s);
   poll = setInterval(() => refresh(s), 3000);
 }
 
+/* ================================================================
+   Supervision agreement — a full page, because it is a document
+================================================================ */
+let AG = null;
+
+/* Every dropdown is filled from /api/agreement, which returns the same
+   reference data /api/reference does — one source, not a list per form. */
+const kindLabel = k => ((AG?.supervision_kinds || []).find(x => x[0] === k) || [k, k])[1];
+const levelLabel = k => ((AG?.supervision_levels || []).find(x => x[0] === k) || [k, k])[1];
+
+async function renderAgreement(s) {
+  view.innerHTML = `<div class="crumb"><a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp;
+    <a id="toProfile">${esc(s.name)}</a> &nbsp;&rsaquo;&nbsp; Supervision Agreement</div>
+    <p class="pagesub">Loading…</p>`;
+  el("toRoster").onclick = () => { location.hash = ""; };
+  el("toProfile").onclick = () => { location.hash = `/subject/${s.subject_id}`; };
+
+  AG = await fetch(`/api/agreement?subject_id=${encodeURIComponent(s.subject_id)}`)
+    .then(r => r.json()).catch(() => null);
+  paintAgreement(s);
+}
+
+/* A save that re-renders to the same values looks exactly like a save that
+   did not happen. Say so. */
+/** POST JSON and throw the server's own message on failure, so the caller can
+ *  show it rather than inventing one. */
+async function api(path, body) {
+  const r = await fetch(path, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
+  return d;
+}
+
+function toast(msg, kind = "ok") {
+  document.getElementById("toast")?.remove();
+  const t = document.createElement("div");
+  t.id = "toast"; t.className = `toast ${kind}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("in"));
+  setTimeout(() => { t.classList.remove("in"); setTimeout(() => t.remove(), 250); }, 2200);
+}
+
+/** A visit write. These had no feedback at all: a refused schedule looked
+ *  exactly like a successful one. Returns whether it actually saved. */
+async function writeVisit(path, body, okMsg) {
+  try {
+    const r = await fetch(path, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(d.error || `Could not save (HTTP ${r.status})`, "err"); return false; }
+    toast(okMsg);
+    return true;
+  } catch {
+    toast("Couldn't reach the server — nothing was saved.", "err");
+    return false;
+  }
+}
+
+async function agPost(path, body, s, okMsg) {
+  const r = await fetch(path, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(d.error || `Could not save (HTTP ${r.status})`, "err"); return false; }
+  AG.agreement = d.agreement ?? AG.agreement;
+  paintAgreement(s);
+  if (d.amended) toast("Saved — the subject must acknowledge the change", "warn");
+  else if (okMsg) toast(okMsg);
+  return true;
+}
+
+function paintAgreement(s) {
+  const a = AG?.agreement;
+  const cats = AG?.categories || [];
+
+  if (!a) {
+    view.innerHTML = `
+      <div class="crumb"><a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp;
+        <a id="toProfile">${esc(s.name)}</a> &nbsp;&rsaquo;&nbsp; Supervision Agreement</div>
+      <div class="panel"><div class="body" style="text-align:center;padding:44px 24px">
+        <h2 style="margin:0 0 6px;border:0;padding:0">No supervision agreement</h2>
+        <p class="hint" style="margin:0 auto 22px;max-width:34em">
+          Create one to record the conditions of supervision. Standard clauses are
+          offered for each section and every one stays editable.</p>
+        <button class="btn small" id="ag_new">Create agreement</button>
+      </div></div>`;
+    wireCrumbs(s);
+    el("ag_new").onclick = () => agPost("/api/agreement/save", {
+      subject_id: s.subject_id, kind: "probation", status: "draft",
+      officer_name: s.officer, office: (AG.offices || [])[0]?.name || null,
+      violation_text: AG.default_violation_text,
+      start_date: new Date().toISOString().slice(0, 10)
+    }, s, "Draft agreement created");
+    return;
+  }
+
+  const byCat = {};
+  (a.conditions || []).forEach(c => (byCat[c.category] ||= []).push(c));
+  const editable = a.status === "draft" || a.status === "active";
+  const signedBoth = a.officer_signed_at && a.subject_signed_at;
+
+  view.innerHTML = `
+    <div class="crumb"><a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp;
+      <a id="toProfile">${esc(s.name)}</a> &nbsp;&rsaquo;&nbsp; Supervision Agreement</div>
+
+    <div class="panel agHead">
+      <div class="agTitle">
+        <div>
+          <h2 style="border:0;padding:0;margin:0;font-size:19px">
+            Conditions of Supervision</h2>
+          <p class="hint" style="margin:3px 0 0">${esc(s.name)} · ${esc(s.case_number)}</p>
+        </div>
+        <span class="pill ${a.status === "active" ? "ok" : a.status === "draft" ? "amber" : "muted"}">
+          ${esc(a.status)}</span>
+      </div>
+
+      <div class="agGrid">
+        <div><label>Supervision type</label>${
+          editable ? sel("ag_kind", AG.supervision_kinds, a.kind)
+                   : `<div class="ro">${esc(kindLabel(a.kind))}</div>`}</div>
+        <div><label>Supervision level</label>${
+          editable ? sel("ag_level", AG.supervision_levels, a.supervision_level || "standard")
+                   : `<div class="ro">${esc(levelLabel(a.supervision_level))}</div>`}</div>
+        <div><label>Start</label>${
+          editable ? `<input type="date" id="ag_start" value="${esc(a.start_date || "")}">`
+                   : `<div class="ro">${esc(asDate(a.start_date)) || "—"}</div>`}</div>
+        <div><label>Expires</label>${
+          editable ? `<input type="date" id="ag_end" value="${esc(a.end_date || "")}">`
+                   : `<div class="ro">${esc(asDate(a.end_date)) || "—"}</div>`}</div>
+        <div><label>Supervising office</label>${
+          editable ? sel("ag_office", (AG.offices || []).map(o => [o.name, o.name]),
+                         a.office, "Select an office…")
+                   : `<div class="ro">${esc(a.office || "—")}</div>`}</div>
+        <div><label>Supervising officer</label>${
+          editable ? sel("ag_officer", (AG.officers || []).map(o => [o.name, o.name]),
+                         a.officer_name, "Select an officer…")
+                   : `<div class="ro">${esc(a.officer_name || "—")}</div>`}</div>
+      </div>
+      ${a.status === "active" && a.subject_signed_at ? `
+        <p class="mnote" style="margin:16px 0 0">
+          This agreement is executed. Changing any term or condition withdraws
+          ${esc(s.name.split(" ")[0])}'s acknowledgment and asks them to confirm again.</p>` : ""}
+      ${a.amended_at && !a.subject_signed_at ? `
+        <div class="err" style="margin:16px 0 0">Amended ${esc(whenFull(a.amended_at))} —
+          awaiting re-acknowledgment.</div>` : ""}
+
+      <div class="agActions">
+        <button class="linkbtn done" id="ag_pdf">Generate PDF</button>
+        ${editable ? `<button class="btn small" id="ag_savehead">Save details</button>` : ""}
+      </div>
+    </div>
+
+    ${cats.map(([key, label]) => {
+      const list = byCat[key] || [];
+      const tpl = (AG.templates || {})[key] || [];
+      return `
+      <section class="panel agSection">
+        <h2>${label} ${list.length ? `<span class="cnt">${list.length}</span>` : ""}</h2>
+        <div class="body">
+          ${list.length ? list.map(c => `
+            <div class="cond">
+              <div class="condbody">${esc(c.body)}</div>
+              <div class="condside">
+                ${c.obligation_id
+                  ? `<span class="pill ${c.obligation_status === "complete" ? "ok" : "go"}">
+                       ${esc(c.obligation_title)}${c.required_quantity
+                         ? ` · ${c.required_quantity} ${esc(c.unit || "")}` : ""}</span>`
+                  : editable
+                  ? `<button class="linkbtn done" data-track="${c.id}">Track this</button>` : ""}
+                ${editable ? `<button class="linkbtn done" data-editc="${c.id}">Edit</button>
+                              <button class="linkbtn" data-delc="${c.id}">Remove</button>` : ""}
+              </div>
+            </div>`).join("") : `<p class="mempty" style="margin:0">Nothing recorded.</p>`}
+
+          ${editable ? `
+            <div class="addcond">
+              ${tpl.length ? `<select class="tplsel" data-cat="${key}">
+                  <option value="">Add a standard condition…</option>
+                  ${tpl.map((t, i) => `<option value="${i}">${esc(t.body.slice(0, 78))}${t.body.length > 78 ? "…" : ""}</option>`).join("")}
+                </select>` : ""}
+              <button class="linkbtn done" data-custom="${key}">Write your own</button>
+            </div>` : ""}
+        </div>
+      </section>`;
+    }).join("")}
+
+    <section class="panel agSection">
+      <h2>Violation Consequences</h2>
+      <div class="body">
+        ${editable ? `<textarea id="ag_viol" rows="4">${esc(a.violation_text || "")}</textarea>
+                      <div class="agActions"><button class="btn small" id="ag_saveviol">Save</button></div>`
+                   : `<p style="margin:0;line-height:1.7">${esc(a.violation_text || "—")}</p>`}
+      </div>
+    </section>
+
+    <section class="panel agSection">
+      <h2>Acknowledgment</h2>
+      <div class="body">
+        <div class="sigs">
+          <div class="sig ${a.officer_signed_at ? "on" : ""}">
+            <div class="sigrole">Supervising officer</div>
+            ${a.officer_signed_at
+              ? `<div class="signame">${esc(a.officer_signed_by || "Signed")}</div>
+                 <div class="sigdate">${esc(whenFull(a.officer_signed_at))}</div>`
+              : `<button class="btn small" id="ag_sign">Sign as officer</button>`}
+          </div>
+          <div class="sig ${a.subject_signed_at ? "on" : ""}">
+            <div class="sigrole">Subject</div>
+            ${a.subject_signed_at
+              ? `<div class="signame">${esc(s.name)}</div>
+                 <div class="sigdate">Acknowledged in their app &middot; ${esc(whenFull(a.subject_signed_at))}</div>`
+              : `<div class="sigwait">Awaiting acknowledgment${
+                   a.status === "active" ? " in their app" : " — activate the agreement first"}</div>`}
+          </div>
+        </div>
+
+        <!-- Every acceptance the subject has given, and the exact text each
+             one referred to. After an amendment this is the only thing that
+             answers "what did they actually agree to". -->
+        <div id="ackHistory"></div>
+
+        <div class="agActions">
+          ${a.status === "draft"
+            ? `<span class="hint" style="margin:0 auto 0 0">${
+                 a.officer_signed_at ? "Ready to activate."
+                   : "Sign as the supervising officer to activate."}</span>
+               <button class="btn small" id="ag_activate"${a.officer_signed_at ? "" : " disabled"}>
+                 Activate agreement</button>`
+            : signedBoth
+            ? `<span class="hint" style="margin:0">Fully executed.</span>`
+            : `<span class="hint" style="margin:0">Active — awaiting the subject's acknowledgment.</span>`}
+        </div>
+      </div>
+    </section>`;
+
+  wireCrumbs(s);
+  wireAgreement(s, a, editable);
+  paintAckHistory(a, s);
+}
+
+const sel = (id, opts, val, blank) => `<select id="${id}">${
+  blank ? `<option value="">${blank}</option>` : ""}${opts.map(([v, l]) =>
+  `<option value="${esc(v)}"${String(v) === String(val ?? "") ? " selected" : ""}>${esc(l)}</option>`)
+  .join("")}</select>`;
+
+function wireCrumbs(s) {
+  const r = el("toRoster"), p2 = el("toProfile");
+  if (r) r.onclick = () => { location.hash = ""; };
+  if (p2) p2.onclick = () => { location.hash = `/subject/${s.subject_id}`; };
+}
+
+function wireAgreement(s, a, editable) {
+  const head = el("ag_savehead");
+  if (head) head.onclick = () => agPost("/api/agreement/save", {
+    id: a.id, kind: el("ag_kind").value, supervision_level: el("ag_level").value,
+    start_date: el("ag_start").value || null, end_date: el("ag_end").value || null,
+    office: el("ag_office").value, officer_name: el("ag_officer").value,
+    status: a.status, violation_text: a.violation_text
+  }, s, "Supervision details saved");
+
+  const viol = el("ag_saveviol");
+  if (viol) viol.onclick = () => agPost("/api/agreement/save", {
+    id: a.id, kind: a.kind, supervision_level: a.supervision_level,
+    start_date: a.start_date, end_date: a.end_date, office: a.office,
+    officer_name: a.officer_name, status: a.status,
+    violation_text: el("ag_viol").value.trim()
+  }, s, "Violation language saved");
+
+  view.querySelectorAll(".tplsel").forEach(selEl => selEl.onchange = () => {
+    const i = selEl.value; if (i === "") return;
+    const t = AG.templates[selEl.dataset.cat][Number(i)];
+    selEl.value = "";
+    agPost("/api/agreement/condition",
+      { agreement_id: a.id, category: selEl.dataset.cat, body: t.body }, s, "Condition added");
+  });
+
+  view.querySelectorAll("[data-custom]").forEach(b =>
+    b.onclick = () => conditionDialog(s, a, { category: b.dataset.custom }));
+  view.querySelectorAll("[data-editc]").forEach(b => {
+    const c = (a.conditions || []).find(x => x.id === Number(b.dataset.editc));
+    b.onclick = () => conditionDialog(s, a, c);
+  });
+
+  view.querySelectorAll("[data-delc]").forEach(b => b.onclick = async () => {
+    const c = (a.conditions || []).find(x => x.id === Number(b.dataset.delc));
+    const yes = await confirmModal({
+      title: "Remove this condition?",
+      body: (c ? `"${c.body}" ` : "") + (a.subject_signed_at
+        ? `will be removed. ${s.name.split(" ")[0]} must acknowledge the agreement again.`
+        : "will be removed from the agreement."),
+      confirmLabel: "Remove condition" });
+    if (yes) agPost("/api/agreement/condition/delete",
+                    { id: Number(b.dataset.delc), agreement_id: a.id }, s, "Condition removed");
+  });
+
+  view.querySelectorAll("[data-track]").forEach(b => {
+    const c = (a.conditions || []).find(x => x.id === Number(b.dataset.track));
+    b.onclick = () => trackDialog(s, a, c);
+  });
+
+  const pdf = el("ag_pdf");
+  if (pdf) pdf.onclick = async () => {
+    pdf.disabled = true; pdf.textContent = "Generating…";
+    try {
+      const r = await fetch("/api/agreement/pdf", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Could not generate");
+      toast("PDF filed to the subject's documents");
+      window.open(`/documents/${d.document.id}`, "_blank");
+    } catch (e) { toast(String(e.message || e), "err"); }
+    finally { pdf.disabled = false; pdf.textContent = "Generate PDF"; }
+  };
+
+  const sign = el("ag_sign");
+  if (sign) sign.onclick = () => agPost("/api/agreement/sign", { id: a.id }, s, "Signed");
+
+  const act = el("ag_activate");
+  if (act) act.onclick = () => agPost("/api/agreement/save", {
+    id: a.id, kind: a.kind, supervision_level: a.supervision_level,
+    start_date: a.start_date, end_date: a.end_date, office: a.office,
+    officer_name: a.officer_name, violation_text: a.violation_text, status: "active"
+  }, s, "Agreement activated");
+}
+
+/* ---- condition editor ---- */
+function conditionDialog(s, a, c = {}) {
+  closeModal();
+  const wrap = document.createElement("div");
+  wrap.id = "modal"; wrap.className = "modalwrap";
+  wrap.innerHTML = `<div class="scrim"></div><div class="modal"></div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector(".scrim").onclick = closeModal;
+  document.addEventListener("keydown", escClose);
+
+  const body = wrap.querySelector(".modal");
+  body.innerHTML = head(c.id ? "Edit condition" : "Add condition", esc(s.name)) + `
+    <div class="mbody">
+      <label for="cd_cat">Section</label>
+      ${sel("cd_cat", AG.categories, c.category)}
+      <label for="cd_body">Condition</label>
+      <textarea id="cd_body" rows="4" placeholder="The condition as it appears in the agreement">${esc(c.body || "")}</textarea>
+      <p class="mnote">Wording is the legally operative part — enter it exactly as ordered.</p>
+      <div class="mactions">
+        <button class="linkbtn" onclick="closeModal()">Cancel</button>
+        <button class="btn small" id="cd_save">${c.id ? "Save changes" : "Add condition"}</button>
+      </div>
+    </div>`;
+
+  el("cd_save").onclick = async () => {
+    const text = el("cd_body").value.trim();
+    if (!text) { toast("A condition cannot be empty.", "err"); el("cd_body").focus(); return; }
+    const btn = el("cd_save"); btn.disabled = true; btn.textContent = "Saving…";
+    const ok = await agPost("/api/agreement/condition", {
+      id: c.id, agreement_id: a.id, category: el("cd_cat").value, body: text }, s,
+      c.id ? "Condition updated" : "Condition added");
+    if (ok) closeModal(); else { btn.disabled = false; btn.textContent = "Save"; }
+  };
+}
+
+/* ---- Condition → Requirement ---- */
+function trackDialog(s, a, c) {
+  closeModal();
+  const wrap = document.createElement("div");
+  wrap.id = "modal"; wrap.className = "modalwrap";
+  wrap.innerHTML = `<div class="scrim"></div><div class="modal"></div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector(".scrim").onclick = closeModal;
+  document.addEventListener("keydown", escClose);
+
+  const body = wrap.querySelector(".modal");
+  body.innerHTML = head("Track this condition", esc(s.name)) + `
+    <div class="mbody">
+      <div class="quoted">${esc(c.body)}</div>
+      <p class="mnote" style="margin-top:12px">
+        The condition stays as written. What you create here is the thing that
+        gets tracked and reported against it.</p>
+
+      <label for="tk_title">Track as</label>
+      <input id="tk_title" placeholder="e.g. Complete substance use treatment">
+
+      <div class="frow">
+        <div><label for="tk_qty">How many <span class="opt">(optional)</span></label>
+          <input id="tk_qty" type="number" min="0" step="0.5" placeholder="40"></div>
+        <div><label for="tk_unit">Unit</label>
+          ${sel("tk_unit", AG.obligation_units || [["hours","hours"]], "hours")}</div>
+      </div>
+
+      <label for="tk_due">Due by <span class="opt">(optional)</span></label>
+      <input type="date" id="tk_due">
+
+      <div class="mactions">
+        <button class="linkbtn" onclick="closeModal()">Cancel</button>
+        <button class="btn small" id="tk_save">Create requirement</button>
+      </div>
+    </div>`;
+
+  el("tk_save").onclick = async () => {
+    const title = el("tk_title").value.trim();
+    if (!title) { toast("Give the requirement a name.", "err"); el("tk_title").focus(); return; }
+    const btn = el("tk_save"); btn.disabled = true; btn.textContent = "Creating…";
+    const qty = el("tk_qty").value;
+    const ok = await agPost("/api/agreement/condition/track", {
+      condition_id: c.id, agreement_id: a.id, subject_id: s.subject_id,
+      title, quantity: qty ? Number(qty) : null,
+      unit: qty ? el("tk_unit").value : null,
+      due_at: el("tk_due").value || null }, s, "Requirement created");
+    if (ok) closeModal(); else { btn.disabled = false; btn.textContent = "Create requirement"; }
+  };
+}
+
+/* ---------------- modals ----------------
+   One shell, three bodies. Adding the next mini-feature is a new render
+   function, not another dialog implementation. */
+
+function closeModal() {
+  const m = el("modal"); if (m) m.remove();
+  document.removeEventListener("keydown", escClose);
+}
+function escClose(e) { if (e.key === "Escape") closeModal(); }
+
+function openModal(kind, s) {
+  closeModal();
+  const wrap = document.createElement("div");
+  wrap.id = "modal"; wrap.className = "modalwrap";
+  wrap.innerHTML = `<div class="scrim"></div><div class="modal"></div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector(".scrim").onclick = closeModal;
+  document.addEventListener("keydown", escClose);
+
+  const body = wrap.querySelector(".modal");
+  if (kind === "vehicle") renderVehicles(body, s);
+  if (kind === "curfew")  renderCurfew(body, s);
+  if (kind === "service") renderService(body, s);
+  if (kind === "travel")  renderTravel(body, s);
+  if (kind === "employ")  renderEmployment(body, s);
+  if (kind === "contacts") renderContacts(body, s);
+  if (kind === "docs")    renderDocs(body, s);
+}
+
+/**
+ * A styled confirmation, resolving true/false. Replaces `confirm()`, which
+ * this project does not use — it cannot be styled, cannot state a consequence
+ * properly, and blocks the whole tab.
+ */
+function confirmModal({ title, body, confirmLabel = "Confirm", danger = true }) {
+  return new Promise(resolve => {
+    closeModal();
+    const wrap = document.createElement("div");
+    wrap.id = "modal"; wrap.className = "modalwrap";
+    wrap.innerHTML = `<div class="scrim"></div><div class="modal"></div>`;
+    document.body.appendChild(wrap);
+
+    const done = v => { closeModal(); resolve(v); };
+    wrap.querySelector(".scrim").onclick = () => done(false);
+    wrap.querySelector(".modal").innerHTML = `
+      ${head(esc(title))}
+      <div class="mbody">
+        <p style="margin:0;font-size:14.5px;line-height:1.6;color:var(--ink-2)">${esc(body)}</p>
+        <div class="mfoot">
+          <button class="linkbtn" id="cm_no">Cancel</button>
+          <button class="btn small${danger ? " danger" : ""}" id="cm_yes">${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    el("cm_no").onclick = () => done(false);
+    el("cm_yes").onclick = () => done(true);
+    el("cm_yes").focus();
+
+    // Esc cancels, matching every other modal here.
+    const key = e => { if (e.key === "Escape") { document.removeEventListener("keydown", key); done(false); } };
+    document.addEventListener("keydown", key);
+  });
+}
+
+/** A read-only modal for content that has no editor behind it. */
+function showModal(title, sub, html) {
+  closeModal();
+  const wrap = document.createElement("div");
+  wrap.id = "modal"; wrap.className = "modalwrap";
+  wrap.innerHTML = `<div class="scrim"></div><div class="modal"></div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector(".scrim").onclick = closeModal;
+  document.addEventListener("keydown", escClose);
+  wrap.querySelector(".modal").innerHTML =
+    head(esc(title), esc(sub)) + `<div class="mbody">${html}</div>`;
+}
+
+const head = (title, sub) => `
+  <div class="mhead">
+    <div><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}</div>
+    <button class="mclose" onclick="closeModal()" aria-label="Close">&times;</button>
+  </div>`;
+
+/* Which tile each endpoint belongs to, so a save can flash the right one and
+   name itself in the confirmation. One table rather than a chain of
+   `url.includes(...)` guesses that silently return null for anything added
+   later — which is exactly how employment shipped with no feedback. */
+const MODULE = {
+  "/api/vehicles":          { tile: "vehicle", saved: "Vehicle saved" },
+  "/api/vehicles/delete":   { tile: "vehicle", saved: "Vehicle removed" },
+  "/api/curfew":            { tile: "curfew",  saved: "Curfew saved" },
+  "/api/travel-permit":     { tile: "travel",  saved: "Travel permit saved" },
+  "/api/employment":        { tile: "employ",  saved: "Employment saved" },
+  "/api/obligations":       { tile: "service", saved: "Requirement saved" },
+  "/api/obligations/delete":{ tile: "service", saved: "Requirement removed" }
+};
+
+/* `close` for single-record editors — curfew, travel permit, employment —
+   where a re-render looks identical to not having saved. List editors stay
+   open so another row can be added.
+
+   Either way the save is confirmed out loud. "It re-rendered and looked the
+   same" is indistinguishable from "nothing happened", and that has been
+   mistaken for a bug three times on this project. */
+async function saveAndRefresh(url, payload, s, body, render, { close = false } = {}) {
+  const mod = MODULE[url] || {};
+  const btns = body.querySelectorAll("button");
+  const saveBtn = body.querySelector('[id$="_save"]');
+  const label = saveBtn?.textContent;
+  btns.forEach(b => b.disabled = true);
+  if (saveBtn) saveBtn.textContent = "Saving\u2026";
+  try {
+    const r = await fetch(url, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(d.error || `Could not save (HTTP ${r.status})`, "err"); return false; }
+    await loadDetail(s);
+    if (close) {
+      // Flag which tile changed so it can flash once the modal is gone.
+      window.__savedTile = mod.tile || null;
+      renderTiles(s);
+      closeModal();
+    } else render(body, s);
+    toast(mod.saved || "Saved");
+    return true;
+  } catch (e) {
+    // A silent failure is worse than an ugly one.
+    toast("Couldn't reach the server — your change was NOT saved.", "err");
+    return false;
+  } finally {
+    btns.forEach(b => b.disabled = false);
+    if (saveBtn && label) saveBtn.textContent = label;
+  }
+}
+
+/* ---- family contacts ----
+   The one module both sides maintain. Rows the subject added are marked, so
+   an officer can see what came from them without the list being split in
+   two — two lists would immediately disagree about the same person. */
+const RELATIONSHIPS = [
+  "Mother","Father","Stepmother","Stepfather","Guardian",
+  "Spouse","Partner","Girlfriend","Boyfriend","Fiancé(e)","Ex-spouse",
+  "Son","Daughter","Brother","Sister",
+  "Grandmother","Grandfather","Aunt","Uncle","Cousin","Nephew","Niece",
+  "In-law","Friend","Neighbor","Roommate","Clergy","Sponsor","Other"
+];
+
+function renderContacts(body, s, editing = null) {
+  const list = DETAIL?.contacts || [];
+  const e = editing === null ? null : (list.find(c => c.id === editing) || {});
+
+  body.innerHTML = head("Family & Contacts", esc(s.name)) + `
+    <div class="mbody">
+      ${list.length ? `<div class="mlist">${list.map(c => `
+        <div class="mrow">
+          <div>
+            <div class="mrow-t">${esc(c.name)}
+              ${c.added_by === "subject"
+                ? `<span class="byline">added by ${esc(s.name.split(" ")[0])}</span>` : ""}</div>
+            <div class="mrow-s">${esc(c.relationship)} &middot;
+              <a class="tel" href="tel:${esc(c.phone.replace(/[^\d+]/g, ""))}">${esc(c.phone)}</a>
+              ${c.notes ? ` &middot; ${esc(c.notes)}` : ""}</div>
+          </div>
+          <div class="mrow-a">
+            <button class="linkbtn done" data-edit="${c.id}">Edit</button>
+            <button class="linkbtn" data-del="${c.id}">Remove</button>
+          </div>
+        </div>`).join("")}</div>` : `<p class="mempty">No contacts on record.</p>`}
+
+      ${e ? `
+        <div class="mform">
+          <label for="k_name">Name</label>
+          <input id="k_name" value="${esc(e.name || "")}" placeholder="e.g. Bob Smith">
+
+          <div class="frow">
+            <div>
+              <label for="k_rel">Relationship</label>
+              ${sel("k_rel", RELATIONSHIPS.map(r => [r, r]), e.relationship, "Choose…")}
+            </div>
+            <div>
+              <label for="k_phone">Phone number</label>
+              <input id="k_phone" value="${esc(e.phone || "")}" placeholder="333-222-1111"
+                     inputmode="tel">
+            </div>
+          </div>
+
+          <label for="k_notes">Notes <span class="opt">(optional)</span></label>
+          <input id="k_notes" value="${esc(e.notes || "")}"
+                 placeholder="e.g. emergency contact, lives locally">
+
+          <div class="mactions">
+            <button class="linkbtn" id="k_cancel">Cancel</button>
+            <button class="btn small" id="k_save">${e.id ? "Save changes" : "Add contact"}</button>
+          </div>
+        </div>`
+      : `<button class="btn small addbtn" id="k_add">Add a contact</button>`}
+    </div>`;
+
+  body.querySelectorAll("[data-edit]").forEach(b =>
+    b.onclick = () => renderContacts(body, s, Number(b.dataset.edit)));
+  body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const c = list.find(x => x.id === Number(b.dataset.del));
+    const yes = await confirmModal({
+      title: "Remove this contact?",
+      body: `${c ? `${c.name} (${c.relationship})` : "This contact"} will be removed `
+          + "from the subject's record.",
+      confirmLabel: "Remove contact" });
+    if (yes) await saveAndRefresh("/api/contacts/delete", { id: Number(b.dataset.del) },
+                                  s, body, renderContacts);
+  });
+  const add = el("k_add"); if (add) add.onclick = () => renderContacts(body, s, 0);
+  const cancel = el("k_cancel"); if (cancel) cancel.onclick = () => renderContacts(body, s);
+  const save = el("k_save");
+  if (save) save.onclick = () => {
+    const name = el("k_name").value.trim();
+    const rel = el("k_rel").value;
+    const phone = el("k_phone").value.trim();
+    if (!name) { toast("Enter the contact's name.", "err"); el("k_name").focus(); return; }
+    if (!rel) { toast("Choose how this person is related.", "err"); el("k_rel").focus(); return; }
+    if (!phone) { toast("Enter a phone number.", "err"); el("k_phone").focus(); return; }
+    saveAndRefresh("/api/contacts", {
+      id: e.id || undefined, subject_id: s.subject_id,
+      name, relationship: rel, phone, notes: el("k_notes").value.trim()
+    }, s, body, renderContacts);
+  };
+}
+
+/* ---- vehicles ---- */
+/* The same lists the app uses. Free text on both sides means "Chevrolet",
+   "Chevy" and "chev" all become different makes in any report built later. */
+const CAR_MAKES = [
+  "Acura","Audi","BMW","Buick","Cadillac","Chevrolet","Chrysler","Dodge","Ford","GMC",
+  "Honda","Hyundai","Infiniti","Jeep","Kia","Land Rover","Lexus","Lincoln","Mazda",
+  "Mercedes-Benz","Mercury","Mini","Mitsubishi","Nissan","Pontiac","Ram","Saturn",
+  "Subaru","Tesla","Toyota","Volkswagen","Volvo","Other"
+];
+const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL",
+  "IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA",
+  "WV","WI","WY"];
+
+function renderVehicles(body, s, editing = null) {
+  const list = DETAIL?.vehicles || [];
+  const e = editing === null ? null : (list.find(v => v.id === editing) || {});
+
+  body.innerHTML = head("Vehicles", esc(s.name)) + `
+    <div class="mbody">
+      ${list.length ? `<div class="mlist">${list.map(v => `
+        <div class="mrow">
+          <div>
+            <div class="mrow-t">${esc([v.year, v.make, v.model].filter(Boolean).join(" ") || "Vehicle")}</div>
+            <div class="mrow-s">${esc([v.color, v.plate ? `Plate ${v.plate}` : "", v.state]
+              .filter(Boolean).join(" · ") || "No details")}</div>
+          </div>
+          <div class="mrow-a">
+            <button class="linkbtn done" data-edit="${v.id}">Edit</button>
+            <button class="linkbtn" data-del="${v.id}">Remove</button>
+          </div>
+        </div>`).join("")}</div>` : `<p class="mempty">No vehicles on record.</p>`}
+
+      ${e ? `
+        <div class="mform">
+          <div class="frow">
+            <div><label for="v_year">Year</label>
+              <input id="v_year" value="${esc(e.year || "")}" placeholder="2019"
+                     inputmode="numeric" maxlength="4"></div>
+            <div><label for="v_make">Make</label>
+              ${sel("v_make", CAR_MAKES.map(m => [m, m]), e.make, "Choose\u2026")}
+              <input id="v_makeOther" value="${e.make && !CAR_MAKES.includes(e.make) ? esc(e.make) : ""}"
+                     placeholder="Type the make"
+                     style="margin-top:8px;${e.make && !CAR_MAKES.includes(e.make) ? "" : "display:none"}"></div>
+          </div>
+          <div class="frow">
+            <div><label for="v_model">Model</label>
+              <input id="v_model" value="${esc(e.model || "")}" placeholder="Corolla"></div>
+            <div><label for="v_color">Color</label>
+              <input id="v_color" value="${esc(e.color || "")}" placeholder="Silver"></div>
+          </div>
+          <div class="frow">
+            <div><label for="v_plate">License plate</label>
+              <input id="v_plate" value="${esc(e.plate || "")}" placeholder="ABC-1234"
+                     style="text-transform:uppercase"></div>
+            <div><label for="v_state">State</label>
+              ${sel("v_state", US_STATES.map(x => [x, x]), e.state, "\u2014")}</div>
+          </div>
+          <div class="mactions">
+            <button class="linkbtn" id="v_cancel">Cancel</button>
+            <button class="btn small" id="v_save">${e.id ? "Save changes" : "Add vehicle"}</button>
+          </div>
+        </div>`
+      : `<button class="btn small addbtn" id="v_add">Add a vehicle</button>`}
+    </div>`;
+
+  body.querySelectorAll("[data-edit]").forEach(b =>
+    b.onclick = () => renderVehicles(body, s, Number(b.dataset.edit)));
+  body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const v = list.find(x => x.id === Number(b.dataset.del));
+    const yes = await confirmModal({
+      title: "Remove this vehicle?",
+      body: `${[v?.year, v?.make, v?.model].filter(Boolean).join(" ") || "This vehicle"} `
+          + "will be removed from the subject's record.",
+      confirmLabel: "Remove vehicle" });
+    if (yes) await saveAndRefresh("/api/vehicles/delete", { id: Number(b.dataset.del) },
+                                  s, body, renderVehicles);
+  });
+  const add = el("v_add"); if (add) add.onclick = () => renderVehicles(body, s, 0);
+  const cancel = el("v_cancel"); if (cancel) cancel.onclick = () => renderVehicles(body, s);
+
+  // "Other" reveals a box: a list that cannot express someone's car is worse
+  // than free text.
+  const mk = el("v_make");
+  if (mk) mk.onchange = () => {
+    const other = el("v_makeOther");
+    other.style.display = mk.value === "Other" ? "" : "none";
+    if (mk.value === "Other") other.focus(); else other.value = "";
+  };
+
+  const save = el("v_save");
+  if (save) save.onclick = () => {
+    const make = el("v_make").value === "Other"
+      ? el("v_makeOther").value.trim() : el("v_make").value;
+    saveAndRefresh("/api/vehicles", {
+      id: e.id || undefined, subject_id: s.subject_id,
+      year: el("v_year").value.trim(), make,
+      model: el("v_model").value.trim(), color: el("v_color").value.trim(),
+      plate: el("v_plate").value.trim().toUpperCase(), state: el("v_state").value
+    }, s, body, renderVehicles);
+  };
+}
+
+/* ---- curfew ---- */
+function renderCurfew(body, s) {
+  const c = DETAIL?.curfew || {};
+  body.innerHTML = head("Curfew", esc(s.name)) + `
+    <div class="mbody">
+      <label class="check">
+        <input type="checkbox" id="c_active" ${c.active ? "checked" : ""}>
+        <span>This subject has a curfew</span>
+      </label>
+      <div class="frow" id="c_times" style="${c.active ? "" : "opacity:.45;pointer-events:none"}">
+        <div><label>From</label><input type="time" id="c_start" value="${esc(c.start_time || "21:00")}"></div>
+        <div><label>Until</label><input type="time" id="c_end" value="${esc(c.end_time || "06:00")}"></div>
+      </div>
+      <label>Notes <span class="opt">(optional)</span></label>
+      <input id="c_notes" value="${esc(c.notes || "")}" placeholder="e.g. except for approved work shifts">
+      <p class="mnote" id="c_preview"></p>
+      <div class="mactions">
+        <button class="linkbtn" onclick="closeModal()">Cancel</button>
+        <button class="btn small" id="c_save">Save</button>
+      </div>
+    </div>`;
+
+  const preview = () => {
+    const on = el("c_active").checked;
+    const a = to12h(el("c_start").value), b = to12h(el("c_end").value);
+    const overnight = el("c_end").value && el("c_start").value
+                   && el("c_end").value <= el("c_start").value;
+    el("c_preview").innerHTML = !on
+      ? "No curfew in effect."
+      : `Curfew runs <b>${esc(a)} to ${esc(b)}</b>${overnight ? " the following morning" : ""}.`;
+  };
+  preview();
+  el("c_start").onchange = preview;
+  el("c_end").onchange = preview;
+
+  el("c_active").onchange = e => {
+    const box = el("c_times");
+    box.style.opacity = e.target.checked ? "" : ".45";
+    box.style.pointerEvents = e.target.checked ? "" : "none";
+    preview();
+  };
+  el("c_save").onclick = () => saveAndRefresh("/api/curfew", {
+    subject_id: s.subject_id, active: el("c_active").checked,
+    start_time: el("c_start").value, end_time: el("c_end").value,
+    notes: el("c_notes").value.trim()
+  }, s, body, renderCurfew, { close: true });
+}
+
+/* ---- documents ---- */
+function renderDocs(body, s) {
+  const list = DETAIL?.documents || [];
+  const kb = n => n ? `${Math.max(1, Math.round(n / 1024))} KB` : "";
+  body.innerHTML = head("Documents", esc(s.name)) + `
+    <div class="mbody">
+      ${list.length ? `<div class="mlist">${list.map(d => `
+        <div class="mrow">
+          <div>
+            <div class="mrow-t">${esc(d.title)}</div>
+            <div class="mrow-s">${esc(whenFull(d.created_at))} · ${esc(kb(d.byte_size))}${
+              d.created_by ? ` · ${esc(d.created_by)}` : ""}</div>
+          </div>
+          <div class="mrow-a">
+            <a class="linkbtn done" href="/documents/${d.id}" target="_blank">View</a>
+          </div>
+        </div>`).join("")}</div>`
+        : `<p class="mempty">Nothing on file. Generating a supervision agreement PDF files it here.</p>`}
+      <p class="mnote">Each generated PDF is kept — a document is a snapshot of the
+        agreement as it stood, so earlier copies stay valid evidence of what was
+        acknowledged at the time.</p>
+    </div>`;
+}
+
+/* ---- travel permit ---- */
+function renderTravel(body, s) {
+  const t = DETAIL?.travel_permit || { level: "none" };
+  const expired = isExpired(t);
+
+  body.innerHTML = head("Travel Permit", esc(s.name)) + `
+    <div class="mbody">
+      ${expired ? `<div class="err">This permit expired on ${esc(asDate(t.expires_on))}.</div>` : ""}
+      <label>Travel permitted</label>
+      <div class="levels" id="t_levels">
+        ${TRAVEL.map(([v, l]) => `
+          <label class="lvl${(t.level || "none") === v ? " on" : ""}">
+            <input type="radio" name="lvl" value="${v}"${(t.level || "none") === v ? " checked" : ""}>
+            <span>${l}</span>
+          </label>`).join("")}
+      </div>
+
+      <div id="t_expwrap" style="${(t.level || "none") === "none" ? "display:none" : ""}">
+        <label>Expires <span class="opt">(leave blank for no expiry)</span></label>
+        <input type="date" id="t_exp" value="${esc(t.expires_on || "")}">
+      </div>
+
+      <label>Conditions <span class="opt">(optional)</span></label>
+      <input id="t_notes" value="${esc(t.notes || "")}"
+             placeholder="e.g. work travel only, must notify 48 hours ahead">
+      <p class="mnote" id="t_preview"></p>
+
+      <div class="mactions">
+        <button class="linkbtn" onclick="closeModal()">Cancel</button>
+        <button class="btn small" id="t_save">Save</button>
+      </div>
+    </div>`;
+
+  const level = () => body.querySelector('input[name="lvl"]:checked').value;
+  const preview = () => {
+    const lv = level();
+    body.querySelectorAll(".lvl").forEach(l =>
+      l.classList.toggle("on", l.querySelector("input").checked));
+    el("t_expwrap").style.display = lv === "none" ? "none" : "";
+    const exp = el("t_exp").value;
+    el("t_preview").innerHTML = lv === "none"
+      ? "No travel is permitted."
+      : `<b>${esc(travelLabel(lv))}</b> travel permitted${
+          exp ? ` until <b>${esc(asDate(exp))}</b>` : ", with no expiry"}.`;
+  };
+  preview();
+  body.querySelectorAll('input[name="lvl"]').forEach(r => r.onchange = preview);
+  el("t_exp").onchange = preview;
+
+  el("t_save").onclick = () => saveAndRefresh("/api/travel-permit", {
+    subject_id: s.subject_id, level: level(),
+    expires_on: el("t_exp").value || null, notes: el("t_notes").value.trim()
+  }, s, body, renderTravel, { close: true });
+}
+
+/* ---- employment ---- */
+const EMPLOYMENT = [["employed","Employed"],["self_employed","Self-employed"],
+                    ["not_employed","Not employed"]];
+const employmentLabel = v => (EMPLOYMENT.find(([k]) => k === v) || [, "Not employed"])[1];
+
+function renderEmployment(body, s) {
+  const e = DETAIL?.employment || { status: "not_employed" };
+  const status = e.status || "not_employed";
+
+  body.innerHTML = head("Employment", esc(s.name)) + `
+    <div class="mbody">
+      ${e.updated_by === "subject" ? `<div class="warn">Last updated by
+        ${esc(s.name.split(" ")[0])} in their app${
+          e.updated_at ? ` on ${esc(whenFull(e.updated_at))}` : ""}. Verify before relying on it.</div>` : ""}
+      <label>Employment status</label>
+      <div class="levels" id="e_levels">
+        ${EMPLOYMENT.map(([v, l]) => `
+          <label class="lvl${status === v ? " on" : ""}">
+            <input type="radio" name="emp" value="${v}"${status === v ? " checked" : ""}>
+            <span>${l}</span>
+          </label>`).join("")}
+      </div>
+
+      <div id="e_details" style="${status === "employed" ? "" : "display:none"}">
+        <label for="e_company">Company name</label>
+        <input id="e_company" value="${esc(e.company_name || "")}"
+               placeholder="e.g. Ridgeway Fabrication">
+
+        <label for="e_address">Address <span class="opt">(optional)</span></label>
+        <input id="e_address" value="${esc(e.address || "")}"
+               placeholder="e.g. 1180 Industrial Dr, Kingsport, TN 37660">
+
+        <div class="frow">
+          <div>
+            <label for="e_phone">Phone <span class="opt">(optional)</span></label>
+            <input id="e_phone" value="${esc(e.phone || "")}" placeholder="(423) 555-0100">
+          </div>
+          <div>
+            <label for="e_super">Supervisor <span class="opt">(optional)</span></label>
+            <input id="e_super" value="${esc(e.supervisor || "")}" placeholder="e.g. J. Barrett">
+          </div>
+        </div>
+      </div>
+
+      <label for="e_notes">Notes <span class="opt">(optional)</span></label>
+      <input id="e_notes" value="${esc(e.notes || "")}"
+             placeholder="e.g. weekend shifts only, verified 12 August">
+      <p class="mnote" id="e_preview"></p>
+      <div id="e_error"></div>
+
+      <div class="mactions">
+        <button class="linkbtn" onclick="closeModal()">Cancel</button>
+        <button class="btn small" id="e_save">Save</button>
+      </div>
+    </div>`;
+
+  const pick = () => body.querySelector('input[name="emp"]:checked').value;
+  const preview = () => {
+    const v = pick();
+    body.querySelectorAll(".lvl").forEach(l =>
+      l.classList.toggle("on", l.querySelector("input").checked));
+    // Employer details belong to an employer. Hiding them makes it plain that
+    // they are dropped, rather than kept invisibly against a status that has
+    // no employer.
+    el("e_details").style.display = v === "employed" ? "" : "none";
+    el("e_preview").innerHTML = v === "employed"
+      ? `Employed at <b>${esc(el("e_company").value.trim() || "\u2014")}</b>.`
+      : v === "self_employed"
+      ? "Self-employed. No employer details are recorded."
+      : "Not currently employed.";
+  };
+  preview();
+  body.querySelectorAll('input[name="emp"]').forEach(r => r.onchange = preview);
+  el("e_company").oninput = preview;
+
+  el("e_save").onclick = () => {
+    const v = pick();
+    const company = el("e_company").value.trim();
+    if (v === "employed" && !company) {
+      el("e_error").innerHTML =
+        `<div class="err">Enter the company name, or change the status to
+           self-employed or not employed.</div>`;
+      el("e_company").focus();
+      return;
+    }
+    el("e_error").innerHTML = "";
+    saveAndRefresh("/api/employment", {
+      subject_id: s.subject_id, status: v, company_name: company,
+      address: el("e_address").value.trim(), phone: el("e_phone").value.trim(),
+      supervisor: el("e_super").value.trim(), notes: el("e_notes").value.trim()
+    }, s, body, renderEmployment, { close: true });
+  };
+}
+
+/* ---- community service ---- */
+const TRAVEL = [["none","None"],["local","Local only"],
+                ["interstate","Interstate"],["international","International"]];
+const travelLabel = v => (TRAVEL.find(x => x[0] === v) || TRAVEL[0])[1];
+const asDate = d => d ? new Date(d + "T00:00:00").toLocaleDateString(undefined,
+  { month:"numeric", day:"numeric", year:"numeric" }) : "";
+/* An expired permit is not a permit — say so rather than showing a level
+   that no longer applies. */
+const isExpired = t => !!(t?.expires_on && new Date(t.expires_on + "T23:59:59") < new Date());
+
+const CS_STATUS = [["todo","To do"],["in_progress","In progress"],["complete","Complete"]];
+const csLabel = v => (CS_STATUS.find(x => x[0] === v) || CS_STATUS[0])[1];
+const csClass = v => v === "complete" ? "ok" : v === "in_progress" ? "go" : "muted";
+
+function renderService(body, s, editing = null) {
+  const list = DETAIL?.community_service || [];
+  const e = editing === null ? null : (list.find(o => o.id === editing) || {});
+
+  body.innerHTML = head("Community Service", esc(s.name)) + `
+    <div class="mbody">
+      ${list.length ? `<div class="mlist">${list.map(o => `
+        <div class="mrow">
+          <div>
+            <div class="mrow-t">${esc(o.title)}</div>
+            <div class="mrow-s">${o.required_quantity ? `${o.required_quantity} hours` : "No hours set"}</div>
+          </div>
+          <div class="mrow-a">
+            <span class="pill ${csClass(o.status)}">${csLabel(o.status)}</span>
+            <button class="linkbtn done" data-edit="${o.id}">Edit</button>
+            <button class="linkbtn" data-del="${o.id}">Remove</button>
+          </div>
+        </div>`).join("")}</div>` : `<p class="mempty">Nothing assigned.</p>`}
+
+      ${e ? `
+        <div class="mform">
+          <label>Title</label>
+          <input id="o_title" value="${esc(e.title || "")}" placeholder="e.g. Riverside Park clean-up">
+          <div class="frow">
+            <div><label>Hours required</label>
+              <input id="o_hours" type="number" min="0" step="0.5"
+                     value="${e.required_quantity ?? ""}" placeholder="40"></div>
+            <div><label>Status</label>
+              <select id="o_status">${CS_STATUS.map(([v, l]) =>
+                `<option value="${v}"${(e.status || "todo") === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+          </div>
+          <div class="mactions">
+            <button class="linkbtn" id="o_cancel">Cancel</button>
+            <button class="btn small" id="o_save">${e.id ? "Save changes" : "Add requirement"}</button>
+          </div>
+        </div>`
+      : `<button class="btn small addbtn" id="o_add">Add a requirement</button>`}
+    </div>`;
+
+  body.querySelectorAll("[data-edit]").forEach(b =>
+    b.onclick = () => renderService(body, s, Number(b.dataset.edit)));
+  body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const o = list.find(x => x.id === Number(b.dataset.del));
+    const yes = await confirmModal({
+      title: "Remove this requirement?",
+      body: `${o?.title || "This requirement"} will be removed, along with any hours `
+          + "recorded against it.",
+      confirmLabel: "Remove requirement" });
+    if (yes) await saveAndRefresh("/api/obligations/delete", { id: Number(b.dataset.del) },
+                                  s, body, renderService);
+  });
+  const add = el("o_add"); if (add) add.onclick = () => renderService(body, s, 0);
+  const cancel = el("o_cancel"); if (cancel) cancel.onclick = () => renderService(body, s);
+  const save = el("o_save");
+  if (save) save.onclick = () => {
+    const title = el("o_title").value.trim();
+    if (!title) { toast("Give the requirement a title.", "err"); el("o_title").focus(); return; }
+    saveAndRefresh("/api/obligations", {
+      id: e.id || undefined, subject_id: s.subject_id, kind: "community_service",
+      title, required_quantity: el("o_hours").value ? Number(el("o_hours").value) : null,
+      unit: "hours", status: el("o_status").value
+    }, s, body, renderService);
+  };
+}
+
 /* ---------------- credentials panel ---------------- */
 function clearCreds() {
-  try { sessionStorage.removeItem("lastCreds"); } catch {}
   const c = el("creds"); if (c) c.innerHTML = "";
 }
 
@@ -601,19 +2017,12 @@ function showCreds(name, c) {
     </div>`;
 }
 
-/* Browser-only, so a server reset cannot clear it — hence the staleness
-   check in refresh(). */
-function restoreCreds(s) {
-  try {
-    const last = JSON.parse(sessionStorage.getItem("lastCreds") || "null");
-    if (last && last.subject_id === s.subject_id) showCreds(last.name, last);
-  } catch {}
-}
-
 /* ---------------- live data ---------------- */
 async function refresh(s) {
   try {
-    const d = await fetch("/api/enrollments").then(r => r.json());
+    const res0 = await fetch("/api/enrollments");
+    if (res0.status === 401) return showSignIn("Your session expired. Please sign in again.");
+    const d = await res0.json();
     const rows = (d.enrollments || []).filter(e => e.subject_id === s.subject_id);
     const body = el("enrol"); if (!body) return;
 
@@ -648,7 +2057,7 @@ async function refresh(s) {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-        clearCreds();          // the login was issued for an assignment that no longer exists
+        toast("Assignment cancelled");
         refresh(s);
       } catch (e) {
         const box = el("assignError");
@@ -657,13 +2066,6 @@ async function refresh(s) {
       }
     });
 
-    // The credentials panel lives in this browser, so a server reset cannot
-    // reach it. If that subject is gone, the login is dead — drop it rather
-    // than showing a password that will not work.
-    try {
-      const last = JSON.parse(sessionStorage.getItem("lastCreds") || "null");
-      if (last && !(d.enrollments || []).some(e => e.subject_id === last.subject_id)) clearCreds();
-    } catch {}
   } catch {}
 
   try {
@@ -686,13 +2088,73 @@ async function refresh(s) {
   } catch {}
 }
 
-/* Load the roster, then route. */
-fetch("/api/subjects").then(r => r.json()).then(d => {
-  SUBJECTS = d.subjects || [];
-  route();
-}).catch(() => {
-  view.innerHTML = `<div class="err">Couldn't load the subject roster.</div>`;
-});
+/* ---------------- session ---------------- */
+let USER = null;
+
+function showApp() {
+  el("gate").innerHTML = "";
+  document.querySelector(".topbar").style.display = "";
+  view.style.display = "";
+  el("who").innerHTML = `<b>${esc(USER.name)}</b><span class="role">${esc(USER.role)}</span>`;
+  fetch("/api/subjects").then(r => r.json()).then(d => {
+    SUBJECTS = d.subjects || [];
+    route();
+  }).catch(() => {
+    view.innerHTML = `<div class="err">Couldn't load the subject roster.</div>`;
+  });
+}
+
+function showSignIn(error) {
+  stopPolling();
+  document.querySelector(".topbar").style.display = "none";
+  view.style.display = "none";
+  el("gate").innerHTML = `
+    <div class="signin"><div class="card">
+      <div class="logo">N</div>
+      <h1>Northwood Corrections</h1>
+      <div class="sub">Staff sign in</div>
+      ${error ? `<div class="err">${esc(error)}</div>` : ""}
+      <form id="lf">
+        <label for="em">Email</label>
+        <input type="email" id="em" autocomplete="username" required
+               placeholder="you@northwood.gov">
+        <label for="pw">Password</label>
+        <input type="password" id="pw" autocomplete="current-password" required
+               placeholder="••••••••">
+        <button class="btn" id="go" type="submit">Sign in</button>
+      </form>
+      <div class="note">Subjects do not sign in here.<br>
+        They use the learner app.</div>
+    </div></div>`;
+
+  el("lf").onsubmit = async e => {
+    e.preventDefault();
+    const btn = el("go"); btn.disabled = true; btn.textContent = "Signing in…";
+    try {
+      const r = await fetch("/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: el("em").value.trim(), password: el("pw").value })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Sign in failed");
+      USER = d.user;
+      showApp();
+    } catch (err) {
+      showSignIn(String(err.message || err));
+    }
+  };
+}
+
+el("signout").onclick = async () => {
+  await fetch("/auth/logout", { method: "POST" });
+  USER = null; location.hash = ""; showSignIn();
+};
+
+/* The cookie is httpOnly, so the page cannot read it — ask the server
+   whether it is still valid. */
+fetch("/auth/me").then(r => r.ok ? r.json() : null).then(d => {
+  if (d?.user) { USER = d.user; showApp(); } else showSignIn();
+}).catch(() => showSignIn("Couldn't reach the server."));
 </script>
 </body>
 </html>

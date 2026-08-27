@@ -1,0 +1,325 @@
+/**
+ * Waypoint's data — the LMS half.
+ *
+ * People, programs, content versions, assignments, registrations, launch
+ * tickets, credentials and webhook deliveries. Nothing here knows about
+ * probation, visits or supervision agreements.
+ *
+ * northwood.mjs must never import this module. It is a customer of the LMS
+ * and reaches it over HTTP; `check-boundary.mjs` fails the build if that
+ * stops being true.
+ */
+
+import { one, all, run, now, db } from "./connect.mjs";
+import "./schema.mjs";
+
+/* ---------------- people & programs ---------------- */
+
+export function upsertPerson({ subject_id, name = null, email = null }) {
+  const found = one(`SELECT * FROM people WHERE subject_id = ?`, subject_id);
+  if (found) {
+    // COALESCE so a call that omits name/email refreshes activity without
+    // wiping details a previous call supplied.
+    run(`UPDATE people
+            SET name = COALESCE(?, name), email = COALESCE(?, email), last_active_at = ?
+          WHERE id = ?`, name, email, now(), found.id);
+    return one(`SELECT * FROM people WHERE id = ?`, found.id);
+  }
+  run(`INSERT INTO people (subject_id, name, email, created_at, last_active_at)
+       VALUES (?,?,?,?,?)`, subject_id, name, email, now(), now());
+  return one(`SELECT * FROM people WHERE subject_id = ?`, subject_id);
+}
+
+export function upsertProgram({ program_id, title, description = null }) {
+  const found = one(`SELECT * FROM programs WHERE program_id = ?`, program_id);
+  if (found) return found;
+  run(`INSERT INTO programs (program_id, title, description, created_at) VALUES (?,?,?,?)`,
+      program_id, title, description, now());
+  return one(`SELECT * FROM programs WHERE program_id = ?`, program_id);
+}
+
+/* ---------------- content versions ----------------
+   Immutable once created. A new upload is a new version; nothing is
+   ever updated in place, so a learner mid-progress keeps the version
+   they started. */
+export function addContentVersion(v) {
+  const next = (one(`SELECT MAX(version) m FROM content_versions WHERE program_pk = ?`,
+                    v.program_pk)?.m ?? 0) + 1;
+  run(`INSERT INTO content_versions
+       (program_pk, version, scorm_version, launch_href, storage_path, sco_count, title, created_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      v.program_pk, next, v.scorm_version, v.launch_href, v.storage_path,
+      v.sco_count, v.title ?? null, now());
+  return one(`SELECT * FROM content_versions WHERE program_pk = ? AND version = ?`,
+             v.program_pk, next);
+}
+
+/** Set once, immediately after ingest moves the files into place. */
+export const setStoragePath = (id, path) =>
+  run(`UPDATE content_versions SET storage_path = ? WHERE id = ?`, path, id);
+
+export const latestVersion = program_pk =>
+  one(`SELECT * FROM content_versions WHERE program_pk = ? ORDER BY version DESC LIMIT 1`, program_pk);
+
+export const contentVersion = id =>
+  one(`SELECT * FROM content_versions WHERE id = ?`, id);
+
+/* ---------------- assignments ---------------- */
+
+export function assign({ person_id, program_pk, due_at = null }) {
+  run(`INSERT OR IGNORE INTO assignments (person_id, program_pk, assigned_at, due_at)
+       VALUES (?,?,?,?)`, person_id, program_pk, now(), due_at);
+  return one(`SELECT * FROM assignments WHERE person_id = ? AND program_pk = ?`,
+             person_id, program_pk);
+}
+
+/* ---------------- registrations ---------------- */
+
+/** The registration for this person + content version. A previous attempt that
+ *  ended with a normal exit means the next launch is a NEW attempt, not a resume —
+ *  a rule the harness surfaced and the server now owns. */
+export function openRegistration({ person_id, content_version_id }) {
+  const prev = one(
+    `SELECT * FROM registrations
+      WHERE person_id = ? AND content_version_id = ?
+      ORDER BY attempt DESC LIMIT 1`, person_id, content_version_id);
+
+  if (prev && !prev.terminated_at) return prev;                 // still open
+
+  /* Suspended and unfinished: resume that attempt.
+     Suspended and COMPLETED is a different thing. Rise 360 leaves
+     exit_mode="suspend" on a course the learner finished, so this returned
+     the completed row — relaunching would have dropped them back into the
+     attempt that already says they passed, and anything they did next would
+     have overwritten that record instead of starting attempt 2.
+     Attempts are rows, not overwritten fields. */
+  if (prev && prev.exit_mode === "suspend"
+           && prev.completion_status !== "completed") return prev;
+
+  const attempt = prev ? prev.attempt + 1 : 1;
+  // Time accrues across attempts — the accrued total only, never a
+  // session that was still open when the last attempt ended.
+  const carried = prev ? (prev.total_seconds + (prev.session_seconds || 0)) : 0;
+  run(`INSERT INTO registrations
+       (person_id, content_version_id, attempt, total_seconds, entry, created_at)
+       VALUES (?,?,?,?,?,?)`,
+      person_id, content_version_id, attempt, carried, "ab-initio", now());
+  return one(`SELECT * FROM registrations WHERE person_id = ? AND content_version_id = ? AND attempt = ?`,
+             person_id, content_version_id, attempt);
+}
+
+export const registration = id => one(`SELECT * FROM registrations WHERE id = ?`, id);
+
+/** Persist on EVERY write. Courses do not call Commit — observed: five bookmarks
+ *  and zero commits in 244 seconds — so durability cannot be delegated to them. */
+export function updateRegistration(id, patch) {
+  const cols = Object.keys(patch);
+  if (!cols.length) return registration(id);
+  run(`UPDATE registrations SET ${cols.map(c => `${c} = ?`).join(", ")}, last_write_at = ?
+        WHERE id = ?`, ...cols.map(c => patch[c]), now(), id);
+  return registration(id);
+}
+
+/** The integration contract: subject_id + program_id identify this record
+ *  to the SaaS. Both live behind joins, so callers never assemble SQL. */
+export const contextFor = registration_id => one(
+  `SELECT p.subject_id, pr.program_id, pr.title, cv.scorm_version
+     FROM registrations r
+     JOIN people p           ON p.id  = r.person_id
+     JOIN content_versions cv ON cv.id = r.content_version_id
+     JOIN programs pr        ON pr.id = cv.program_pk
+    WHERE r.id = ?`, registration_id);
+
+/** Sessions that were opened, written to, and then went quiet. `Terminate`
+ *  usually never arrives from a phone, so the server has to notice itself. */
+export const idleRegistrations = (cutoffIso) => all(
+  `SELECT * FROM registrations
+    WHERE terminated_at IS NULL
+      AND started_at IS NOT NULL
+      AND COALESCE(last_write_at, started_at) < ?`, cutoffIso);
+
+export const registrationsFor = subject_id => all(
+  `SELECT r.*, p.subject_id, pr.program_id, pr.title
+     FROM registrations r
+     JOIN people p ON p.id = r.person_id
+     JOIN content_versions cv ON cv.id = r.content_version_id
+     JOIN programs pr ON pr.id = cv.program_pk
+    WHERE p.subject_id = ?
+    ORDER BY r.id DESC`, subject_id);
+
+/* ---------------- launch tickets ----------------
+   Short-lived, single-use, bound to one registration. Replaces the
+   "customer id in the URL" IDOR this project exists to remove. */
+const TICKET_TTL_MS = 60_000;
+
+export function issueTicket(registration_id) {
+  const token = crypto.randomUUID().replace(/-/g, "");
+  run(`INSERT INTO launch_tickets (token, registration_id, expires_at, created_at)
+       VALUES (?,?,?,?)`,
+      token, registration_id, new Date(Date.now() + TICKET_TTL_MS).toISOString(), now());
+  return { token, expires_in: TICKET_TTL_MS / 1000 };
+}
+
+/** Validate and consume in one step. Returns {error} rather than throwing so the
+ *  caller can distinguish expired from already-used from unknown. */
+export function redeemTicket(token) {
+  const t = one(`SELECT * FROM launch_tickets WHERE token = ?`, token);
+  if (!t) return { error: "unknown ticket" };
+  if (t.consumed_at) return { error: "ticket already used" };
+  if (new Date(t.expires_at) < new Date()) return { error: "ticket expired" };
+  run(`UPDATE launch_tickets SET consumed_at = ? WHERE id = ?`, now(), t.id);
+  return { registration_id: t.registration_id };
+}
+
+/* ---------------- webhook deliveries ---------------- */
+
+export const recordDelivery = d => run(
+  `INSERT INTO webhook_deliveries
+     (registration_id, endpoint, payload, status, http_status, error, created_at)
+   VALUES (?,?,?,?,?,?,?)`,
+  d.registration_id, d.endpoint ?? null, JSON.stringify(d.payload),
+  d.status, d.http_status ?? null, d.error ?? null, now());
+
+export const deliveries = (limit = 50) => all(
+  `SELECT d.*, p.subject_id
+     FROM webhook_deliveries d
+     JOIN registrations r ON r.id = d.registration_id
+     JOIN people p ON p.id = r.person_id
+    ORDER BY d.id DESC LIMIT ?`, limit);
+
+/* Everything captured, for the console. */
+export const allRegistrations = () => all(
+  `SELECT r.*, p.subject_id, p.name, pr.program_id, pr.title, cv.scorm_version, cv.version
+     FROM registrations r
+     JOIN people p            ON p.id  = r.person_id
+     JOIN content_versions cv ON cv.id = r.content_version_id
+     JOIN programs pr         ON pr.id = cv.program_pk
+    ORDER BY r.last_write_at DESC NULLS LAST, r.id DESC`);
+
+/** What a learner has been assigned, with where they are in each.
+ *  Both joins pin to a specific row — the LATEST content version, and the
+ *  LATEST attempt against it. Joining "any" version silently returns the
+ *  wrong registration once a package has been re-uploaded. */
+export const assignmentsFor = subject_id => all(
+  `SELECT pr.program_id, pr.title, cv.scorm_version, cv.id AS content_version_id,
+          r.id AS registration_id, r.completion_status, r.success_status,
+          r.score_raw, r.score_max, r.attempt, r.entry, r.exit_mode,
+          r.suspend_data_len, r.suspend_overflow_at,
+          (r.total_seconds + COALESCE(r.session_seconds,0)) AS total_seconds
+     FROM assignments a
+     JOIN people p    ON p.id  = a.person_id
+     JOIN programs pr ON pr.id = a.program_pk
+     JOIN content_versions cv ON cv.id = (
+            SELECT id FROM content_versions
+             WHERE program_pk = pr.id ORDER BY version DESC LIMIT 1)
+     LEFT JOIN registrations r ON r.id = (
+            SELECT id FROM registrations
+             WHERE person_id = p.id AND content_version_id = cv.id
+             ORDER BY attempt DESC LIMIT 1)
+    WHERE p.subject_id = ?
+    ORDER BY a.assigned_at DESC`, subject_id);
+
+/* ---------------- credentials ---------------- */
+
+export const personById = id => one(`SELECT * FROM people WHERE id = ?`, id);
+export const personBySubjectId = subject_id =>
+  one(`SELECT * FROM people WHERE subject_id = ?`, subject_id);
+
+/** Which people have a Waypoint login, keyed by the SaaS's own id. One query
+ *  so a roster of any size costs the same as a single subject. */
+export const subjectsWithLogin = () => all(
+  `SELECT DISTINCT p.subject_id FROM credentials c JOIN people p ON p.id = c.person_id
+    WHERE c.kind = 'password'`).map(r => r.subject_id);
+
+export const passwordFor = person_id =>
+  one(`SELECT * FROM credentials WHERE kind = 'password' AND person_id = ?`, person_id);
+
+/** Overwrites any existing password — this is the reset primitive. Callers that
+ *  only want a login to exist must check {@link passwordFor} first: silently
+ *  rotating a password invalidates one already handed to the person. */
+export function setPassword({ person_id, identifier, secret_hash, must_change = 0 }) {
+  const existing = one(`SELECT * FROM credentials WHERE kind = 'password' AND person_id = ?`, person_id);
+  if (existing) {
+    run(`UPDATE credentials SET identifier = ?, secret_hash = ?, must_change = ? WHERE id = ?`,
+        identifier, secret_hash, must_change ? 1 : 0, existing.id);
+    return one(`SELECT * FROM credentials WHERE id = ?`, existing.id);
+  }
+  run(`INSERT INTO credentials (person_id, kind, identifier, secret_hash, must_change, created_at)
+       VALUES (?,'password',?,?,?,?)`, person_id, identifier, secret_hash, must_change ? 1 : 0, now());
+  return one(`SELECT * FROM credentials WHERE kind = 'password' AND identifier = ?`, identifier);
+}
+
+/** Look up by what the learner typed. Identifier is matched case-insensitively
+ *  because people do not type their email consistently. */
+export const credentialByIdentifier = identifier =>
+  one(`SELECT c.*, p.subject_id, p.name
+         FROM credentials c JOIN people p ON p.id = c.person_id
+        WHERE c.kind = 'password' AND lower(c.identifier) = lower(?)`, identifier);
+
+export const markCredentialUsed = id =>
+  run(`UPDATE credentials SET last_used_at = ? WHERE id = ?`, now(), id);
+
+/* ---------------- catalog ---------------- */
+
+/** What the SaaS can offer. Only programs with ingested content appear. */
+export const catalog = () => all(
+  `SELECT pr.program_id, pr.title, pr.description,
+          cv.scorm_version, cv.version, cv.id AS content_version_id
+     FROM programs pr
+     JOIN content_versions cv ON cv.id = (
+            SELECT id FROM content_versions
+             WHERE program_pk = pr.id ORDER BY version DESC LIMIT 1)
+    ORDER BY pr.title`);
+
+/** Live state of every assignment, for the SaaS to poll.
+ *  A completion webhook is a push; this is the pull. A system needs both:
+ *  the push for timeliness, the pull for anything that arrives before a
+ *  completion — or for reconciling a delivery that was missed. */
+export const enrollments = () => all(
+  `SELECT p.subject_id, p.name, pr.program_id, pr.title,
+          r.completion_status, r.success_status, r.score_raw, r.score_max,
+          (r.total_seconds + COALESCE(r.session_seconds,0)) AS total_seconds,
+          r.attempt, r.exit_mode,
+          r.started_at, r.last_write_at, r.terminated_at,
+          a.assigned_at
+     FROM assignments a
+     JOIN people p    ON p.id  = a.person_id
+     JOIN programs pr ON pr.id = a.program_pk
+     LEFT JOIN content_versions cv ON cv.id = (
+            SELECT id FROM content_versions
+             WHERE program_pk = pr.id ORDER BY version DESC LIMIT 1)
+     LEFT JOIN registrations r ON r.id = (
+            SELECT id FROM registrations
+             WHERE person_id = p.id AND content_version_id = cv.id
+             ORDER BY attempt DESC LIMIT 1)
+    ORDER BY COALESCE(r.last_write_at, a.assigned_at) DESC`);
+
+/* ---------------- unassign ----------------
+   Only while untouched. Once a learner has written anything there is a
+   record of what they did, and deleting it would destroy that. */
+
+export function assignmentState(subject_id, program_id) {
+  return one(
+    `SELECT a.id AS assignment_id, p.id AS person_id, pr.id AS program_pk,
+            r.id AS registration_id, r.completion_status, r.last_write_at, r.attempt
+       FROM assignments a
+       JOIN people p    ON p.id  = a.person_id
+       JOIN programs pr ON pr.id = a.program_pk
+       LEFT JOIN content_versions cv ON cv.program_pk = pr.id
+       LEFT JOIN registrations r ON r.person_id = p.id
+                                AND r.content_version_id = cv.id
+      WHERE p.subject_id = ? AND pr.program_id = ?
+      ORDER BY r.attempt DESC LIMIT 1`, subject_id, program_id);
+}
+
+export function unassign({ person_id, program_pk }) {
+  // Remove the untouched registrations first — a foreign key points at them.
+  run(`DELETE FROM registrations
+        WHERE person_id = ? AND last_write_at IS NULL
+          AND content_version_id IN (SELECT id FROM content_versions WHERE program_pk = ?)`,
+      person_id, program_pk);
+  run(`DELETE FROM assignments WHERE person_id = ? AND program_pk = ?`, person_id, program_pk);
+}
+
+
+export { now, db };

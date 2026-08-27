@@ -1,11 +1,22 @@
-# Waypoint — API guide
+# API guide
 
-How the API works, what the endpoints are, and how to call them.
+Two APIs, and it matters which is which.
+
+| | | |
+|---|---|---|
+| **[Waypoint](#waypoint-the-lms)** | the LMS | content, registrations, results. What an integrator calls |
+| **[Northwood](#northwood-the-corrections-system)** | the corrections system | subjects, visits, profile data. Internal to that app |
+
+The Waypoint half is the integration contract and is stable. The Northwood half is the
+demo application's own API, documented because it is the reference for building the real
+one.
 
 Companion to [`BUILD.md`](BUILD.md) (what exists) and
 [`../CLAUDE.md`](../CLAUDE.md) (engineering rules).
 
 ---
+
+# Waypoint (the LMS)
 
 ## What kind of API is this
 
@@ -75,6 +86,14 @@ the browser.
 
 Every call here needs the API key.
 
+#### `GET /api/health` — liveness
+
+```
+GET /api/health → { ok: true, ... }
+```
+
+Unauthenticated on purpose: a load balancer has no credentials.
+
 #### `GET /api/content` — the catalog
 
 What Waypoint can offer. Ingest this to build your own assignable list.
@@ -92,7 +111,8 @@ curl https://app.waypoint.example/api/content \
 
 #### `POST /api/users` — provision a learner
 
-Creates or updates the person, and optionally sets a password.
+Creates or updates the person, and issues a password **only if they do not already have
+one**.
 
 ```json
 { "subject_id": "cust-1041",
@@ -104,7 +124,29 @@ Creates or updates the person, and optionally sets a password.
 `subject_id` is **your** identifier. Waypoint keys everything off it and hands it back on
 every result, so you never have to store a Waypoint id.
 
+The response carries `issued: true|false`. **A password you send is ignored when the
+person already has one** — otherwise calling this again would silently invalidate a
+login already in someone's hands. Show your generated password only when `issued` is
+true; otherwise you never stored it and it does not work.
+
+To deliberately replace an existing password, send `reset_password: true`. The old one
+stops working immediately.
+
 The password hash is never returned, even to a trusted caller.
+
+#### `GET /api/logins` — who can sign in
+
+```
+GET /api/logins                      → { "subject_ids": ["cust-1041", ...] }
+GET /api/logins?subject_id=cust-1041 → { "has_login": true,
+                                         "login": "dana@example.com",
+                                         "last_used_at": "..." }
+```
+
+One call for a whole roster, so marking who has an account costs the same at any size.
+
+**A login belongs to the person, not to a program.** It is created once and survives
+every assignment after it.
 
 #### `POST /api/assign` — assign a program
 
@@ -113,6 +155,9 @@ The password hash is never returned, even to a trusted caller.
 ```
 
 Returns the person, the program, the content version and the registration.
+
+Assigning does **not** create a login. If the subject has none they cannot open what you
+assigned — check `GET /api/logins?subject_id=` and provision them separately.
 
 #### `POST /api/unassign` — cancel an assignment
 
@@ -188,6 +233,10 @@ Two properties worth knowing:
 ---
 
 ### Runtime endpoints
+
+`POST /api/runtime/redeem`, then `/api/runtime/:id/set`, `/api/runtime/:id/terminate`
+and `GET /api/runtime/:id`. Called by the player on the content origin, carrying a
+registration-scoped session token — never the learner's session.
 
 Called by the player, not by you. Listed for completeness.
 
@@ -298,12 +347,15 @@ J="Content-Type: application/json"
 # 1. what can we offer
 curl -s $API/api/content -H "$KEY"
 
-# 2. provision the person and give them a login
+# 2. provision the person, and give them a login IF they do not have one.
+#    Check `issued` — a password you send is ignored when one already exists,
+#    so showing it unconditionally shows a password that does not work.
 curl -s -X POST $API/api/users -H "$KEY" -H "$J" \
   -d '{"subject_id":"cust-1041","name":"Dana Whitfield",
        "email":"dana@example.com","password":"temp-pass"}'
 
-# 3. assign
+# 3. assign. This does NOT create a login — they are separate acts, because a
+#    login outlives every program the person is given.
 curl -s -X POST $API/api/assign -H "$KEY" -H "$J" \
   -d '{"subject_id":"cust-1041","program_id":"golf-101"}'
 
@@ -321,16 +373,20 @@ curl -s $API/api/status -H "$KEY"
 
 ---
 
-## Five rules for integrating
+## Six rules for integrating
 
 1. **The API key never leaves your server.** Your backend brokers every call.
 2. **Launch tickets are single-use and expire in ~60 seconds.** Issue one at the moment
    the learner clicks, not in advance.
 3. **`subject_id` is your identifier and the contract.** Waypoint stores it and returns it
    on everything, so you never need to hold a Waypoint id.
-4. **Take completions from the webhook, never from the client.** A device-reported pass is
+4. **A login belongs to the person, not the assignment.** Create it once, check
+   `GET /api/logins` before minting another, and never persist a password you were told
+   is shown once — it will outlive the password itself and look exactly like a working
+   one.
+5. **Take completions from the webhook, never from the client.** A device-reported pass is
    a device-controlled pass.
-5. **Use both push and pull.** The webhook is timely; `GET /api/status` catches
+6. **Use both push and pull.** The webhook is timely; `GET /api/status` catches
    in-progress state and reconciles anything missed.
 
 ---
@@ -356,3 +412,331 @@ document.
 rotation, automatic webhook retry with backoff, and per-key scopes. The `/demo` route —
 which lets a browser mint its own launch ticket — must be deleted; it is precisely what
 launch tickets exist to prevent.
+
+---
+
+# Northwood (the corrections system)
+
+The demo application's own API, on port **8092**. Not part of the Waypoint integration
+contract — documented because it is the reference for the real build.
+
+## Authentication — three ways in
+
+| Caller | Credential | Notes |
+|---|---|---|
+| **Staff, in a browser** | httpOnly session cookie | Set by `POST /auth/login`. JavaScript cannot read it, so an XSS bug on an admin page cannot steal a staff session |
+| **Staff, in the mobile app** | Bearer token | Returned by the same login. **The same session row**, so signing out kills both |
+| **A subject** | Their Waypoint token | Northwood asks Waypoint who the token belongs to rather than trusting the app — token introspection |
+
+**Subjects have no Northwood account.** They never sign in to this system.
+
+```
+POST /auth/login     { email, password } → { user, token } + Set-Cookie
+POST /auth/logout    revokes the session server-side
+GET  /auth/me        the signed-in staff member
+```
+
+Sessions are stored server-side and only a **SHA-256 hash of the token** is kept — a
+database leak yields hashes, not live sessions. Five failed attempts locks an account for
+fifteen minutes. Wrong password and unknown account return an identical response.
+
+Everything under `/api/` requires a staff session **except** `/api/me/*`, which is
+subject-facing. Gating in one place means a new staff route is protected by default.
+
+## Roles
+
+`officers` carries a `role` — `officer`, `supervisor` or `admin` — and routes check
+`allow(session, ...roles)`. An officer *is* a staff member, so it is one table with a
+role rather than two kept in step.
+
+## Endpoints
+
+### Who writes what
+
+Three patterns, and which one a module uses is a deliberate decision rather than
+an accident of what got built first:
+
+| Pattern | Modules | Why |
+|---|---|---|
+| **Officer writes, subject reads** | curfew, travel permit, community service, supervision agreement | Imposed on the subject. Letting them edit it would be letting them set their own conditions |
+| **Subject writes, officer reads** | vehicles | Self-reported fact about their own property |
+| **Both write one record** | employment, family contacts | Reported by the subject, verified by the officer |
+
+Where both write, there is **one row, not one each**. Two copies would immediately
+disagree about the same person's phone number with no way to tell which was right. The
+row records who touched it last (`added_by` / `updated_by`), so the officer can see what
+came from the subject without the list being split in two.
+
+The subject's half of a dual-write module lives under `/api/me/*` and takes the
+`subject_id` **from the token, never the body**. Both halves share one validator, so
+neither side can be the lenient one that lets bad data in.
+
+### Subjects and their profile
+
+```
+GET  /api/subjects                          the roster, each with has_login
+GET  /api/subject/detail?subject_id=…       every profile module in one call
+GET  /api/reference                         every dropdown's options, in one place
+```
+
+`/api/subject/detail` returns `vehicles`, `curfew`, `community_service`,
+`travel_permit`, `employment` and `contacts` together, because the profile paints them
+together. `/api/reference` returns supervision kinds and levels, obligation units,
+condition categories, employment statuses, contact relationships, offices and officers —
+one call rather than a copy of each list in each client.
+
+#### Waypoint logins
+
+```
+POST /api/subject/login    { subject_id, reset? } → { credentials: { login, password } }
+GET  /api/logins           proxied from Waypoint; adds has_login to the roster
+```
+
+**A login belongs to the person, not to a program.** Creating one is its own action,
+separate from assigning work: assigning used to mint a password every time, which
+silently invalidated the one already in the subject's hands.
+
+Calling it twice is refused with `409` rather than quietly rotating the password.
+`reset: true` replaces it deliberately; the old one stops working immediately. The
+password is returned exactly once and is never stored client-side.
+
+#### Vehicles — the subject maintains their own
+
+```
+POST /api/vehicles           { subject_id, id?, year, make, model, color, plate, state }
+POST /api/vehicles/delete    { id }
+
+POST /api/me/vehicles        the subject's own; subject_id comes from the token
+POST /api/me/vehicles/delete { id }   404 unless the vehicle is theirs
+```
+
+Editing or deleting a row that is already gone returns `404`, not `200`. An `UPDATE`
+matching zero rows used to answer `200` with an empty body, and both clients reported
+"Vehicle saved".
+
+`make` and `state` come from fixed lists in both clients — free text on one side means
+"Chevrolet", "Chevy" and "chev" become three different makes in any report built later.
+The make list ends in **Other**, which reveals a text box: a list that cannot express
+someone's car is worse than free text.
+
+#### Employment — both sides write
+
+```
+POST /api/employment      { subject_id, status, company_name?, address?, phone?, supervisor? }
+POST /api/me/employment   the same record, written by the subject
+```
+
+`status` is `employed`, `self_employed` or `not_employed`. `employed` requires a
+company name.
+
+**Moving away from `employed` clears the employer fields server-side**, whatever the
+client sends. A "not employed" row still naming last year's company reads as current
+employment to anything that looks at the columns rather than the status.
+
+`updated_by` records which side wrote it last, and the officer's console says so
+outright: *"Last updated by Dana in their app. Verify before relying on it."*
+
+#### Family contacts — both sides write
+
+```
+GET  (part of /api/subject/detail and /api/me/case)
+POST /api/contacts           { subject_id, id?, name, relationship, phone, notes? }
+POST /api/contacts/delete    { id }
+
+POST /api/me/contacts        the same list, written by the subject
+POST /api/me/contacts/delete { id }   404 unless the contact is theirs
+```
+
+`relationship` must be one of the 28 in `/api/reference` — family, partners, household
+and support, ending in `Other`.
+
+Phone validation is deliberately loose (seven digits or more). Formats vary by country,
+and rejecting someone's real number is worse than storing an odd-looking one.
+
+#### Obligations
+
+```
+POST /api/obligations        { subject_id, id?, kind, title, required_quantity, unit, status }
+POST /api/obligations/delete { id }
+```
+
+**`obligations` is deliberately general.** Community service is `kind="community_service"`,
+and action steps, imposed responses and treatment attendance are the same shape — a
+requirement plus a status. They become rows here rather than three more tables. See
+[SCHEMA-PLAN.md](SCHEMA-PLAN.md).
+
+`status` is one of `todo`, `in_progress`, `complete`; anything else is rejected.
+
+#### Curfew and travel permit
+
+```
+POST /api/curfew          { subject_id, active, start_time, end_time, notes? }
+                          active with no times → 400
+POST /api/travel-permit   { subject_id, level, expires_on?, notes? }
+                          level: none | local | interstate | international
+```
+
+`level: "none"` never carries an expiry — "none" is a permission level, not one that
+lapses into something else.
+
+#### Downloading a document
+
+```
+GET /documents/:id     the PDF itself
+```
+
+Staff may fetch any document. **A subject may fetch only their own**, proven by their
+Waypoint token rather than by asking nicely — the route resolves who the token belongs
+to and compares it to the document's owner. Served `inline`, so it opens in the
+browser's viewer rather than downloading.
+
+### The supervision agreement
+
+The conditions of supervision: a header, conditions grouped by category, the consequences
+of breaching them, and two signatures.
+
+```
+GET  /api/agreement?subject_id=…       the agreement plus every dropdown it needs
+POST /api/agreement/save               { id?, subject_id?, kind, supervision_level,
+                                         start_date, end_date, office, officer_name,
+                                         status?, violation_text? }
+POST /api/agreement/condition          { agreement_id, id?, category, body }
+POST /api/agreement/condition/delete   { id, agreement_id }
+POST /api/agreement/condition/track    turn a condition into a tracked obligation
+POST /api/agreement/sign               { id }   the officer signs
+POST /api/agreement/pdf                { id }   render and file it to their documents
+GET  /api/agreement/acknowledgments?agreement_id=…   every acceptance, newest first
+GET  /api/agreement/acknowledgment?id=…              one, with the exact text accepted
+```
+
+**`save` merges.** Only fields actually present in the payload are written. A partial
+save that blanked every omitted column is how an agreement lost its dates, level, office
+and officer in one call.
+
+**A draft cannot be activated unsigned** — activating a document nobody signed makes the
+signature decorative.
+
+#### Amendment withdraws the acknowledgment
+
+The subject's acknowledgment referred to the text **as it stood**. So changing any term
+or condition of an executed agreement clears `subject_signed_at`, stamps `amended_at`,
+and asks them again. The response carries `amended: true` and the officer is told:
+*"Saved — the subject must acknowledge the change."*
+
+Changing `status` alone is **not** an amendment. Only the terms count: `kind`,
+`supervision_level`, `start_date`, `end_date`, `office`, `officer_name`,
+`violation_text`, and the conditions themselves.
+
+#### What was acknowledged, not just that it was
+
+```
+POST /api/me/agreement/sign     the subject accepts; no body, identity from the token
+```
+
+Each acceptance writes an **append-only** row holding the full agreement text as it read
+at that moment. Without it, "what did they actually agree to" is unanswerable after the
+second amendment — and that is the question a revocation hearing turns on.
+
+The snapshot is generated from the same blocks the PDF is built from. One rendering, two
+outputs: a snapshot that could drift from the document would be worse than none.
+
+Acknowledging twice is idempotent — the first timestamp stands.
+
+### Visits
+
+```
+GET  /api/visits?subject_id=…    with each visit's note log attached
+POST /api/visits                 { subject_id, scheduled_at, officer?, location?, notes? }
+POST /api/visits/schedule        { id, scheduled_at, … }   give a request a date
+POST /api/visits/complete        { id, officer?, note? }   timestamp taken server-side
+POST /api/visits/note            { id, body, officer? }    append a note at any time
+POST /api/visits/cancel          { id }
+```
+
+**Two different kinds of note, deliberately separate:**
+
+- `visits.notes` — the instruction given to the subject beforehand
+  *("bring proof of employment")*
+- `visit_notes` — what the officer recorded afterwards
+
+Different authors, different audiences. `visit_notes` is **append-only**: a correction is
+a new note, never an edit, because the record of what was recorded when is itself
+evidence.
+
+### Northwood's own reads
+
+```
+GET /api/catalog       what Waypoint offers, proxied
+GET /api/enrollments   live assignment state, proxied from Waypoint
+GET /api/results       completions Waypoint has pushed to this system's inbox
+GET /api/documents?subject_id=…   generated PDFs filed against a subject
+```
+
+The first two are proxies: the browser never holds the API key, so the console
+asks Northwood and Northwood asks Waypoint. That indirection is the point —
+it is what an integrator's own backend does.
+
+### Officer views
+
+```
+GET /api/officer/schedule    { upcoming, requests, recent } for the signed-in officer
+GET /api/officer/caseload    their subjects, with visit counts
+```
+
+Scoped to the session — an officer cannot ask for somebody else's caseload.
+
+### Subject-facing — a Waypoint token, no staff session
+
+```
+GET  /api/me/case?seen=1          everything they can see. seen=1 clears the visit badge
+POST /api/me/visits/accept        { id }   scoped to their own visits
+POST /api/me/visits/request       { note } one open request at a time
+POST /api/me/agreement/sign       acknowledge the conditions of supervision
+POST /api/me/employment           report a change of employment
+POST /api/me/contacts             add or edit one of their own contacts
+POST /api/me/contacts/delete      { id }
+POST /api/me/vehicles             add or edit one of their own vehicles
+POST /api/me/vehicles/delete      { id }
+```
+
+`/api/me/case` returns the subject, their visits and unseen count, curfew, community
+service, travel permit, employment, contacts, vehicles, documents, the condition
+category labels, and their agreement **only if it is active** — a draft is a working
+document, not something they are bound by.
+
+Identity comes from the token, never the request body. A subject attempting another
+subject's record gets `no such visit` / `no such contact` — the lookup is scoped, so it
+does not even leak that the row exists. A `subject_id` planted in the body is ignored:
+the token decides whose list it is.
+
+**A 401 here means the session is over.** Clients must end it and return to sign-in
+rather than keeping what they last fetched. The mobile app used to hold stale data
+through an expired session, showing records that had since been deleted, with every
+write failing "sign in required" beside them.
+
+### The visit lifecycle
+
+```
+Subject Requested → Scheduled → Viewed → Accepted → Complete
+  (subject asks)     (officer     (opened   (subject    (officer
+                      sets date)   the tab)  confirms)   records it)
+```
+
+Every transition carries a timestamp. Accept and complete are **idempotent** — a repeated
+tap returns the original timestamp rather than overwriting it, which matters on a phone
+with a poor connection.
+
+### Keeping this document honest
+
+```bash
+node spike/api/smoke.mjs http://<host>:8090   # 85 assertions, both APIs
+node spike/api/check-feedback.mjs             # every write confirms it worked
+```
+
+Two claims in this document were verified against a running server and one of them was
+false — `POST /api/agreement/save` was returning an existing agreement rather than the
+draft it had just created, so activating "the new draft" silently activated the old one.
+Both behaviours are now covered by the suite.
+
+**If you change an endpoint, change this file in the same commit.** A route documented
+one way and built another is worse than no documentation, because it is believed.
