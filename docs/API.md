@@ -154,7 +154,13 @@ every assignment after it.
 { "subject_id": "cust-1041", "program_id": "golf-101" }
 ```
 
-Returns the person, the program, the content version and the registration.
+Returns the person, the program, the content version and the registration, plus
+`needs_login: true` when the subject has no way to sign in yet.
+
+**Relaunching a completed course starts a new attempt.** Some authoring tools leave
+a finished course marked as suspended; resuming that record would return the attempt
+that already says the learner passed, and the next write would overwrite it. Attempts
+are separate rows. Accrued time carries forward; completion does not.
 
 Assigning does **not** create a login. If the subject has none they cannot open what you
 assigned — check `GET /api/logins?subject_id=` and provision them separately.
@@ -249,6 +255,30 @@ POST /api/runtime/:id/terminate
 **Every `set` is persisted immediately.** SCORM courses frequently never call `Commit` —
 one real course wrote five bookmarks and zero commits in 244 seconds — so durability
 cannot be delegated to the content.
+
+Four behaviours here are contracts, not implementation details. Each one is the
+answer to something a real authoring-tool export actually does:
+
+**`session_time` is replaced, never accumulated.** `cmi.core.session_time` is the
+elapsed time of the *current session*, rewritten as it grows — it is not a delta. A
+course that commits periodically sends an increasing value many times. Adding them
+would sum a growing series. The session clock is held separately and folded into the
+total when the session closes, which is the moment SCORM says time accrues.
+
+**Writes after `terminate` are refused with `409`.** SCORM makes the API unusable
+after `LMSFinish`, and courses call it anyway. Accepting those writes would let the
+same seconds be counted again on the next exit.
+
+**`cmi.core.entry` tells the course what kind of visit this is.** A registration left
+suspended is announced as `resume`; anything else is `ab-initio`. Announcing
+`ab-initio` while returning `suspend_data` is a contradiction, and a strict course
+answers it by discarding the saved state.
+
+**`suspend_data` is stored whole, never truncated.** SCORM 1.2 caps it at 4,096
+characters and real courses exceed it. Truncating to fit is what silently destroys
+resume, and the learner is who discovers it. Waypoint stores the full value, records
+its length, stamps `suspend_overflow_at` the first time it exceeds the cap for that
+SCORM version, and warns in the log.
 
 ---
 
