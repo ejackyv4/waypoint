@@ -287,10 +287,17 @@ function OfficerHome({ auth, onSignOut }) {
     }
   };
 
-  const completeVisit = (v, note) =>
+  /* The officer has arrived. The start time is stamped server-side at this
+     moment — a time typed in afterwards is a recollection, and this record may
+     end up supporting a revocation. */
+  const startVisit = v =>
+    write("/api/visits/start", { id: v.id, officer: auth.user?.name },
+          `Visit started — ${v.subject_name}`);
+
+  const completeVisit = (v, note, observations) =>
     write("/api/visits/complete",
-          { id: v.id, officer: auth.user?.name, note: note || null },
-          note ? "Visit completed and note saved" : "Visit marked complete");
+          { id: v.id, officer: auth.user?.name, note: note || null, observations },
+          "Visit recorded");
 
   const scheduleVisit = (subject_id, when, note) =>
     write("/api/visits", { subject_id, scheduled_at: when.toISOString(),
@@ -328,6 +335,7 @@ function OfficerHome({ auth, onSignOut }) {
 
       {tab === "schedule"
         ? <OfficerSchedule data={data} busy={busy} onRefresh={load}
+            onStart={v => startVisit(v)}
             onComplete={v => setSheet({ mode: "complete", visit: v })}
             onSchedule={v => setSheet({ mode: "schedule",
               subject: { subject_id: v.subject_id, name: v.subject_name } })} />
@@ -337,7 +345,7 @@ function OfficerHome({ auth, onSignOut }) {
 
       {sheet?.mode === "complete" && (
         <CompleteSheet visit={sheet.visit} onCancel={() => setSheet(null)}
-                       onSave={note => completeVisit(sheet.visit, note)} />
+                       onSave={(note, obs) => completeVisit(sheet.visit, note, obs)} />
       )}
       {sheet?.mode === "schedule" && (
         <ScheduleSheet subject={sheet.subject} onCancel={() => setSheet(null)}
@@ -371,22 +379,98 @@ function Sheet({ title, subtitle, children, onCancel, onSave, saveLabel, disable
   );
 }
 
+/* What an officer records at the end of a visit.
+
+   Kept short on purpose. A long form on a doorstep gets filled in from memory
+   in the car, and a record written from memory is worth less than one written
+   where it happened. Everything here is one tap except the two text fields. */
+const OBSERVATIONS = [
+  { key: "subject_present", label: "Subject present",
+    options: [["yes", "Present"], ["no_contact", "No contact"]] },
+  { key: "location_safe", label: "Location",
+    options: [["yes", "Safe"], ["concerns", "Concerns"], ["not_assessed", "Not assessed"]] },
+  { key: "contraband", label: "Contraband",
+    options: [["none_seen", "None seen"], ["observed", "Observed"],
+              ["not_assessed", "Not assessed"]] },
+  { key: "demeanour", label: "Demeanour",
+    options: [["cooperative", "Cooperative"], ["guarded", "Guarded"],
+              ["agitated", "Agitated"], ["distressed", "Distressed"],
+              ["impaired", "Appeared impaired"]] }
+];
+
 function CompleteSheet({ visit, onCancel, onSave }) {
+  const [obs, setObs] = useState({});
+  const [others, setOthers] = useState("");
+  const [concerns, setConcerns] = useState("");
+  const [detail, setDetail] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const set = (k, v) => setObs(p => ({ ...p, [k]: p[k] === v ? undefined : v }));
+  const noContact = obs.subject_present === "no_contact";
+
+  const submit = () => {
+    setSaving(true);
+    onSave(note.trim(), {
+      ...obs,
+      contraband_detail: obs.contraband === "observed" ? detail.trim() : null,
+      others_present: others.trim() || null,
+      concerns: concerns.trim() || null
+    });
+  };
+
   return (
-    <Sheet title="Complete visit"
-           subtitle={`${visit.subject_name} · ${fmtVisit(visit.scheduled_at)}`}
-           onCancel={onCancel} saveLabel={saving ? "Saving…" : "Mark complete"}
-           disabled={saving}
-           onSave={() => { setSaving(true); onSave(note.trim()); }}>
-      <Text style={s.label}>Visit notes</Text>
-      <TextInput style={[s.input, s.textarea]} value={note} onChangeText={setNote}
-                 multiline placeholder="What happened during the visit?"
-                 placeholderTextColor={C.faint} textAlignVertical="top" />
-      <Text style={s.sheetHint}>
-        Notes are added to this visit's record and cannot be edited afterwards.
-      </Text>
+    <Sheet title="End visit"
+           subtitle={`${visit.subject_name} · started ${timeLabel(visit.started_at)}`}
+           onCancel={onCancel} saveLabel={saving ? "Saving…" : "Record visit"}
+           disabled={saving} onSave={submit}>
+      <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+
+        {OBSERVATIONS.map(f => {
+          /* If nobody answered the door, the rest is not assessable. */
+          if (noContact && f.key !== "subject_present") return null;
+          return (
+            <View key={f.key}>
+              <Text style={s.label}>{f.label}</Text>
+              <Choice options={f.options} value={obs[f.key]}
+                      onChange={v => set(f.key, v)} />
+            </View>
+          );
+        })}
+
+        {obs.contraband === "observed" && (
+          <>
+            <Text style={s.label}>What was seen</Text>
+            <TextInput style={s.input} value={detail} onChangeText={setDetail}
+                       placeholder="Describe what was observed"
+                       placeholderTextColor={C.faint} />
+          </>
+        )}
+
+        {!noContact && (
+          <>
+            <Text style={s.label}>Others present</Text>
+            <TextInput style={s.input} value={others} onChangeText={setOthers}
+                       placeholder="Anyone else at the location"
+                       placeholderTextColor={C.faint} />
+          </>
+        )}
+
+        <Text style={s.label}>Concerns</Text>
+        <TextInput style={s.input} value={concerns} onChangeText={setConcerns}
+                   placeholder="Anything the answers above do not cover"
+                   placeholderTextColor={C.faint} />
+
+        <Text style={s.label}>Visit notes</Text>
+        <TextInput style={[s.input, s.textarea]} value={note} onChangeText={setNote}
+                   multiline placeholder="What happened during the visit?"
+                   placeholderTextColor={C.faint} textAlignVertical="top" />
+
+        <Text style={s.sheetHint}>
+          The end time is recorded now. Notes are added to this visit's record and
+          cannot be edited afterwards — a correction is a new note.
+        </Text>
+      </ScrollView>
     </Sheet>
   );
 }
@@ -441,7 +525,7 @@ function ScheduleSheet({ subject, onCancel, onSave }) {
   );
 }
 
-function OfficerSchedule({ data, busy, onRefresh, onComplete, onSchedule }) {
+function OfficerSchedule({ data, busy, onRefresh, onStart, onComplete, onSchedule }) {
   const upcoming = data?.upcoming || [];
   const requests = data?.requests || [];
 
@@ -488,9 +572,16 @@ function OfficerSchedule({ data, busy, onRefresh, onComplete, onSchedule }) {
               <View key={v.id} style={s.card}>
                 <View style={s.cardTop}>
                   <Text style={s.visitTime}>{timeLabel(v.scheduled_at)}</Text>
-                  <View style={[s.pill, v.accepted_at ? s.pillOk : s.pillNeutral]}>
-                    <Text style={[s.pillText, { color: v.accepted_at ? C.ok : C.brand }]}>
-                      {v.accepted_at ? "Accepted" : v.seen_at ? "Viewed" : "Scheduled"}
+                  {/* Acceptance is an ACKNOWLEDGMENT, not permission. The
+                      officer goes either way; this tells them what to expect
+                      when they knock, so "Not confirmed" is the honest label —
+                      "Scheduled" read as though everything was in order. */}
+                  <View style={[s.pill, v.accepted_at ? s.pillOk
+                               : v.seen_at ? s.pillNeutral : s.pillWarn]}>
+                    <Text style={[s.pillText, { color: v.accepted_at ? C.ok
+                                  : v.seen_at ? C.brand : C.amber }]}>
+                      {v.accepted_at ? "Confirmed" : v.seen_at ? "Seen, not confirmed"
+                                     : "Not confirmed"}
                     </Text>
                   </View>
                 </View>
@@ -498,6 +589,11 @@ function OfficerSchedule({ data, busy, onRefresh, onComplete, onSchedule }) {
                 <Text style={s.cardMeta}>{v.case_number}{v.phone ? `  ·  ${v.phone}` : ""}</Text>
                 {address ? <Text style={s.cardMeta}>{address}</Text> : null}
                 {v.notes ? <Text style={s.noteLine}>{v.notes}</Text> : null}
+                {v.started_at ? (
+                  <Text style={[s.cardMeta, { color: C.brand, fontWeight: "700" }]}>
+                    In progress — started {timeLabel(v.started_at)}
+                  </Text>
+                ) : null}
 
                 <View style={s.rowBtns}>
                   {address ? (
@@ -516,10 +612,17 @@ function OfficerSchedule({ data, busy, onRefresh, onComplete, onSchedule }) {
                              onPress={() => onSchedule(v)}>
                     <Text style={s.btnGhostText}>Schedule next</Text>
                   </Pressable>
-                  <Pressable style={({ pressed }) => [s.btnSolid, pressed && { backgroundColor: C.brandDark }]}
-                             onPress={() => onComplete(v)}>
-                    <Text style={s.btnSolidText}>Mark complete</Text>
-                  </Pressable>
+                  {v.started_at ? (
+                    <Pressable style={({ pressed }) => [s.btnSolid, pressed && { backgroundColor: C.brandDark }]}
+                               onPress={() => onComplete(v)}>
+                      <Text style={s.btnSolidText}>End visit</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable style={({ pressed }) => [s.btnSolid, pressed && { backgroundColor: C.brandDark }]}
+                               onPress={() => onStart(v)}>
+                      <Text style={s.btnSolidText}>Start visit</Text>
+                    </Pressable>
+                  )}
                 </View>
               </View>
             );

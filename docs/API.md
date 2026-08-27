@@ -704,6 +704,44 @@ POST /api/visits/note            { id, body, officer? }    append a note at any 
 POST /api/visits/cancel          { id }
 ```
 
+### Conducting a visit
+
+```
+GET  /api/visits/observations   the fields an officer may record, and their values
+POST /api/visits/start          { id, officer? }   the officer has arrived
+POST /api/visits/complete       { id, officer?, note?, observations }
+```
+
+**`start` is not gated on the subject having accepted.** Acceptance is an
+acknowledgment, not permission — an officer may turn up to an appointment nobody
+confirmed, and that is often the visit most worth making. Acceptance is shown to
+the officer so they know what to expect at the door, never used to withhold the
+appointment.
+
+**Both timestamps are taken server-side**, at the moment the officer acts. Neither
+is accepted from the caller: a time typed in afterwards is a recollection, and this
+record may end up supporting a revocation. `scheduled_at` is when the visit was
+*meant* to happen; `started_at` and `ended_at` are when it actually did, and reports
+need both. Starting twice keeps the original time — a repeated tap is not a second
+arrival. Completing a visit that was never started stamps both, so a completion
+entered from a desk is not left with a null arrival.
+
+The observations are recorded once, when the visit ends:
+
+| Field | Values |
+|---|---|
+| `subject_present` | `yes`, `no_contact` |
+| `location_safe` | `yes`, `concerns`, `not_assessed` |
+| `contraband` | `none_seen`, `observed`, `not_assessed` |
+| `contraband_detail` | free text, when contraband was observed |
+| `demeanour` | `cooperative`, `guarded`, `agitated`, `distressed`, `impaired` |
+| `others_present` | free text |
+| `concerns` | free text — anything the fields above do not cover |
+
+`GET /api/visits/observations` returns that table, so both clients build the same
+form from one source and cannot drift apart. Only fields actually supplied are
+written, so a later correction cannot blank an observation nobody meant to touch.
+
 **Two different kinds of note, deliberately separate:**
 
 - `visits.notes` — the instruction given to the subject beforehand
