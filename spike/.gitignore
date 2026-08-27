@@ -1,5 +1,11 @@
 data/
 corpus/
+# ...except our own Rise 360 export. Rustici's samples are freely
+# re-downloadable; this one is ours, and it is the fixture that found
+# seven bugs the reference packages could not. A fresh clone needs it.
+!corpus/
+corpus/*
+!corpus/Rise360_DiversityBasics_SCORM12.zip
 packages/
 packages.json
 mobile/node_modules/
