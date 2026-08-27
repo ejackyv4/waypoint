@@ -20,7 +20,12 @@ SAAS_PORT=8092
 METRO_PORT=8082                  # 8081 is often taken by another Expo project
 API_KEY=wp_demo_key_123
 DATA_DIR=spike/data
+# Two packages, deliberately different in kind:
+#   golf       Rustici's reference sample — clean, minimal, spec-authored
+#   diversity  a real Rise 360 export — 11MB, commits as it goes, writes
+#              suspend_data. It found two bugs golf structurally could not.
 SEED_ZIP=spike/corpus/RuntimeBasicCalls_SCORM12.zip
+SEED_ZIP2=spike/corpus/Rise360_DiversityBasics_SCORM12.zip
 LOG=/tmp/waypoint-demo.log
 METRO_LOG=/tmp/waypoint-metro.log
 
@@ -63,13 +68,19 @@ start_servers() {
   ok "servers running on $HOST"
 }
 
-seed_content() {
+ingest_one() {   # zip  program_id  title
   local code
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$HOST:$APP_PORT/api/ingest" \
     -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-    -d "{\"zip\":\"$SEED_ZIP\",\"program_id\":\"golf-101\",\"title\":\"Golf Explained\"}")
-  [ "$code" = "200" ] && ok "content ingested — Golf Explained (SCORM 1.2)" \
-                      || no "ingest failed (HTTP $code) — is $SEED_ZIP present?"
+    -d "{\"zip\":\"$1\",\"program_id\":\"$2\",\"title\":\"$3\"}")
+  [ "$code" = "200" ] && ok "ingested — $3" \
+                      || no "ingest failed (HTTP $code) — is $1 present?"
+}
+
+seed_content() {
+  ingest_one "$SEED_ZIP"  golf-101      "Golf Explained (Rustici sample)"
+  [ -f "$SEED_ZIP2" ] && ingest_one "$SEED_ZIP2" diversity-101 "Diversity Basics: Foundations (Rise 360)" \
+                      || dim "no Rise export present — skipping diversity-101"
 }
 
 sync_mobile_config() {
@@ -82,25 +93,38 @@ EOF
   ok "mobile config pointed at http://$HOST:$APP_PORT"
 }
 
+# Three surfaces, three DIFFERENT logins. Printing the URL without the login
+# that goes with it is how you end up trying a subject's credentials on the
+# staff console and being told, correctly, that they are wrong.
 urls() {
   echo
-  b "Demo URLs"
-  printf '  %-16s %s\n' "Mock SaaS"    "http://$HOST:$SAAS_PORT"
-  printf '  %-16s %s\n' "Learner site" "http://$HOST:$APP_PORT/learn"
-  printf '  %-16s %s\n' "Admin console" "http://$HOST:$APP_PORT/console"
+  b "Where to go, and who to sign in as"
+  printf '  %-14s %-38s %s\n' "Northwood"    "http://$HOST:$SAAS_PORT"          "r.alvarez@northwood.gov / northwood"
+  dim   "                 the corrections system — STAFF only"
+  printf '  %-14s %-38s %s\n' "Learner site" "http://$HOST:$APP_PORT/learn"     "cust-1041@example.com / northwood"
+  dim   "                 where a SUBJECT takes their course"
+  printf '  %-14s %-38s %s\n' "Waypoint"     "http://$HOST:$APP_PORT/console"   "no login"
+  dim   "                 the LMS's own admin view"
+  echo
+  dim "  Subjects have no Northwood account — they sign in to Waypoint, and"
+  dim "  Northwood asks Waypoint who they are. That is the design, not a gap."
   echo
 }
 
 script() {
   echo
   b "Demo script"
-  dim "1. Mock SaaS      → pick a customer, pick Golf Explained, Assign & create login"
-  dim "2. Copy the email and password it shows you"
-  dim "3. Learner site   → sign in, Start course, work through it, finish the quiz"
-  dim "4. Mock SaaS      → the completion appears within a few seconds"
+  dim "1. Northwood      → pick a subject, Programs, assign Golf Explained"
+  dim "2. Learner site   → sign in, Start course, work through it, finish the quiz"
+  dim "3. Northwood      → the completion appears within a few seconds"
   echo
-  dim "Customers already set up:  Dana Whitfield (cust-1041)"
-  dim "                           Marcus Oyelaran (cust-2298)"
+  b "Logins"
+  dim "Staff     r.alvarez@northwood.gov / northwood"
+  dim "Subject   cust-1041@example.com   / northwood   (Dana Whitfield)"
+  dim "          cust-2298@example.com   / northwood   (Marcus Oyelaran)"
+  echo
+  dim "These are seeded, so they survive ./spike/demo reset. A login created"
+  dim "from a subject's profile shows its password once and is not repeatable."
   echo
 }
 
@@ -188,14 +212,25 @@ case "${1:-start}" in
     servers_up && ok "servers up on $HOST" || no "servers down"
     metro_up && ok "Metro up on $METRO_PORT" || no "Metro down (./spike/demo mobile)"
     if servers_up; then
-      python3 - "$HOST" "$APP_PORT" "$SAAS_PORT" <<'PY'
+      python3 - "$HOST" "$APP_PORT" "$API_KEY" <<'PY'
 import json, sys, urllib.request
-host, app, saas = sys.argv[1], sys.argv[2], sys.argv[3]
-g = lambda u, k: json.load(urllib.request.urlopen(u, timeout=3))[k]
+host, app, key = sys.argv[1], sys.argv[2], sys.argv[3]
+
+def get(path, k):
+    """Northwood's routes need a staff session, which a shell script has no
+    business holding. Ask Waypoint instead — the script already has its key."""
+    r = urllib.request.Request(f"http://{host}:{app}{path}",
+                               headers={"Authorization": f"Bearer {key}"})
+    return json.load(urllib.request.urlopen(r, timeout=3))[k]
+
 try:
-    print(f"  \033[2mregistrations: {len(g(f'http://{host}:{app}/api/console/registrations','registrations'))}"
-          f"   completions: {len(g(f'http://{host}:{saas}/api/results','results'))}"
-          f"   catalog: {len(g(f'http://{host}:{saas}/api/catalog','content'))}\033[0m")
+    regs = get("/api/console/registrations", "registrations")
+    done = [r for r in regs if r.get("completion_status") == "completed"]
+    sent = [d for d in get("/api/console/deliveries", "deliveries")
+            if d.get("status") == "delivered"]
+    print(f"  \033[2mregistrations: {len(regs)}   completed: {len(done)}"
+          f"   completions delivered: {len(sent)}"
+          f"   catalog: {len(get('/api/content','content'))}\033[0m")
 except Exception as e:
     print(f"  (couldn't read counts: {e})")
 PY

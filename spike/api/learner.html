@@ -93,6 +93,65 @@ p.pagesub{color:var(--muted);margin:0 0 22px;font-size:14px}
      background:var(--brand);color:#fff;font:inherit;font-size:15.5px;font-weight:650;cursor:pointer}
 .cta:hover{background:var(--brand-dark)}
 .empty{padding:44px 20px;text-align:center;color:var(--muted)}
+.bigtime{font-size:24px;font-weight:700;letter-spacing:-.5px;margin-top:10px;color:var(--ink)}
+.srow{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.srow > div:first-child{flex:1;min-width:0}
+.srow-t{font-weight:650;font-size:15px}
+.muted-link{color:var(--muted);margin-left:14px}
+.carform{border-top:1px solid var(--line);margin-top:12px;padding-top:14px}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.carform label{margin-top:10px}
+.ackbar{display:flex;align-items:center;gap:16px;background:var(--brand-soft);
+        border-color:var(--brand);flex-wrap:wrap}
+.ackbar > div{flex:1;min-width:200px}
+.condrow{padding:12px 0;border-bottom:1px solid var(--line);line-height:1.6;font-size:14.5px}
+.condrow:last-child{border-bottom:0}
+.tracked{margin-top:7px;font-size:13px;color:var(--brand);background:var(--brand-soft);
+         display:inline-block;padding:4px 10px;border-radius:8px}
+
+/* ---- supervision agreement ---- */
+.agdoc{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+       box-shadow:var(--shadow);overflow:hidden;margin-bottom:16px}
+.agdoc .head{padding:22px 22px 18px;border-bottom:1px solid var(--line)}
+.agdoc .head h2{margin:0;font-size:20px;letter-spacing:-.3px}
+.agdoc .head .office{color:var(--muted);font-size:13.5px;margin-top:3px}
+.agfacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+         gap:2px 20px;padding:16px 22px;background:var(--bg)}
+.agfacts dt{font-size:11.5px;font-weight:700;color:var(--muted);
+            text-transform:uppercase;letter-spacing:.05em;margin-top:10px}
+.agfacts dd{margin:2px 0 0;font-size:15px;font-weight:600}
+.agsec{padding:6px 22px 18px}
+.agsec h3{font-size:13px;font-weight:800;color:var(--brand);text-transform:uppercase;
+          letter-spacing:.06em;margin:22px 0 2px}
+.condrow{display:flex;gap:12px;align-items:baseline}
+.condrow .n{color:var(--faint);font-variant-numeric:tabular-nums;font-weight:700;
+            font-size:13.5px;min-width:22px}
+.violbox{margin:8px 22px 22px;padding:16px 18px;background:var(--err-soft);
+         border:1px solid #fecaca;border-radius:11px;font-size:14.5px;line-height:1.6}
+.violbox b{display:block;color:var(--err);font-size:12.5px;text-transform:uppercase;
+           letter-spacing:.05em;margin-bottom:6px}
+
+.ackpanel{padding:20px 22px 22px;border-top:1px solid var(--line);background:var(--bg)}
+.ackpanel h3{margin:0 0 8px;font-size:16px}
+.ackpanel p{margin:0 0 14px;font-size:14.5px;color:var(--ink-2);line-height:1.6}
+.ackcheck{display:flex;gap:12px;align-items:flex-start;cursor:pointer;
+          padding:14px;background:var(--surface);border:1px solid var(--line);
+          border-radius:11px;font-size:14.5px;line-height:1.5}
+.ackcheck input{width:20px;height:20px;flex:0 0 auto;margin:1px 0 0;accent-color:var(--brand)}
+.ackdone{display:flex;gap:12px;align-items:center;padding:16px 18px;background:var(--ok-soft);
+         border:1px solid #a7f3d0;border-radius:11px;color:var(--ok);font-weight:650;font-size:14.5px}
+.notice{display:flex;gap:12px;align-items:flex-start;padding:15px 17px;border-radius:12px;
+        margin-bottom:16px;font-size:14.5px;line-height:1.55;font-weight:600}
+.notice.warn{background:#fffbeb;color:#b45309;border:1px solid #fde68a}
+.notice.warn a,.notice.warn button{color:#b45309}
+.notice .ico{font-size:17px;line-height:1.2}
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,14px);opacity:0;
+       background:var(--ink);color:var(--bg);padding:13px 20px;border-radius:11px;
+       font-size:14.5px;font-weight:600;box-shadow:0 8px 26px rgba(0,0,0,.25);
+       transition:opacity .2s,transform .2s;z-index:50;max-width:90vw;text-align:center}
+.toast.in{opacity:1;transform:translate(-50%,0)}
+.toast.err{background:var(--err);color:#fff}
 </style>
 </head>
 <body>
@@ -112,6 +171,21 @@ const dur = s => { s = Math.max(0, Math.round(+s || 0));
   return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
 
 let auth = null, caseData = null, tab = "programs";
+
+/* No browser dialogs — one notification, used everywhere. */
+function toast(msg, kind = "ok") {
+  document.getElementById("toast")?.remove();
+  const t = document.createElement("div");
+  t.id = "toast"; t.className = `toast ${kind}`; t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("in"));
+  setTimeout(() => { t.classList.remove("in"); setTimeout(() => t.remove(), 250); }, 3200);
+}
+
+/* Does the subject owe an acknowledgment right now? Two ways to owe one:
+   never given, or withdrawn because the conditions were amended. */
+const needsAck = () => !!(caseData?.agreement && !caseData.agreement.subject_signed_at);
+const wasAmended = () => !!(caseData?.agreement?.amended_at && needsAck());
 try { auth = JSON.parse(sessionStorage.getItem("wp.auth") || "null"); } catch {}
 
 /* Deterministic color per person, matching the mobile app. */
@@ -120,6 +194,25 @@ function avatarHtml(name) {
   let h = 0; for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) % 360;
   return `<div class="avatar" style="background:hsl(${h} 42% 42%)" aria-hidden="true">${esc(initials)}</div>`;
 }
+
+/* Stored 24-hour, shown 12-hour. */
+function to12h(hhmm) {
+  if (!hhmm) return "";
+  const [h, m] = String(hhmm).split(":").map(Number);
+  if (Number.isNaN(h)) return hhmm;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m ?? 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+}
+const CS_LABEL = { todo: "To do", in_progress: "In progress", complete: "Complete" };
+const TRAVEL_LABEL = { none: "None", local: "Local only",
+                       interstate: "Interstate", international: "International" };
+const asDate = d => d ? new Date(d + "T00:00:00").toLocaleDateString(undefined,
+  { month:"numeric", day:"numeric", year:"numeric" }) : "";
+const stampDate = t => t ? new Date(t).toLocaleDateString(undefined,
+  { month:"long", day:"numeric", year:"numeric" }) : "";
+const stampFull = t => t ? new Date(t).toLocaleString(undefined,
+  { month:"long", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit" }) : "";
+const isExpired = t => !!(t?.expires_on && new Date(t.expires_on + "T23:59:59") < new Date());
+const CS_CLASS = { todo: "muted", in_progress: "go", complete: "ok" };
 
 const fmtVisit = t => t ? new Date(t).toLocaleString(undefined,
   { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : "—";
@@ -186,9 +279,6 @@ async function listView() {
   } catch { return signInView("Couldn't reach Waypoint."); }
 
   await loadCase(false);
-  const who = auth.person?.name || auth.person?.subject_id || "";
-  const subject = caseData?.subject;
-  const unseen = caseData?.unseen_visits || 0;
   const cards = (d.programs || []).map(p => {
     const done = p.completion_status === "completed";
     const passed = p.success_status === "passed", failed = p.success_status === "failed";
@@ -206,9 +296,23 @@ async function listView() {
       ${(passed || failed) ? `<div class="meta" style="color:${passed ? "var(--ok)" : "var(--err)"};font-weight:650">
           ${passed ? "Passed" : "Not passed"}</div>` : ""}
       <button class="cta" data-program="${esc(p.program_id)}">
-        ${suspended ? "Resume course" : done ? "Retake course" : started ? "Continue" : "Start course"}</button>
+        ${done ? "Retake course" : suspended ? "Resume course"
+          : started ? "Continue" : "Start course"}</button>
     </div>`;
   }).join("");
+
+  PROGRAM_CARDS = cards;
+  paint();
+}
+
+/* One shell, two views. The tab strip only appears once there is somewhere
+   else to go — a lone tab is chrome for its own sake. */
+let PROGRAM_CARDS = "";
+function paint() {
+  const who = auth.person?.name || auth.person?.subject_id || "";
+  const subject = caseData?.subject;
+  const hasAgreement = !!caseData?.agreement;
+  if (!hasAgreement) tab = "programs";
 
   app.innerHTML = `
     <header class="topbar">
@@ -218,14 +322,163 @@ async function listView() {
       <span class="wordmark">Waypoint</span>
       <span class="who">${esc(who)}<button class="link" id="out">Sign out</button></span>
     </header>
-    <div class="wrap">
-      <h2 class="pagetitle">My Learning</h2>
-      <p class="pagesub">Programmes assigned to you.</p>
-      ${cards || `<div class="card empty">Nothing assigned yet.</div>`}
-    </div>`;
+    ${subject ? `
+      <div class="profbar">
+        ${avatarHtml(subject.name)}
+        <div>
+          <div class="nm">${esc(subject.name)}</div>
+          <div class="mt">${esc(subject.case_number || "")}${
+            subject.officer ? ` &middot; Officer ${esc(subject.officer)}` : ""}</div>
+        </div>
+      </div>` : ""}
+    ${hasAgreement ? `
+      <nav class="tabs">
+        <button class="tab ${tab === "programs" ? "on" : ""}" data-tab="programs">My Learning</button>
+        <button class="tab ${tab === "agreement" ? "on" : ""}" data-tab="agreement">
+          Supervision agreement${needsAck() ? `<span class="badge">1</span>` : ""}</button>
+      </nav>` : ""}
+    <div class="wrap" id="wrap"></div>`;
 
   document.getElementById("out").onclick = () => { save(null); signInView(); };
+  app.querySelectorAll("[data-tab]").forEach(b =>
+    b.onclick = () => { tab = b.dataset.tab; paint(); scrollTo(0, 0); });
+
+  if (tab === "agreement") return paintAgreement();
+
+  document.getElementById("wrap").innerHTML = `
+    ${needsAck() ? `
+      <div class="notice warn">
+        <span class="ico">&#9888;</span>
+        <div>${wasAmended()
+          ? "Your conditions of supervision have been updated. Please review and acknowledge them again."
+          : "You have conditions of supervision to review and acknowledge."}
+          <button class="link" id="toAg" style="margin-left:6px">Review now</button></div>
+      </div>` : ""}
+    <h2 class="pagetitle">My Learning</h2>
+    <p class="pagesub">Programs assigned to you.</p>
+    ${PROGRAM_CARDS || `<div class="card empty">Nothing assigned yet.</div>`}`;
+
+  const jump = document.getElementById("toAg");
+  if (jump) jump.onclick = () => { tab = "agreement"; paint(); scrollTo(0, 0); };
   app.querySelectorAll("[data-program]").forEach(b => b.onclick = () => launch(b));
+}
+
+/* ---------------- supervision agreement ----------------
+   The subject reads exactly what the PDF says, grouped the same way, and
+   acknowledges it here. Acceptance is deliberate: the button stays disabled
+   until they have reached the end of the conditions and ticked the box. */
+function paintAgreement() {
+  const a = caseData.agreement;
+  const subject = caseData.subject || {};
+  const cats = caseData.condition_categories || [];
+  const signed = !!a.subject_signed_at;
+
+  const byCat = {};
+  (a.conditions || []).forEach(c => (byCat[c.category] ||= []).push(c));
+  let n = 0;
+  const sections = cats.map(([key, label]) => {
+    const list = byCat[key] || [];
+    if (!list.length) return "";
+    return `<h3>${esc(label)}</h3>` + list.map(c => `
+      <div class="condrow">
+        <span class="n">${++n}.</span>
+        <div>${esc(c.body)}
+          ${c.obligation_title ? `<div class="tracked">Tracked as ${esc(c.obligation_title)}${
+            c.required_quantity ? ` &mdash; ${esc(c.required_quantity)} ${esc(c.unit || "")}` : ""}</div>` : ""}
+        </div>
+      </div>`).join("");
+  }).join("");
+
+  const fact = (label, v) => `<dt>${label}</dt><dd>${esc(v || "\u2014")}</dd>`;
+
+  document.getElementById("wrap").innerHTML = `
+    ${!signed ? `
+      <div class="notice warn">
+        <span class="ico">&#9888;</span>
+        <div>${wasAmended()
+          ? `These conditions were updated on ${esc(stampDate(a.amended_at))}. Your earlier
+             acknowledgment no longer applies &mdash; please read them again.`
+          : "Read these conditions in full, then acknowledge them at the bottom of the page."}</div>
+      </div>` : ""}
+
+    <div class="agdoc">
+      <div class="head">
+        <h2>Conditions of Supervision</h2>
+        <div class="office">${esc(a.office || "Northwood Corrections")}</div>
+      </div>
+
+      <dl class="agfacts">
+        ${fact("Subject", subject.name)}
+        ${fact("Case number", subject.case_number)}
+        ${fact("Supervision type", a.kind)}
+        ${fact("Supervision level", a.supervision_level)}
+        ${fact("Start date", asDate(a.start_date))}
+        ${fact("Expires", asDate(a.end_date))}
+        ${fact("Supervising officer", a.officer_name)}
+      </dl>
+
+      <div class="agsec">${sections || `<p class="pagesub" style="margin-top:18px">
+        No conditions have been recorded.</p>`}</div>
+
+      ${a.violation_text ? `<div class="violbox">
+        <b>If you do not comply</b>${esc(a.violation_text)}</div>` : ""}
+
+      <div class="ackpanel" id="ackpanel">
+        <h3>Acknowledgment</h3>
+        ${signed ? `
+          <div class="ackdone">
+            <span>&#10003;</span>
+            <span>You acknowledged these conditions on ${esc(stampFull(a.subject_signed_at))}.</span>
+          </div>` : `
+          <p>By acknowledging, you confirm that these conditions have been explained to you,
+             that you have read them or had them read to you, and that you understand them.</p>
+          <label class="ackcheck">
+            <input type="checkbox" id="ackbox" disabled>
+            <span id="acklabel">Scroll to the end of the conditions to continue.</span>
+          </label>
+          <button class="cta" id="ackgo" disabled>Acknowledge these conditions</button>`}
+      </div>
+    </div>`;
+
+  if (signed) return;
+
+  const box = document.getElementById("ackbox");
+  const label = document.getElementById("acklabel");
+  const go = document.getElementById("ackgo");
+  const panel = document.getElementById("ackpanel");
+
+  // Enable only once the acknowledgment panel itself has been reached — that
+  // means the conditions above it have gone past. A promise to have read
+  // something you were never shown is worth nothing.
+  let reached = false;
+  const check = () => {
+    if (reached) return;
+    if (panel.getBoundingClientRect().top > innerHeight - 60) return;
+    reached = true;
+    box.disabled = false;
+    label.textContent = "I have read and understand these conditions of supervision.";
+    removeEventListener("scroll", check);
+  };
+  addEventListener("scroll", check, { passive: true });
+  check();
+
+  box.onchange = () => { go.disabled = !box.checked; };
+
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = "Recording\u2026";
+    try {
+      const r = await fetch(`${SAAS}/api/me/agreement/sign`, {
+        method: "POST", headers: { Authorization: `Bearer ${auth.token}` } });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Could not record your acknowledgment");
+      caseData.agreement = d.agreement;
+      paint();
+      toast("Acknowledgment recorded");
+    } catch (e) {
+      go.disabled = false; go.textContent = "Acknowledge these conditions";
+      toast(String(e.message || e), "err");
+    }
+  };
 }
 
 async function launch(btn) {
@@ -244,7 +497,7 @@ async function launch(btn) {
     location.href = d.launch_url;
   } catch (e) {
     btn.disabled = false; btn.textContent = label;
-    alert(e.message || e);
+    toast(String(e.message || e), "err");
   }
 }
 

@@ -14,7 +14,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, mkdirSync, rmSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { join, basename } from "node:path";
-import { DATA_DIR, upsertProgram, addContentVersion, setStoragePath } from "./db.mjs";
+import { DATA_DIR } from "./db/connect.mjs";
+import { upsertProgram, addContentVersion, setStoragePath } from "./db/waypoint.mjs";
 
 const MAX_ENTRIES      = 10_000;
 const MAX_UNCOMPRESSED = 2 * 1024 ** 3;

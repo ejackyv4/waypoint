@@ -48,6 +48,23 @@ Related failures worth naming, because they all came from the same instinct:
 - Ignoring a filename that said `prod-bak`
 - Ignoring the user saying "we have an existing database"
 
+### A path computed from `__dirname` moves when the file moves
+
+Splitting the data layer moved `connect.mjs` into `db/`, so `join(HERE, "..", "data")`
+started resolving to `spike/api/data` instead of `spike/data`. The database quietly
+relocated. `./spike/demo reset` went on deleting `spike/data` — now empty — and
+reporting success, so every "clean slate" for the next two hours was stale data.
+
+Nothing failed. Tests passed against the wrong database.
+
+- **Resolve data paths from a fixed anchor**, not relative to whichever file happens to
+  hold the connection
+- **Print the database path at startup.** One line would have caught this immediately,
+  and it is the same rule as printing which database you are connected to before any
+  schema change
+- **Assert it in the suite.** `test-sweeper.mjs` now fails if the file is not where the
+  tooling expects
+
 ### Before any schema or data operation
 
 1. **Print which database you are connected to** — host and name — and show it
@@ -128,7 +145,42 @@ rendering logic, don't create a second widget type for the same job, don't overr
 internals from outside. If a shared component can't do what a screen needs, extend the
 component — everyone benefits.
 
-### 6. Dynamically-loaded components need explicit initialisation
+### 6. In React, never declare a component inside another component
+
+A component declared inside another is a **new component type on every render**, so
+React unmounts the old tree and mounts a fresh one. Anything holding state loses it —
+most visibly a text input, which loses focus after every single character.
+
+It presents as an input bug and is a component-identity bug. The vehicle form had it:
+`const Field = ...` inside `VehicleForm`, and Year accepted one character at a time.
+
+Hoist to module scope and pass what it needs as props. Two more in the same file had
+the same defect with no symptom, only because neither held an input.
+
+### 7. A boundary that isn't enforced isn't a boundary
+
+Northwood is a *customer* of Waypoint: it holds an API key and talks HTTP. That was
+written in the docs, in the comments, and in the architecture diagram. It was also
+false — the demo seed wrote straight into Waypoint's `people` and `credentials`
+tables, so the very first thing the system did was skip the integration it exists to
+prove.
+
+Nobody noticed because a hand-check scanned the request handler and not the
+module. Splitting the file surfaced it in seconds: the import simply would not
+resolve any more.
+
+- **Put the boundary in the module graph**, where crossing it is a build error rather
+  than a code-review question
+- **Then check it mechanically**, and prefer a rule over a list. The first version of
+  `check-boundary.mjs` named thirty forbidden functions and leaked twice anyway: once
+  through a module-level seed, once through a query called `saasPeople` that joined
+  four of the other system's tables. Splitting the data layer reduced it to one rule —
+  *Northwood may not import Waypoint* — which cannot be incomplete
+- The same applies to everything this file asserts. `check-docs.mjs` and
+  `check-feedback.mjs` exist for the same reason, and each was written *after* the
+  thing it checks had already gone wrong
+
+### 8. Dynamically-loaded components need explicit initialisation
 
 Anything injected into the DOM after page load — modal contents, a lazily-fetched panel,
 a player frame — will not auto-initialize. Give shared components an idempotent
@@ -136,7 +188,7 @@ a player frame — will not auto-initialize. Give shared components an idempoten
 over the timing with arbitrary delays**, and do not patch the component to accommodate
 one caller.
 
-### 7. Route data access through a chokepoint
+### 9. Route data access through a chokepoint
 
 Scattering raw queries through controllers is what makes later structural change — adding
 scoping, adding an audit trail, adding caching — a three-month archaeology project
@@ -146,7 +198,7 @@ This matters here specifically: **Waypoint is single-tenant by decision, and if 
 changes, the chokepoint is what makes adding scoping survivable.** The insurance is the
 layer, not a speculative `tenant_id` column — the column was never the expensive part.
 
-### 8. If it is multi-tenant, scoping is enforced, never remembered
+### 10. If it is multi-tenant, scoping is enforced, never remembered
 
 Not currently applicable — recorded because it is the single most expensive lesson from
 the previous project, and because the moment tenancy arrives it applies in full:
@@ -328,6 +380,20 @@ permanent fixture.
 
 Enforce it in review: `grep -r "alert(\|confirm(\|prompt("`.
 
+### Every write says whether it worked
+
+Three separate bugs here were the same bug: the save succeeded, the screen re-rendered
+identically, and it read as a dead button. Error handling was never the missing half —
+all three had working error paths and no success message.
+
+- **Confirm the success, not just the failure.** A silent success is indistinguishable
+  from a broken button, and it is the user who pays to find out which
+- **Name what was saved** — "Curfew saved", not "Saved"
+- **Put it in the shared helper**, not at each call site. Employment shipped with no
+  feedback because the helper had none and nobody noticed at the fifth call site
+- `node spike/api/check-feedback.mjs` fails if any write can complete silently. It found
+  two paths that a careful manual audit had just missed
+
 ### Messages are specific and contextual
 
 - ✅ "Upload failed — `imsmanifest.xml` must be at the top level of the zip. Try zipping
@@ -483,3 +549,27 @@ decided lives in:
   parts, glossary
 - [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — PoC scope, success criteria, the
   minimal data model, and the build sequence
+
+## Credentials belong to the person, not the transaction
+
+Assigning a program used to create the login and return a password. Assign a second
+program and the password rotated — silently, with the console still displaying the dead
+one. The subject could not sign in and nothing anywhere said why.
+
+Three lessons, in order of how much they cost:
+
+- **A write that replaces is not the same as a write that ensures.** `setPassword` was an
+  upsert, so "make sure this person has a login" and "change this person's password" were
+  the same call. They are different intentions with different blast radii. Make the
+  destructive one explicit (`reset_password: true`) and let the safe one be the default.
+- **Don't couple a credential's lifetime to an unrelated action.** A login belongs to the
+  person and outlives every program they are given. Anything that creates one as a side
+  effect will eventually destroy one as a side effect.
+- **Never persist a secret you described as "shown once."** The console cached the
+  password in `sessionStorage` so it would survive a reload — which meant it also survived
+  the rotation and the database reset that made it invalid. A stale password looks exactly
+  like a working one.
+
+The tell was that the API was provably fine — `curl` logged in every time — while the
+demo did not. When the server passes and the user cannot, suspect something the browser
+is holding on to.

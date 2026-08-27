@@ -317,6 +317,9 @@ let regId = null, session = null, cmi = {}, is2004 = false;
 let initialized = false, terminated = false, lastError = "0";
 let pending = 0, failed = 0, sessionStart = null;
 
+/* Set when the server rejects our credential rather than failing to answer. */
+let sessionDead = false;
+
 const ERR = { "0":"No error","101":"General exception","103":"Already initialized",
   "112":"Termination before initialization","122":"Retrieve data before initialization",
   "132":"Store data before initialization","201":"Invalid argument error",
@@ -327,10 +330,18 @@ const ERR = { "0":"No error","101":"General exception","103":"Already initialize
 function setSaveState(){
   $chip.className = "chip" + (failed ? " err" : pending ? " saving" : " ok");
   $chipText.textContent = failed ? `${failed} unsaved` : pending ? "Saving" : "Saved";
-  $banner.classList.toggle("show", failed > 0);
-  if (failed) $bannerText.textContent =
-    "We can't reach the server, so your recent progress isn't saved yet. " +
-    "Stay on this page — we'll keep trying.";
+  $banner.classList.toggle("show", failed > 0 && !terminated);
+  if (!failed || terminated) return;
+
+  /* Two different failures that need two different sentences.
+     A dead session will NEVER succeed on retry, so telling the learner to
+     stay on the page and promising to keep trying is a lie that costs them
+     the work they do next. Say which one it is, and what to do about it. */
+  $bannerText.textContent = sessionDead
+    ? "Your session has expired, so new progress can't be saved. Your earlier "
+      + "progress is safe. Open the course again from your program list to carry on."
+    : "We can't reach the server, so your recent progress isn't saved yet. "
+      + "Stay on this page — we'll keep trying.";
 }
 
 async function post(path, body){
@@ -344,6 +355,15 @@ async function post(path, body){
                 ...(session ? { Authorization: `Bearer ${session}` } : {}) },
       body: JSON.stringify(body)
     });
+    /* Once we have terminated, the server refuses further writes — that is
+       the spec, and courses call the API afterwards anyway (Rise 360 sends
+       session_time after LMSFinish). Refusing it is correct; showing the
+       learner "your progress isn't saved" underneath a "Progress saved"
+       screen is not. An expected refusal is not a failure. */
+    if (r.status === 409 && terminated) { return null; }
+
+    // 401/403 is the session, not the network. Retrying cannot fix it.
+    if (r.status === 401 || r.status === 403) sessionDead = true;
     if (!r.ok) throw new Error("HTTP " + r.status);
     failed = 0;
     return await r.json();
@@ -485,17 +505,12 @@ function overlay(html){
      script did not open — so say so rather than appearing broken. */
   const done = el("doneBtn");
   if (done) done.onclick = () => {
-    // In the app, hand back to the native shell so it can return the
-    // learner to their program list. In a browser there is nowhere to
-    // go, so close the tab if we opened it and say so plainly if not.
+    /* In the app, hand back to the native shell. In a browser, go to the
+       program list — the learner came from there and it is where the rest
+       of their courses are. "You can close this window" was a dead end
+       dressed as a button: it looked clickable and did nothing. */
     if (EMBEDDED) return notifyNative({ type: "exit" });
-    window.close();
-    setTimeout(() => {
-      done.disabled = true;
-      done.style.opacity = ".55";
-      done.style.cursor = "default";
-      done.textContent = "You can close this window";
-    }, 120);
+    location.href = API + "/learn";
   };
 }
 
@@ -525,9 +540,15 @@ function showResults(r){
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg>
     </div>
-    <h2>We couldn't confirm your results</h2>
-    <p>Your session ended, but we weren't able to read the final result back.
-       Please contact your administrator before retaking this course.</p></div>`);
+    <h2>${sessionDead ? "Your session expired" : "We couldn't confirm your results"}</h2>
+    <p>${sessionDead
+      ? "Everything you completed before now is saved. Open the course again "
+        + "from your program list and you will pick up where you left off."
+      : "Your session ended, but we weren't able to read the final result back. "
+        + "Your progress up to that point is saved. Open the course again from "
+        + "your program list &mdash; if this keeps happening, tell your administrator."}</p>
+    <button class="btn btn-primary" onclick="location.href=API+'/learn'">
+      Back to my courses</button></div>`);
 
   const passed = reg.success_status === "passed";
   const failedQ = reg.success_status === "failed";
