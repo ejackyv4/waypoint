@@ -632,5 +632,51 @@ if (staff && staff.status === 200) {
                                status: before.status }, SH);
 }
 
+
+/* ---- conducting a visit ----------------------------------------------- */
+if (staff && staff.status === 200) {
+  console.log("");
+  const SH = { Authorization: `Bearer ${staff.body.token}` };
+  const when = new Date(Date.now() + 864e5).toISOString();
+
+  const made = await saas("/api/visits",
+    { subject_id: "cust-1041", scheduled_at: when, officer: "R. Alvarez" }, SH);
+  const vid = made.body.visit.id;
+  ok(!made.body.visit.accepted_at, "a new visit starts unaccepted");
+
+  /* Acceptance is an acknowledgment, not permission. An officer may turn up to
+     an appointment nobody confirmed — often the visit most worth making. */
+  let r2 = await saas("/api/visits/start", { id: vid, officer: "R. Alvarez" }, SH);
+  ok(r2.status === 200 && r2.body.visit.started_at,
+     "\x1b[1man unaccepted visit can still be started\x1b[0m");
+
+  const startedAt = r2.body.visit.started_at;
+  r2 = await saas("/api/visits/start", { id: vid }, SH);
+  ok(r2.body.visit.started_at === startedAt,
+     "starting twice keeps the original time — a repeated tap is not a new arrival");
+
+  r2 = await saas("/api/visits/complete", { id: vid, officer: "R. Alvarez",
+    note: "Attended. Window still unrepaired.",
+    observations: { subject_present: "yes", location_safe: "concerns",
+                    contraband: "none_seen", demeanour: "guarded",
+                    others_present: "One adult female",
+                    concerns: "Broken kitchen window" } }, SH);
+  const v = r2.body.visit;
+  ok(v.status === "completed" && v.ended_at, "ending the visit records an end time");
+  ok(v.started_at === startedAt,
+     "\x1b[1mthe arrival time is not overwritten when the visit ends\x1b[0m");
+  ok(v.location_safe === "concerns" && v.demeanour === "guarded"
+     && v.others_present === "One adult female",
+     "\x1b[1mwhat the officer observed is stored with the visit\x1b[0m");
+
+  /* A visit that was never started still records both ends, so a completion
+     entered from the desk is not left with a null arrival time. */
+  const m2 = await saas("/api/visits",
+    { subject_id: "cust-1041", scheduled_at: when, officer: "R. Alvarez" }, SH);
+  const c2 = await saas("/api/visits/complete", { id: m2.body.visit.id }, SH);
+  ok(c2.body.visit.started_at && c2.body.visit.ended_at,
+     "completing a visit that was never started still stamps both times");
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

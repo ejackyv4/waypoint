@@ -100,13 +100,65 @@ export const notesForSubject = subject_id => all(
      FROM visit_notes n JOIN visits v ON v.id = n.visit_id
     WHERE v.subject_id = ? ORDER BY n.created_at DESC`, subject_id);
 
-export function completeVisit(id, officer) {
+/** What an officer may record about a visit, and the values each accepts.
+ *  Exported so both clients build the same form from one source. */
+export const VISIT_OBSERVATIONS = {
+  subject_present: { label: "Subject present",
+    options: [["yes", "Present"], ["no_contact", "No contact made"]] },
+  location_safe:   { label: "Location",
+    options: [["yes", "Safe"], ["concerns", "Concerns"], ["not_assessed", "Not assessed"]] },
+  contraband:      { label: "Contraband",
+    options: [["none_seen", "None seen"], ["observed", "Observed"],
+              ["not_assessed", "Not assessed"]] },
+  demeanour:       { label: "Demeanour",
+    options: [["cooperative", "Cooperative"], ["guarded", "Guarded"],
+              ["agitated", "Agitated"], ["distressed", "Distressed"],
+              ["impaired", "Appeared impaired"]] }
+};
+
+/**
+ * The officer arrives and begins the visit.
+ *
+ * The start time is taken HERE, at the moment they act — never accepted from
+ * the caller. A time typed in afterwards is a recollection, and this record
+ * may end up supporting a revocation.
+ *
+ * Deliberately NOT gated on the subject having accepted. Acceptance is an
+ * acknowledgment, not permission: an officer may turn up to an appointment
+ * nobody confirmed, and that is often exactly the visit worth making.
+ */
+export function startVisit(id, officer) {
+  const v = visit(id);
+  if (!v) return { error: "no such visit" };
+  if (v.status === "cancelled") return { error: "this visit was cancelled" };
+  if (v.completed_at) return { error: "this visit is already complete" };
+  if (v.started_at) return { ok: true, visit: v };               // idempotent
+  run(`UPDATE visits SET started_at = ?, officer = COALESCE(officer, ?) WHERE id = ?`,
+      now(), officer ?? null, id);
+  return { ok: true, visit: visit(id) };
+}
+
+const OBSERVATION_FIELDS = ["subject_present", "location_safe", "contraband",
+                            "contraband_detail", "demeanour", "others_present",
+                            "concerns"];
+
+export function completeVisit(id, officer, observations = null) {
   const v = visit(id);
   if (!v) return { error: "no such visit" };
   if (v.status === "cancelled") return { error: "this visit was cancelled" };
   if (v.completed_at) return { ok: true, visit: v };            // idempotent
-  run(`UPDATE visits SET status = 'completed', completed_at = ?, completed_by = ? WHERE id = ?`,
-      now(), officer ?? null, id);
+
+  /* Only the fields actually supplied are written, so a later correction
+     cannot blank an observation nobody meant to touch. */
+  const cols = observations
+    ? OBSERVATION_FIELDS.filter(f => observations[f] !== undefined) : [];
+  const set = cols.map(c => `${c}=?`).join(", ");
+
+  run(`UPDATE visits SET status = 'completed', completed_at = ?, completed_by = ?,
+                         ended_at = ?, started_at = COALESCE(started_at, ?)
+                         ${set ? ", " + set : ""}
+        WHERE id = ?`,
+      now(), officer ?? null, now(), now(), ...cols.map(c => observations[c]), id);
   return { ok: true, visit: visit(id) };
 }
 

@@ -20,8 +20,9 @@
  */
 
 import {
-  visitsFor, scheduleVisit, completeVisit, cancelVisit, scheduleRequested,
-  addVisitNote, notesForVisit, subjectByKey
+  visitsFor, scheduleVisit, startVisit, completeVisit, cancelVisit,
+  scheduleRequested, addVisitNote, notesForVisit, subjectByKey,
+  VISIT_OBSERVATIONS
 } from "../db/northwood.mjs";
 import { readJson } from "../http.mjs";
 import { saasJson, asProfile } from "./shared.mjs";
@@ -48,6 +49,22 @@ export const routes = {
     return saasJson(res, 200, { visit });
   },
 
+  /* The officer has arrived and is beginning the visit.
+
+     NOT gated on the subject having accepted. Acceptance is an
+     acknowledgment, not permission — an officer may turn up to an appointment
+     nobody confirmed, and that is often the visit most worth making. */
+  "POST /api/visits/start": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const r = startVisit(Number(b.id), b.officer || ctx.session?.name || null);
+    return saasJson(res, r.error ? 409 : 200, r);
+  },
+
+  /* What an officer may record, and the values each accepts. Both clients
+     build their form from this, so the two cannot drift apart. */
+  "ALL /api/visits/observations": async (req, res) =>
+    saasJson(res, 200, { observations: VISIT_OBSERVATIONS }),
+
   /* The officer records that the visit took place. The timestamp is taken
      here, at the moment of recording — never accepted from the caller. */
   "POST /api/visits/complete": async (req, res, ctx) => {
@@ -58,7 +75,7 @@ export const routes = {
     if (b.note && String(b.note).trim())
       addVisitNote({ visit_id: id, body: String(b.note).trim(),
                      author: b.officer || ctx.session?.name || null });
-    const r = completeVisit(id, b.officer || ctx.session?.name || null);
+    const r = completeVisit(id, b.officer || ctx.session?.name || null, b.observations);
     return saasJson(res, r.error ? 409 : 200,
       r.error ? r : { ...r, notes: notesForVisit(id) });
   },

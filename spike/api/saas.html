@@ -94,10 +94,14 @@ p.pagesub{color:var(--muted);font-size:14px;margin:0 0 22px}
           padding:16px 24px;border-bottom:1px solid var(--line)}
 .loginRow .lbl{font-size:13.5px;color:var(--muted);flex:1 1 auto}
 .loginRow .lbl b{color:var(--ink);font-weight:600}
-.demoEdit{padding:0 24px 18px;margin-top:-6px}
 .frow > div{min-width:0}
 
-.profhead{display:flex;gap:22px;align-items:center;padding:24px;border-bottom:1px solid var(--line)}
+/* The edit control belongs beside the person it edits, not below the list it
+   changes. `.who` takes the slack so the button sits hard right. */
+.profhead{display:flex;gap:22px;align-items:center;padding:24px;
+          border-bottom:1px solid var(--line);flex-wrap:wrap}
+.profhead .who{flex:1;min-width:0}
+.profhead .btn{margin:0;flex:0 0 auto;align-self:center}
 .profhead .nm{font-size:24px;font-weight:700;letter-spacing:-.4px}
 .profhead .sub{color:var(--muted);font-size:14px;margin-top:3px;font-family:var(--mono)}
 .badge{display:inline-block;margin-top:9px;padding:4px 11px;border-radius:999px;
@@ -346,6 +350,12 @@ tr:last-child td{border-bottom:0}
      border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
 .warn{background:var(--amber-soft);color:var(--amber);border:1px solid #fde68a;
       border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
+.obsrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.obs{font-size:12px;background:var(--bg);border:1px solid var(--line);
+     border-radius:7px;padding:3px 9px;color:var(--ink-2)}
+.obs b{color:var(--muted);font-weight:650;margin-right:5px}
+.obs.flag{background:var(--amber-soft);border-color:#fde68a;color:var(--amber)}
+.obs.flag b{color:var(--amber)}
 .byline{font-size:11px;font-weight:700;color:var(--brand);background:var(--brand-soft);
         border-radius:999px;padding:2px 8px;margin-left:8px;vertical-align:1px;
         text-transform:uppercase;letter-spacing:.04em}
@@ -465,11 +475,12 @@ function renderProfile(s) {
     <div class="panel">
       <div class="profhead">
         ${avatar(s.name, "lg", s.has_login)}
-        <div>
+        <div class="who">
           <div class="nm">${esc(s.name)}</div>
           <div class="sub">${esc(s.case_number)}</div>
           <span class="badge">${esc(s.status)}</span>
         </div>
+        <button class="btn small ghost" id="editSubject">Edit details</button>
       </div>
 
       <div class="loginRow" id="loginRow"></div>
@@ -485,7 +496,6 @@ function renderProfile(s) {
         <div><dt>Intake date</dt><dd>${esc(longDate(s.intake)) || "—"}</dd></div>
         <div><dt>Next review</dt><dd>${esc(longDate(s.review)) || "—"}</dd></div>
       </dl>
-      <div class="demoEdit"><button class="btn small ghost" id="editSubject">Edit details</button></div>
 
       <div class="tiles" id="tiles"></div>
 
@@ -838,6 +848,7 @@ async function loadVisits(s) {
         : `<div class="primary">${esc(whenFull(v.scheduled_at))}</div>
            ${v.location ? `<div class="secondary">${esc(v.location)}</div>` : ""}
            ${v.notes ? `<div class="secondary">${esc(v.notes)}</div>` : ""}
+           ${observedBlock(v)}
            ${(v.notes_log || []).map(n => `
              <div class="vnote">${esc(n.body)}
                <span>${esc(n.author || "")}${n.author ? " · " : ""}${esc(whenFull(n.created_at))}</span>
@@ -900,6 +911,42 @@ async function loadVisits(s) {
   } catch {}
 }
 
+
+/* What the officer recorded at the visit. Written once, in the field, and
+   read here at the desk — so it has to be legible without the app's context. */
+const OBSERVED = {
+  subject_present: ["Subject", { yes: "Present", no_contact: "No contact made" }],
+  location_safe:   ["Location", { yes: "Safe", concerns: "Concerns", not_assessed: "Not assessed" }],
+  contraband:      ["Contraband", { none_seen: "None seen", observed: "Observed",
+                                    not_assessed: "Not assessed" }],
+  demeanour:       ["Demeanour", { cooperative: "Cooperative", guarded: "Guarded",
+                                   agitated: "Agitated", distressed: "Distressed",
+                                   impaired: "Appeared impaired" }]
+};
+/* Values that should catch the eye on a list of otherwise routine visits. */
+const OBSERVED_FLAG = new Set(["concerns", "observed", "agitated", "distressed",
+                               "impaired", "no_contact"]);
+
+function observedBlock(v) {
+  const chips = Object.entries(OBSERVED)
+    .filter(([k]) => v[k])
+    .map(([k, [label, values]]) => `
+      <span class="obs${OBSERVED_FLAG.has(v[k]) ? " flag" : ""}">
+        <b>${label}</b> ${esc(values[v[k]] || v[k])}</span>`).join("");
+
+  const window = v.started_at
+    ? `<span class="obs"><b>On site</b> ${esc(when(v.started_at))}${
+        v.ended_at ? `–${esc(when(v.ended_at))}` : ""}${
+        v.started_at && v.ended_at
+          ? ` · ${Math.max(1, Math.round((new Date(v.ended_at) - new Date(v.started_at)) / 60000))} min`
+          : ""}</span>` : "";
+
+  if (!chips && !window) return "";
+  return `<div class="obsrow">${window}${chips}</div>`
+       + (v.contraband_detail ? `<div class="vnote">Contraband: ${esc(v.contraband_detail)}</div>` : "")
+       + (v.others_present ? `<div class="vnote">Others present: ${esc(v.others_present)}</div>` : "")
+       + (v.concerns ? `<div class="vnote">Concerns: ${esc(v.concerns)}</div>` : "");
+}
 
 /* ---------------- programs ---------------- */
 function renderPrograms(s) {

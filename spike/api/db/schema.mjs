@@ -441,6 +441,29 @@ ensureColumn("registrations", "session_seconds", "INTEGER NOT NULL DEFAULT 0");
    why. Never truncate: truncation IS the bug. */
 ensureColumn("registrations", "suspend_overflow_at", "TEXT");
 
+/* Conducting a visit.
+ *
+ * scheduled_at is when it was MEANT to happen; started_at and ended_at are
+ * when it actually did. They are different facts and reports need both — a
+ * visit that ran an hour late, or ran for four minutes, is worth knowing.
+ * Both timestamps are taken server-side at the moment the officer acts, never
+ * typed, because a time somebody enters afterwards is a recollection.
+ *
+ * The observations are what the officer saw. They are recorded once, when the
+ * visit ends. A correction afterwards is a new note in visit_notes, never an
+ * edit — the record of what was recorded when is itself evidence. */
+for (const [c, d] of [
+  ["started_at",        "TEXT"],
+  ["ended_at",          "TEXT"],
+  ["location_safe",     "TEXT"],   // yes | concerns | not_assessed
+  ["contraband",        "TEXT"],   // none_seen | observed | not_assessed
+  ["contraband_detail", "TEXT"],
+  ["demeanour",         "TEXT"],   // cooperative | guarded | agitated | impaired | distressed
+  ["others_present",    "TEXT"],
+  ["subject_present",   "TEXT"],   // yes | no_contact
+  ["concerns",          "TEXT"]    // free text: anything the fields above do not cover
+]) ensureColumn("visits", c, d);
+
 /* Dates were seeded as display strings — "17 April 1991" — which cannot be
    compared, sorted, or turned into an age. Same rule as SCORM time: normalise
    on write, format on read. Migrate prose to ISO once. */
