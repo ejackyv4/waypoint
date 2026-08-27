@@ -118,6 +118,28 @@ export const allSubjects = () => all(
      FROM subjects s LEFT JOIN officers o ON o.id = s.officer_id
     ORDER BY s.last_name, s.first_name`);
 
+/* Fields an officer may edit on a subject's record. An allowlist, so a
+   payload cannot reach columns it has no business touching — officer_id and
+   subject_id are assignment decisions, not demographics. */
+const SUBJECT_FIELDS = ["first_name","last_name","case_number","dob","phone","email",
+                        "address_line1","address_line2","city","state","postal_code",
+                        "status","intake_date","next_review"];
+
+/**
+ * Update a subject's own details.
+ *
+ * MERGES: only fields actually present are written. A payload that omits a
+ * field must leave it alone — the same partial-save rule that once blanked an
+ * entire supervision agreement.
+ */
+export function saveSubject(subject_id, patch) {
+  const cols = SUBJECT_FIELDS.filter(f => patch[f] !== undefined);
+  if (cols.length)
+    run(`UPDATE subjects SET ${cols.map(c => `${c}=?`).join(", ")}, updated_at=?
+          WHERE subject_id = ?`, ...cols.map(c => patch[c]), now(), subject_id);
+  return subjectByKey(subject_id);
+}
+
 export const subjectByKey = subject_id => one(
   `SELECT s.*, o.name AS officer,
           s.first_name || ' ' || s.last_name AS name

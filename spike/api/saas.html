@@ -50,7 +50,13 @@ a.plain:hover{text-decoration:underline}
               margin:0 auto 16px}
 .signin h1{font-size:21px;text-align:center;margin:0;letter-spacing:-.3px}
 .signin .sub{color:var(--muted);font-size:14px;text-align:center;margin:5px 0 24px}
-.signin label{margin-top:14px}
+/* A sign-in page is one form and nothing else, so its fields get room to
+   breathe — matching the learner site, which the two sit next to in a demo.
+   The dense sizing above is right for the modals, where a form is six fields
+   deep inside a dialog; it is wrong here. */
+.signin label{margin-top:18px;font-size:13.5px}
+.signin input{padding:14px 15px;border-radius:11px;font-size:16px}
+.signin .card{padding-bottom:26px}
 .signin button{width:100%;margin-top:22px;justify-content:center}
 .signin .note{margin-top:18px;text-align:center;font-size:12.5px;color:var(--faint);line-height:1.6}
 .crumb{font-size:13.5px;color:var(--muted);margin-bottom:18px}
@@ -88,6 +94,8 @@ p.pagesub{color:var(--muted);font-size:14px;margin:0 0 22px}
           padding:16px 24px;border-bottom:1px solid var(--line)}
 .loginRow .lbl{font-size:13.5px;color:var(--muted);flex:1 1 auto}
 .loginRow .lbl b{color:var(--ink);font-weight:600}
+.demoEdit{padding:0 24px 18px;margin-top:-6px}
+.frow > div{min-width:0}
 
 .profhead{display:flex;gap:22px;align-items:center;padding:24px;border-bottom:1px solid var(--line)}
 .profhead .nm{font-size:24px;font-weight:700;letter-spacing:-.4px}
@@ -213,10 +221,35 @@ textarea:focus{outline:2px solid var(--brand);outline-offset:-1px}
 .grid{display:grid;grid-template-columns:1fr 2fr;gap:20px;align-items:start}
 @media (max-width:900px){.grid{grid-template-columns:1fr}}
 label{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin:14px 0 6px}
-input[type=text],input[type=datetime-local]{width:100%;padding:11px 12px;
-       border:1px solid var(--line);border-radius:10px;font:inherit;font-size:15px;
-       background:var(--surface);color:var(--ink)}
-input:focus{outline:2px solid var(--brand);outline-offset:-1px}
+/* Style text-entry inputs by EXCLUSION, not by listing the types we happen to
+   have used. The old rule named text and datetime-local, so email, password,
+   date, number and bare <input> fell through to browser defaults — which is
+   why the staff sign-in looked unstyled next to a fully styled button. A list
+   has to be remembered; a rule cannot be incomplete. */
+/* Kept on ONE line deliberately. A newline between two compound selectors is
+   the descendant combinator, so wrapping this list silently turned it into
+   "something inside an input" — which matches nothing, because inputs have no
+   children. The :not() list form avoids the hazard entirely. */
+input:not([type=checkbox], [type=radio], [type=file], [type=range], [type=submit], [type=button]),
+select, textarea {
+  width:100%; padding:11px 13px; border:1px solid var(--line); border-radius:10px;
+  font:inherit; font-size:15px; line-height:1.4;
+  background:var(--surface); color:var(--ink);
+  transition:border-color .12s, box-shadow .12s;
+  -webkit-appearance:none; appearance:none;
+}
+input::placeholder, textarea::placeholder{ color:var(--faint) }
+
+/* A visible focus ring, drawn outside the field so it never resizes it. */
+input:not([type=checkbox], [type=radio]):focus, select:focus, textarea:focus{
+  outline:none; border-color:var(--brand);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+input:disabled, select:disabled{ background:var(--bg); color:var(--muted) }
+
+/* Date and time fields size themselves to their content in WebKit and end up
+   narrower than everything beside them. */
+input[type=date], input[type=datetime-local], input[type=time]{ min-width:0 }
 .linkbtn{background:none;border:0;color:var(--muted);font:inherit;font-size:13px;
          cursor:pointer;padding:0}
 .linkbtn:hover{color:var(--err);text-decoration:underline}
@@ -231,9 +264,12 @@ input:focus{outline:2px solid var(--brand);outline-offset:-1px}
 .reqform .btn{margin:0;width:auto;padding:10px 18px;font-size:14px}
 .linkbtn.done:hover{color:var(--brand-dark)}
 #book{width:100%;margin-top:20px;justify-content:center}
-select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
-       font:inherit;font-size:15px;background:var(--surface);color:var(--ink)}
-select:focus{outline:2px solid var(--brand);outline-offset:-1px}
+/* A select needs its chevron back after appearance:none. */
+select{
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748b' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 13px center;
+  padding-right:34px; cursor:pointer;
+}
 #assign{width:100%;margin-top:20px;justify-content:center}
 .readonly{padding:11px 12px;border:1px solid var(--line);border-radius:10px;
           background:var(--bg);color:var(--ink-2);font-size:15px}
@@ -440,13 +476,16 @@ function renderProfile(s) {
       <div id="creds"></div>
 
       <dl class="demo">
-        <div><dt>Date of birth</dt><dd>${esc(s.dob)}</dd></div>
-        <div><dt>Phone</dt><dd>${esc(s.phone)}</dd></div>
-        <div><dt>Address</dt><dd>${esc(s.address).replace(/\n/g, "<br>")}</dd></div>
-        <div><dt>Supervising officer</dt><dd>${esc(s.officer)}</dd></div>
-        <div><dt>Intake date</dt><dd>${esc(s.intake)}</dd></div>
-        <div><dt>Next review</dt><dd>${esc(s.review)}</dd></div>
+        <div><dt>Date of birth</dt><dd>${esc(dobLine(s.dob))}</dd></div>
+        <div><dt>Phone</dt><dd>${esc(s.phone) || "—"}</dd></div>
+        <div><dt>Email</dt><dd>${s.email
+          ? `<a class="tel" href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : "—"}</dd></div>
+        <div><dt>Address</dt><dd>${esc(s.address).replace(/\n/g, "<br>") || "—"}</dd></div>
+        <div><dt>Supervising officer</dt><dd>${esc(s.officer) || "—"}</dd></div>
+        <div><dt>Intake date</dt><dd>${esc(longDate(s.intake)) || "—"}</dd></div>
+        <div><dt>Next review</dt><dd>${esc(longDate(s.review)) || "—"}</dd></div>
       </dl>
+      <div class="demoEdit"><button class="btn small ghost" id="editSubject">Edit details</button></div>
 
       <div class="tiles" id="tiles"></div>
 
@@ -479,6 +518,7 @@ function renderProfile(s) {
   el("toPrograms").onclick = () => { location.hash = `/subject/${s.subject_id}/programs`; };
   el("toVisits").onclick = () => { location.hash = `/subject/${s.subject_id}/visits`; };
   el("toAgreement").onclick = () => { location.hash = `/subject/${s.subject_id}/agreement`; };
+  el("editSubject").onclick = () => openModal("details", s);
   paintLoginRow(s);
   loadDetail(s);
 }
@@ -1394,6 +1434,7 @@ function openModal(kind, s) {
   if (kind === "travel")  renderTravel(body, s);
   if (kind === "employ")  renderEmployment(body, s);
   if (kind === "contacts") renderContacts(body, s);
+  if (kind === "details")  renderDetails(body, s);
   if (kind === "docs")    renderDocs(body, s);
 }
 
@@ -1500,6 +1541,106 @@ async function saveAndRefresh(url, payload, s, body, render, { close = false } =
     btns.forEach(b => b.disabled = false);
     if (saveBtn && label) saveBtn.textContent = label;
   }
+}
+
+/* ---- the subject's own details ----
+   Demographics only. Which officer supervises them, and what they have been
+   assigned, are decisions made elsewhere — not fields on a form. */
+const US_STATE_OPTS = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL",
+  "IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA",
+  "WV","WI","WY"];
+
+function renderDetails(body, s) {
+  body.innerHTML = head("Subject details", esc(s.name)) + `
+    <div class="mbody">
+      <div class="frow">
+        <div><label for="d_first">First name</label>
+          <input id="d_first" value="${esc(s.first_name || "")}"></div>
+        <div><label for="d_last">Last name</label>
+          <input id="d_last" value="${esc(s.last_name || "")}"></div>
+      </div>
+
+      <div class="frow">
+        <div><label for="d_case">Case number</label>
+          <input id="d_case" value="${esc(s.case_number || "")}"></div>
+        <div><label for="d_dob">Date of birth</label>
+          <input type="date" id="d_dob" value="${esc(s.dob || "")}" max="${new Date().toISOString().slice(0,10)}">
+          <p class="mnote" id="d_age" style="margin-top:6px"></p></div>
+      </div>
+
+      <div class="frow">
+        <div><label for="d_phone">Phone</label>
+          <input id="d_phone" value="${esc(s.phone || "")}" inputmode="tel"></div>
+        <div><label for="d_email">Email</label>
+          <input type="email" id="d_email" value="${esc(s.email || "")}"
+                 placeholder="name@example.com"></div>
+      </div>
+
+      <label for="d_addr1">Address</label>
+      <input id="d_addr1" value="${esc(s.address_line1 || "")}" placeholder="Street address">
+      <input id="d_addr2" value="${esc(s.address_line2 || "")}" placeholder="Apt, suite (optional)"
+             style="margin-top:8px">
+
+      <div class="frow">
+        <div><label for="d_city">City</label>
+          <input id="d_city" value="${esc(s.city || "")}"></div>
+        <div><label for="d_state">State</label>
+          ${sel("d_state", US_STATE_OPTS.map(x => [x, x]), s.state, "\u2014")}</div>
+        <div><label for="d_zip">ZIP</label>
+          <input id="d_zip" value="${esc(s.postal_code || "")}" inputmode="numeric" maxlength="10"></div>
+      </div>
+
+      <div class="frow">
+        <div><label for="d_intake">Intake date</label>
+          <input type="date" id="d_intake" value="${esc(s.intake || "")}"></div>
+        <div><label for="d_review">Next review</label>
+          <input type="date" id="d_review" value="${esc(s.review || "")}"></div>
+      </div>
+
+      <div id="d_error"></div>
+      <div class="mactions">
+        <button class="linkbtn" onclick="closeModal()">Cancel</button>
+        <button class="btn small" id="d_save">Save</button>
+      </div>
+    </div>`;
+
+  // Show the age as they type, so a mistyped year is obvious immediately.
+  const showAge = () => {
+    const a = ageFrom(el("d_dob").value);
+    el("d_age").textContent = a === null ? "" : `${a} years old`;
+  };
+  showAge();
+  el("d_dob").oninput = showAge;
+
+  el("d_save").onclick = async () => {
+    const first = el("d_first").value.trim(), last = el("d_last").value.trim();
+    if (!first || !last) {
+      el("d_error").innerHTML = `<div class="err">A first and last name are required.</div>`;
+      return;
+    }
+    const payload = {
+      subject_id: s.subject_id, first_name: first, last_name: last,
+      case_number: el("d_case").value.trim(), dob: el("d_dob").value || null,
+      phone: el("d_phone").value.trim(), email: el("d_email").value.trim(),
+      address_line1: el("d_addr1").value.trim(), address_line2: el("d_addr2").value.trim(),
+      city: el("d_city").value.trim(), state: el("d_state").value,
+      postal_code: el("d_zip").value.trim(),
+      intake_date: el("d_intake").value || null, next_review: el("d_review").value || null
+    };
+    try {
+      const d = await api("/api/subject", payload);
+      // The roster holds its own copy; update it so the card and the ring
+      // do not disagree with the record that was just saved.
+      const i = SUBJECTS.findIndex(x => x.subject_id === s.subject_id);
+      if (i >= 0) SUBJECTS[i] = { ...SUBJECTS[i], ...d.subject };
+      closeModal();
+      route();
+      toast("Details saved");
+    } catch (e) {
+      el("d_error").innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+    }
+  };
 }
 
 /* ---- family contacts ----
@@ -1922,6 +2063,34 @@ function renderEmployment(body, s) {
 const TRAVEL = [["none","None"],["local","Local only"],
                 ["interstate","Interstate"],["international","International"]];
 const travelLabel = v => (TRAVEL.find(x => x[0] === v) || TRAVEL[0])[1];
+/** "1991-04-17" → "April 17, 1991". Parsed as local midday so a timezone
+ *  behind UTC cannot roll it back a day. */
+const longDate = d => {
+  if (!d) return "";
+  const t = new Date(d + "T12:00:00");
+  return Number.isNaN(+t) ? d
+    : t.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
+
+/** Whole years, counting whether this year's birthday has happened yet. */
+function ageFrom(d) {
+  if (!d) return null;
+  const b = new Date(d + "T12:00:00"), now = new Date();
+  if (Number.isNaN(+b) || b > now) return null;
+  let a = now.getFullYear() - b.getFullYear();
+  const m = now.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) a--;
+  return a;
+}
+
+/** A birth date reads as the date and the age together — the age is what an
+ *  officer is actually checking, and making them work it out invites errors. */
+const dobLine = d => {
+  if (!d) return "—";
+  const a = ageFrom(d);
+  return longDate(d) + (a === null ? "" : ` (${a})`);
+};
+
 const asDate = d => d ? new Date(d + "T00:00:00").toLocaleDateString(undefined,
   { month:"numeric", day:"numeric", year:"numeric" }) : "";
 /* An expired permit is not a permit — say so rather than showing a level

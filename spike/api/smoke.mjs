@@ -593,5 +593,44 @@ if (seen.size) {
        "and it is readable only by its owner");
 }
 
+
+/* ---- a subject's own details ----------------------------------------- */
+if (staff && staff.status === 200) {
+  console.log("");
+  const SH = { Authorization: `Bearer ${staff.body.token}` };
+  const before = (await saas("/api/subjects", undefined, SH, "GET"))
+                   .body.subjects.find(x => x.subject_id === "cust-1041");
+
+  /* Dates are stored ISO so they can be compared, sorted and aged. Storing
+     "17 April 1991" gives you prose you can do none of that with. */
+  ok(/^\d{4}-\d{2}-\d{2}$/.test(before.dob),
+     "\x1b[1mdates are stored ISO, not as display strings\x1b[0m");
+
+  let r2 = await saas("/api/subject", { subject_id: "cust-1041", dob: "17 April 1991" }, SH);
+  ok(r2.status === 400, "a date written as prose is refused");
+  r2 = await saas("/api/subject", { subject_id: "cust-1041", dob: "2099-01-01" }, SH);
+  ok(r2.status === 400, "a date of birth in the future is refused");
+  r2 = await saas("/api/subject", { subject_id: "cust-1041", email: "nope" }, SH);
+  ok(r2.status === 400, "a malformed email is refused");
+  r2 = await saas("/api/subject", { subject_id: "cust-1041", first_name: "  " }, SH);
+  ok(r2.status === 400, "a blank name is refused");
+
+  r2 = await saas("/api/subject", { subject_id: "cust-1041", phone: "(423) 555-0100" }, SH);
+  ok(r2.body.subject.phone === "(423) 555-0100", "an officer can edit the details");
+  ok(r2.body.subject.dob === before.dob && r2.body.subject.city === before.city,
+     "\x1b[1ma partial save leaves every field it did not mention alone\x1b[0m");
+
+  /* officer_id and subject_id are assignment decisions, not demographics. */
+  r2 = await saas("/api/subject",
+                  { subject_id: "cust-1041", officer_id: 99, status: "Absconded" }, SH);
+  const check = (await saas("/api/subjects", undefined, SH, "GET"))
+                  .body.subjects.find(x => x.subject_id === "cust-1041");
+  ok(check.officer === before.officer,
+     "\x1b[1msupervising officer cannot be reassigned through the details form\x1b[0m");
+
+  await saas("/api/subject", { subject_id: "cust-1041", phone: before.phone,
+                               status: before.status }, SH);
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

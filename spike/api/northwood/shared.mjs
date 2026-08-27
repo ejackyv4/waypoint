@@ -30,10 +30,18 @@ export const waypoint = (path, init = {}) => fetch(`${APP_ORIGIN}${path}`, {
 
 /** Shape a subject row the way the UI expects it. */
 export const asProfile = r => r && ({
-  subject_id: r.subject_id, name: r.name, case_number: r.case_number,
-  dob: r.dob, phone: r.phone, status: r.status, officer: r.officer,
+  subject_id: r.subject_id, case_number: r.case_number,
+  name: r.name || [r.first_name, r.last_name].filter(Boolean).join(" "),
+  first_name: r.first_name, last_name: r.last_name,
+  dob: r.dob, phone: r.phone, email: r.email,
+  status: r.status, officer: r.officer,
   intake: r.intake_date, review: r.next_review,
-  address: [r.address_line1, [r.city, r.state, r.postal_code].filter(Boolean).join(", ")]
+  // The parts, so a form can edit them...
+  address_line1: r.address_line1, address_line2: r.address_line2,
+  city: r.city, state: r.state, postal_code: r.postal_code,
+  // ...and the assembled version, so a card can print it.
+  address: [r.address_line1, r.address_line2,
+            [r.city, r.state, r.postal_code].filter(Boolean).join(", ")]
              .filter(Boolean).join("\n")
 });
 
