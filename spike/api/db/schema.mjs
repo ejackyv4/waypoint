@@ -139,6 +139,57 @@ CREATE TABLE IF NOT EXISTS credentials (
   UNIQUE (kind, identifier)
 );
 
+-- A signed-in subject's session, so it can be ENDED.
+--
+-- This was a stateless HMAC carrying a person id and an expiry: cheap, needing
+-- no table, and impossible to revoke. A subject who lost their phone had no
+-- answer but to wait twelve hours, and there was nothing an officer could do
+-- for them in the meantime. Staff sessions have been server-side rows since
+-- they existed; the subjects' session — the one that opens a person's own
+-- supervision record — was the weaker of the two.
+--
+-- Only a HASH of the token is kept, exactly as for staff: a leak of this table
+-- must not hand anybody a live session.
+CREATE TABLE IF NOT EXISTS learner_sessions (
+  id           INTEGER PRIMARY KEY,
+  token_hash   TEXT NOT NULL UNIQUE,
+  person_id    INTEGER NOT NULL REFERENCES people(id),
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  last_seen_at TEXT,
+  ip           TEXT,
+  user_agent   TEXT,
+  revoked_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_learner_sessions_person
+  ON learner_sessions(person_id);
+
+-- Who looked at whose record, and when.
+--
+-- Supervision data is the kind where reading it is itself an act worth
+-- recording: "which officer opened this person's file" is a question that gets
+-- asked after something has gone wrong, and it can only be answered if it was
+-- being written down beforehand. Retrofitting this once real records exist is
+-- archaeology — there is no way to reconstruct who read what last year.
+--
+-- Append-only. Nothing in the application deletes from here.
+--
+-- Deliberately NOT a general query log. It records reads of a PERSON's record,
+-- which is the thing with a subject to be accountable to; logging every SELECT
+-- would produce volume nobody reads and hide the entries that matter.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          INTEGER PRIMARY KEY,
+  at          TEXT NOT NULL,
+  actor       TEXT,            -- 'officer:3', 'subject:cust-1041', 'api-key', 'system'
+  action      TEXT NOT NULL,   -- 'read' | 'write' | 'export'
+  entity      TEXT NOT NULL,   -- 'subject' | 'visit' | 'recording' | 'registrations'
+  entity_id   TEXT,            -- the subject_id or row id it concerns
+  detail      TEXT,            -- free text, short
+  ip          TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_audit_entity ON audit_log(entity, entity_id, id);
+CREATE INDEX IF NOT EXISTS ix_audit_at     ON audit_log(at);
+
 -- The mock SaaS's OWN record of what Waypoint told it. Conceptually this
 -- belongs to the other system entirely; it lives here only because the PoC
 -- runs both in one process.

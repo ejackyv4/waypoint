@@ -322,4 +322,44 @@ export function unassign({ person_id, program_pk }) {
 }
 
 
+/* ---------------- a subject's session ----------------
+
+   Server-side rows so a session can be ENDED. The token itself is never
+   stored, only its hash — the same rule as staff sessions, for the same
+   reason: this table leaking must not hand anybody a live session. */
+
+export function createLearnerSession({ token_hash, person_id, ttl_ms, ip, user_agent }) {
+  run(`INSERT INTO learner_sessions
+         (token_hash, person_id, created_at, expires_at, last_seen_at, ip, user_agent)
+       VALUES (?,?,?,?,?,?,?)`,
+      token_hash, person_id, now(), new Date(Date.now() + ttl_ms).toISOString(),
+      now(), ip ?? null, user_agent ?? null);
+}
+
+/** The person this session belongs to, or null if it is over for any reason. */
+export function learnerSession(token_hash) {
+  const s = one(`SELECT ls.*, p.subject_id, p.name
+                   FROM learner_sessions ls JOIN people p ON p.id = ls.person_id
+                  WHERE ls.token_hash = ?`, token_hash);
+  if (!s) return null;
+  if (s.revoked_at) return null;
+  if (new Date(s.expires_at) < new Date()) return null;
+  run(`UPDATE learner_sessions SET last_seen_at = ? WHERE id = ?`, now(), s.id);
+  return s;
+}
+
+export const revokeLearnerSession = token_hash =>
+  run(`UPDATE learner_sessions SET revoked_at = ? WHERE token_hash = ?`, now(), token_hash);
+
+/** Every session this person has, everywhere. What a lost phone needs. */
+export const revokeLearnerSessionsFor = person_id =>
+  run(`UPDATE learner_sessions SET revoked_at = ?
+        WHERE person_id = ? AND revoked_at IS NULL`, now(), person_id);
+
+/* Expired rows are cleared on a schedule rather than left to accumulate; the
+   session is already invalid by then, so this is housekeeping, not security. */
+export const sweepLearnerSessions = () =>
+  run(`DELETE FROM learner_sessions WHERE expires_at < ?`,
+      new Date(Date.now() - 7 * 864e5).toISOString());
+
 export { now, db };

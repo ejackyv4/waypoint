@@ -33,6 +33,7 @@ import {
   EMPLOYMENT_STATUSES, CONTACT_RELATIONSHIPS, CONDITION_CATEGORIES
 } from "../db/northwood.mjs";
 import { APP_ORIGIN } from "../config.mjs";
+import { audit, callerIp } from "../db/audit.mjs";
 import { readJson } from "../http.mjs";
 import { saasJson, asProfile, waypoint, programsForSubject } from "./shared.mjs";
 import { validEmployment, validContact, cleanContact } from "./validate.mjs";
@@ -159,6 +160,16 @@ export const routes = {
     if (!sid) return saasJson(res, 400, { error: "subject_id required" });
     const row = subjectByKey(sid);
     if (!row) return saasJson(res, 404, { error: "no such subject" });
+
+    /* Opening somebody's file is the read worth recording. It returns their
+       address, their vehicles, their employment, their contacts and their
+       obligations in one response — everything an officer would otherwise have
+       to visit five screens to see, which is exactly why "who looked at this,
+       and when" has a subject entitled to an answer.
+       A miss (404) is not recorded: there is no person for it to be about. */
+    audit({ actor: ctx.session ? `officer:${ctx.session.officer_id}` : "unknown",
+            action: "read", entity: "subject", entity_id: sid,
+            detail: "case file opened", ip: callerIp(req) });
 
     const agreement = agreementFor(sid);
     const plan = planFor(sid);

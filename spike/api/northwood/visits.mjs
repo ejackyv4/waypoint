@@ -33,6 +33,7 @@ import { buildAgenda, agendaFor, addAgendaItem, removeAgendaItem,
          coverAgendaItem, agendaItemById, suggestedAgenda } from "../db/agenda.mjs";
 import { readJson } from "../http.mjs";
 import { saasJson, asProfile, subjectFromToken, programsForSubject } from "./shared.mjs";
+import { audit, callerIp } from "../db/audit.mjs";
 import { PHOTOS_DIR, AUDIO_DIR } from "./documents.mjs";
 import { startTranscription } from "./insights.mjs";
 
@@ -383,6 +384,14 @@ export const routes = {
       allowed = person && visit(rec.visit_id)?.subject_id === person.subject_id;
     }
     if (!allowed) { res.writeHead(403); return res.end("forbidden"); }
+
+    /* Recorded once per playback, not once per byte: a player asks for a range
+       first and then several more as it seeks, and an entry for each would bury
+       the fact that somebody listened under the mechanics of how. */
+    if (!req.headers.range)
+      audit({ actor: ctx.session ? `officer:${ctx.session.officer_id}` : "subject",
+              action: "read", entity: "recording", entity_id: rec.id,
+              detail: `visit ${rec.visit_id}`, ip: callerIp(req) });
 
     try {
       const buf = await readFile(join(AUDIO_DIR, rec.filename));
