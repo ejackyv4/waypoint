@@ -1,0 +1,275 @@
+#!/usr/bin/env bash
+#
+# Put the demo back the way it was. Runs ON THE SERVER.
+#
+#   waypoint-demo status              what is here now
+#   waypoint-demo baseline            declare the current state THE demo state
+#   waypoint-demo reset               go back to the baseline
+#   waypoint-demo snapshot [name]     keep a copy of right now
+#   waypoint-demo restore <name>      go back to a specific copy
+#   waypoint-demo list                every copy held
+#
+# ---------------------------------------------------------------------------
+# WHY THIS RESTORES RATHER THAN RE-SEEDS
+#
+# The laptop's `./spike/demo reset` deletes the database and lets the server
+# seed an empty one. That works there and would NOT work here.
+#
+# Seeding builds the roster, the cases and the logins — but not the courses.
+# SCORM packages are ingested by the laptop script from zip files it has and
+# this box does not. Wiping the database here would produce a tidy demo with
+# no training in it, which is the one thing the product is for. The failure
+# would appear halfway through somebody's pitch.
+#
+# So the baseline snapshot IS the seed. Get the demo into the state you want
+# once, run `baseline`, and `reset` returns to exactly that forever after.
+#
+# Content and visit audio are never touched. Both are append-only files on
+# disk, so anything a snapshot refers to is still there when it is restored.
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+
+SERVICE=waypoint
+DATA_DIR=${WAYPOINT_DATA_DIR:-/var/lib/waypoint}
+DB="$DATA_DIR/waypoint.db"
+SNAP_DIR="$DATA_DIR/snapshots"
+BASELINE="$SNAP_DIR/baseline.db"
+OWNER=waypoint:waypoint
+KEEP=8
+
+b()   { printf '\n\033[1m%s\033[0m\n' "$*"; }
+ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+no()  { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; }
+dim() { printf '  \033[2m%s\033[0m\n' "$*"; }
+
+[ "$(id -u)" -eq 0 ] || { no "run this as root — it stops a service and writes to $DATA_DIR"; exit 1; }
+
+mkdir -p "$SNAP_DIR"
+
+# Always say which file is about to be acted on. One line, and it is the line
+# that catches "I was on the wrong box" before it costs anything.
+where() { dim "database: $DB    ($(du -h "$DB" 2>/dev/null | cut -f1 || echo 'missing'))"; }
+
+counts() {
+  [ -f "$DB" ] || { dim "no database"; return; }
+  node --input-type=module -e '
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(process.argv[1], { readOnly: true });
+    const n = t => { try { return db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c }
+                     catch { return "—" } };
+    for (const [label, table] of [["subjects","subjects"], ["visits","visits"],
+                                  ["recordings","visit_recordings"],
+                                  ["transcripts","visit_transcripts"],
+                                  ["summaries","visit_summaries"],
+                                  ["action items","visit_summary_actions"],
+                                  ["courses","content_versions"],
+                                  ["registrations","registrations"]])
+      console.log(`    ${String(n(table)).padStart(5)}  ${label}`);
+  ' "$DB" 2>/dev/null || dim "    (could not read counts)"
+}
+
+# Everything the AI produced from a recorded visit.
+#
+# A demo run leaves this behind: record a conversation, get a transcript, a
+# summary and a list of action items. Next demo those are stale — and worse,
+# they are the exact thing you were about to generate live, sitting there
+# already done. So a reset clears them and the pitch produces them again.
+#
+# Deleted children-first: actions → summaries → transcripts → recordings.
+# Foreign keys are enforced on this database, so the wrong order does not
+# corrupt anything — it refuses with "FOREIGN KEY constraint failed" and the
+# transaction rolls back. Verified, not assumed.
+#
+# The audio FILES are left alone. They are append-only evidence, they cost
+# nothing to keep, and an orphaned file is harmless where a missing one is not.
+scrub_ai_layer() {
+  node --input-type=module -e '
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(process.argv[1]);
+    const tables = ["visit_summary_actions", "visit_summaries",
+                    "visit_transcripts", "visit_recordings"];
+    db.exec("BEGIN");
+    try {
+      for (const t of tables) {
+        let before = 0;
+        try { before = db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c }
+        catch { console.log(`    ${t} — not present, skipped`); continue }
+        db.prepare(`DELETE FROM ${t}`).run();
+        console.log(`    ${String(before).padStart(5)} deleted from ${t}`);
+      }
+      db.exec("COMMIT");
+    } catch (e) { db.exec("ROLLBACK"); throw e }
+  ' "$DB"
+}
+
+# Stop, act, start. Kept in one place so no path can leave the service down.
+with_service_stopped() {
+  systemctl stop "$SERVICE"
+  "$@"
+  rm -f "$DB-wal" "$DB-shm"          # they describe the file being replaced
+  chown -R "$OWNER" "$DATA_DIR"
+  systemctl start "$SERVICE"
+  sleep 3
+  if systemctl is-active --quiet "$SERVICE"; then ok "$SERVICE is running"
+  else no "$SERVICE did not come back — journalctl -u $SERVICE -n 40"; exit 1; fi
+}
+
+# A consistent single file, WAL folded in — never a plain cp of a live database.
+#
+# The path is single-quoted, not JSON-stringified. SQLite reads a double-quoted
+# token as an IDENTIFIER, so the obvious version fails with "no such column:
+# /var/lib/waypoint/snapshots/baseline.db" — a message that sounds like a
+# schema problem and is actually a quoting one.
+take_snapshot() {
+  local dest=$1
+  node --input-type=module -e '
+    const { DatabaseSync } = await import("node:sqlite");
+    const path = process.argv[2].replace(/\x27/g, "\x27\x27");
+    new DatabaseSync(process.argv[1], { readOnly: true })
+      .exec(`VACUUM INTO \x27${path}\x27`)' "$DB" "$dest"
+  chown "$OWNER" "$dest"
+}
+
+# --yes skips the prompt. For the front door, which calls this on the operator's
+# behalf and has no terminal to type into — it does its own confirming, in a
+# browser, before it ever gets here.
+case " $* " in *" --yes "*) ASSUME_YES=1 ;; *) ASSUME_YES=0 ;; esac
+
+confirm() {
+  local what=$1
+  [ "$ASSUME_YES" -eq 1 ] && { dim "--yes given, not prompting"; return 0; }
+  printf '\n  This replaces the live demo database with %s.\n' "$what"
+  printf '  The current one is snapshotted first, so it is recoverable.\n'
+  printf '  Type \033[1myes\033[0m to continue: '
+  read -r answer
+  [ "$answer" = "yes" ] || { dim "nothing was changed"; exit 1; }
+}
+
+prune() { ls -1t "$SNAP_DIR"/auto-*.db 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f; }
+
+case "${1:-status}" in
+
+  status)
+    b "Waypoint demo"
+    where
+    counts
+    echo
+    if [ -f "$BASELINE" ]; then
+      ok "baseline set — $(date -r "$BASELINE" '+%d %b %Y %H:%M')  ($(du -h "$BASELINE" | cut -f1))"
+      dim "waypoint-demo reset  returns to it"
+    else
+      no "no baseline yet"
+      dim "get the demo how you want it, then: waypoint-demo baseline"
+    fi
+    n=$(ls -1 "$SNAP_DIR"/*.db 2>/dev/null | wc -l)
+    dim "$n snapshot(s) in $SNAP_DIR"
+    ;;
+
+  baseline)
+    b "Making the current state the baseline"
+    where
+    counts
+    if [ -f "$BASELINE" ]; then
+      printf '\n  A baseline already exists (%s).\n' "$(date -r "$BASELINE" '+%d %b %H:%M')"
+      printf '  Replacing it means resets return here instead.\n'
+      printf '  Type \033[1myes\033[0m to replace it: '
+      read -r answer
+      [ "$answer" = "yes" ] || { dim "kept the existing baseline"; exit 1; }
+      mv "$BASELINE" "$SNAP_DIR/auto-previous-baseline-$(date +%Y%m%d-%H%M%S).db"
+    fi
+    take_snapshot "$BASELINE"
+    ok "baseline saved"
+    dim "waypoint-demo reset now returns to exactly this"
+    ;;
+
+  reset)
+    b "Resetting the demo to the baseline"
+    where
+    [ -f "$BASELINE" ] || { no "no baseline to reset to — run: waypoint-demo baseline"; exit 1; }
+    dim "baseline taken $(date -r "$BASELINE" '+%d %b %Y %H:%M')"
+    keep=0; case " $* " in *" --keep-recordings "*) keep=1 ;; esac
+    confirm "the baseline"
+    take_snapshot "$SNAP_DIR/auto-$(date +%Y%m%d-%H%M%S).db"
+    ok "current state snapshotted first"
+    restore_then_scrub() {
+      cp "$BASELINE" "$DB"
+      if [ "$keep" -eq 1 ]; then
+        dim "keeping recordings, transcripts and summaries (--keep-recordings)"
+      else
+        scrub_ai_layer
+      fi
+    }
+    with_service_stopped restore_then_scrub
+    ok "demo reset"
+    prune
+    counts
+    ;;
+
+  scrub)
+    # After a demo, without going all the way back to the baseline. Anything
+    # entered during the demo — a new subject, an edited address — survives.
+    b "Clearing recordings, transcripts, summaries and action items"
+    where
+    counts
+    confirm "the same database with the AI layer removed"
+    take_snapshot "$SNAP_DIR/auto-$(date +%Y%m%d-%H%M%S).db"
+    ok "current state snapshotted first"
+    with_service_stopped scrub_ai_layer
+    ok "cleared"
+    prune
+    counts
+    ;;
+
+  snapshot)
+    b "Snapshotting the demo"
+    where
+    name=${2:-manual-$(date +%Y%m%d-%H%M%S)}
+    take_snapshot "$SNAP_DIR/$name.db"
+    ok "saved as $name"
+    ;;
+
+  restore)
+    [ -n "${2:-}" ] || { no "which one? — waypoint-demo list"; exit 1; }
+    src="$SNAP_DIR/$2.db"; [ -f "$src" ] || src="$SNAP_DIR/$2"
+    [ -f "$src" ] || { no "no snapshot called '$2' — waypoint-demo list"; exit 1; }
+    b "Restoring $(basename "$src")"
+    where
+    confirm "$(basename "$src")"
+    take_snapshot "$SNAP_DIR/auto-$(date +%Y%m%d-%H%M%S).db"
+    ok "current state snapshotted first"
+    with_service_stopped cp "$src" "$DB"
+    ok "restored"
+    prune
+    counts
+    ;;
+
+  list)
+    b "Snapshots"
+    ls -1t "$SNAP_DIR"/*.db 2>/dev/null | while read -r f; do
+      printf '  %-42s %6s  %s\n' "$(basename "$f" .db)" \
+        "$(du -h "$f" | cut -f1)" "$(date -r "$f" '+%d %b %H:%M')"
+    done || dim "none yet"
+    ;;
+
+  *)
+    b "waypoint-demo"
+    cat <<'EOF'
+  status                     what is here now
+  baseline                   declare the current state THE demo state
+  reset                      back to the baseline, AI layer cleared
+  reset --keep-recordings    back to the baseline, recordings kept
+  scrub                      clear the AI layer without resetting
+  snapshot [name]            keep a copy of right now
+  restore <name>             go back to a specific copy
+  list                       every copy held
+
+  "AI layer" means recordings, transcripts, summaries and action items —
+  everything a demo run produces. Cleared so the next pitch generates it
+  live rather than finding it already done.
+
+  Audio files on disk, course content, subjects, visits and cases are
+  never deleted by any of these.
+EOF
+    ;;
+esac
