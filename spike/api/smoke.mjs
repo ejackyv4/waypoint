@@ -1245,12 +1245,35 @@ if (staff && staff.status === 200) {
     ok((a.body.requests || []).length === before + 1,
        "\x1b[1mreading the alert does not clear it\x1b[0m");
 
-    await saas("/api/visits/schedule",
+    const sched = await saas("/api/visits/schedule",
       { id: mine.id, scheduled_at: new Date(Date.now() + 6 * 864e5).toISOString(),
-        officer: "R. Alvarez" }, SH);
+        officer: "R. Alvarez", notes: "Bring the pay stub." }, SH);
     a = await saas("/api/officer/alerts", undefined, SH, "GET");
     ok((a.body.requests || []).length === before,
        "\x1b[1mgiving it a date and time is what clears it\x1b[0m");
+
+    /* The STATUS has to move, not only the date.
+       The officer's own list filters on having no date, so it emptied either
+       way — but the subject's app asks whether any visit is still `requested`,
+       and would have gone on saying "waiting to hear back" about an
+       appointment that had already been booked. One fact, two readings. */
+    ok(sched.body.visit?.status === "scheduled",
+       "\x1b[1manswering a request moves it to scheduled, not just dated\x1b[0m");
+    ok(sched.body.visit?.notes === "Bring the pay stub.",
+       "instructions typed while answering are kept, not silently dropped");
+    ok(/shift pattern/.test(sched.body.visit?.request_note || ""),
+       "and what the subject asked for is left exactly as they wrote it");
+
+    const asSubject = await saas("/api/me/case", undefined, MH, "GET");
+    ok(!(asSubject.body.visits || []).some(v => v.status === "requested"),
+       "\x1b[1mso the subject stops being told their request is pending\x1b[0m");
+
+    /* Two officers must not be able to answer the same request twice. */
+    const again = await saas("/api/visits/schedule",
+      { id: mine.id, scheduled_at: new Date(Date.now() + 8 * 864e5).toISOString(),
+        officer: "T. Nakamura" }, SH);
+    ok(again.status === 409,
+       "a request already answered cannot be answered a second time");
   }
 
   /* ---- the badge counts work outstanding, not work unseen ----

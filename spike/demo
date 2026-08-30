@@ -3,11 +3,15 @@
 # Waypoint PoC — demo control.
 #
 #   ./spike/demo start     start the servers (API, content, mock SaaS)
+#   ./spike/demo restart   pick up a change under spike/api, keeping Metro up
 #   ./spike/demo mobile    start Metro and open the iOS simulator
 #   ./spike/demo reset     wipe and re-seed (snapshots the old db first)
 #   ./spike/demo restore   put the most recent snapshot back
-#   ./spike/demo stop      stop the servers (leaves Metro alone)
+#   ./spike/demo stop      stop the servers AND Metro
 #   ./spike/demo status    what is running, and the URLs
+#
+# A change to the app's JavaScript needs none of these — Metro reloads it.
+# Use `restart` only for a change under spike/api.
 #
 # The LAN address is detected each time and written into the mobile config,
 # because a device cannot reach "localhost" and the IP changes with the network.
@@ -264,6 +268,28 @@ case "${1:-start}" in
     cp "$latest" "$DATA_DIR/waypoint.db"
     ok "restored $(basename "$latest")"
     start_servers || exit 1
+    urls
+    ;;
+
+  # Restart the API servers and LEAVE METRO ALONE.
+  #
+  # `stop && start` was the obvious way to pick up a server-side change, and it
+  # was a trap: stop kills Metro too, start does not bring it back, and the app
+  # then shows "No script URL provided" on a red screen. That reads as a broken
+  # app rather than as a missing packager, and the fix — restart Metro — is not
+  # in the message.
+  #
+  # A JS change needs none of this: Metro reloads it live. This is only for a
+  # change under spike/api.
+  restart|reload)
+    b "Restarting the servers"
+    stop_servers && ok "servers stopped"
+    start_servers || exit 1
+    if metro_up 2>/dev/null || curl -s -o /dev/null --max-time 2 "http://localhost:$METRO_PORT/status"; then
+      ok "Metro left running — the app will reconnect on its own"
+    else
+      dim "Metro is not running — ./spike/demo phone or sim when you need it"
+    fi
     urls
     ;;
 

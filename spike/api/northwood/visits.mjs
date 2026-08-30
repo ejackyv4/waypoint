@@ -425,7 +425,8 @@ export const routes = {
     const b = await readJson(req);
     if (!b.scheduled_at) return saasJson(res, 400, { error: "a date and time is required" });
     const r = scheduleRequested(Number(b.id), {
-      scheduled_at: b.scheduled_at, officer: b.officer, location: b.location });
+      scheduled_at: b.scheduled_at, officer: b.officer, location: b.location,
+      notes: b.notes });
     return saasJson(res, r.error ? 409 : 200, r);
   },
 

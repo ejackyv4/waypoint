@@ -513,10 +513,32 @@ function OfficerHome({ auth, onSignOut }) {
           { id: v.id, officer: auth.user?.name, note: note || null, observations },
           "Visit recorded");
 
-  const scheduleVisit = (subject_id, when, note) =>
-    write("/api/visits", { subject_id, scheduled_at: when.toISOString(),
-                           officer: auth.user?.name, notes: note || null },
-          `Visit scheduled for ${fmtVisit(when.toISOString())}`);
+  /**
+   * @param id  the requested visit being answered, when there is one.
+   *
+   * Two endpoints, deliberately, and the console uses both the same way:
+   *
+   *   /api/visits           books a NEW visit
+   *   /api/visits/schedule  answers an EXISTING request
+   *
+   * The second is not a convenience wrapper. Answering a request turns that
+   * row into the scheduled visit — status and all — so the subject stops being
+   * told their request is pending. Booking a new visit instead would leave
+   * their request open beside an appointment they were never told was for it.
+   *
+   * It also refuses a request that has already been given a date, which is the
+   * guard against two officers answering the same one.
+   */
+  const scheduleVisit = (subject_id, when, note, id) =>
+    id
+      ? write("/api/visits/schedule",
+              { id, scheduled_at: when.toISOString(), officer: auth.user?.name,
+                notes: note || undefined },
+              `Request answered — visit set for ${fmtVisit(when.toISOString())}`)
+      : write("/api/visits",
+              { subject_id, scheduled_at: when.toISOString(),
+                officer: auth.user?.name, notes: note || null },
+              `Visit scheduled for ${fmtVisit(when.toISOString())}`);
 
   const pending = data?.requests?.length || 0;
 
@@ -577,7 +599,14 @@ function OfficerHome({ auth, onSignOut }) {
             onStart={v => (v.started_at ? setOpenVisitId(v.id) : startVisit(v))}
             onComplete={v => setSheet({ mode: "complete", visit: v })}
             onSchedule={v => setSheet({ mode: "schedule",
-              subject: { subject_id: v.subject_id, name: v.subject_name } })} />
+              subject: { subject_id: v.subject_id, name: v.subject_name } })}
+            /* A request carries its own visit id and the reason they gave. Both
+               travel to the sheet: the id so the request is answered rather
+               than duplicated, the reason so the officer picks a date knowing
+               what it is for. */
+            onScheduleRequest={r => setSheet({ mode: "schedule",
+              subject: { subject_id: r.subject_id, name: r.subject_name },
+              visitId: r.id, askedFor: r.request_note || "" })} />
         : <OfficerCaseload subjects={caseload} busy={busy} onRefresh={load}
             onOpen={setViewing}
             onSchedule={sub => setSheet({ mode: "schedule", subject: sub })} />}
@@ -587,8 +616,10 @@ function OfficerHome({ auth, onSignOut }) {
                        onSave={(note, obs) => completeVisit(sheet.visit, note, obs)} />
       )}
       {sheet?.mode === "schedule" && (
-        <ScheduleSheet subject={sheet.subject} onCancel={() => setSheet(null)}
-                       onSave={(when, note) => scheduleVisit(sheet.subject.subject_id, when, note)} />
+        <ScheduleSheet subject={sheet.subject} askedFor={sheet.askedFor}
+                       onCancel={() => setSheet(null)}
+                       onSave={(when, note) =>
+                         scheduleVisit(sheet.subject.subject_id, when, note, sheet.visitId)} />
       )}
     </SafeAreaView>
   );
@@ -1113,7 +1144,15 @@ function CompleteSheet({ visit, onCancel, onSave }) {
   );
 }
 
-function ScheduleSheet({ subject, onCancel, onSave }) {
+/**
+ * @param askedFor  what the subject said when they asked for this, when the
+ *                  visit is being scheduled in answer to a request. Shown
+ *                  rather than pre-filled into the note: their reason for
+ *                  wanting to be seen is not the officer's instruction to them,
+ *                  and quietly turning one into the other would put words in
+ *                  somebody's mouth on a supervision record.
+ */
+function ScheduleSheet({ subject, askedFor, onCancel, onSave }) {
   const initial = new Date(Date.now() + 7 * 864e5);
   initial.setHours(10, 0, 0, 0);
   const [when, setWhen] = useState(initial);
@@ -1122,11 +1161,18 @@ function ScheduleSheet({ subject, onCancel, onSave }) {
   const [saving, setSaving] = useState(false);
 
   return (
-    <Sheet title="Schedule a visit"
+    <Sheet title={askedFor !== undefined ? "Schedule a requested visit" : "Schedule a visit"}
            subtitle={[subject.name, addressLine(subject)].filter(Boolean).join(" · ")}
            onCancel={onCancel} saveLabel={saving ? "Saving…" : "Schedule"}
            disabled={saving}
            onSave={() => { setSaving(true); onSave(when, note.trim()); }}>
+      {askedFor !== undefined && (
+        <View style={s.askedFor}>
+          <Text style={s.askedForLabel}>They asked to be seen</Text>
+          <Text style={s.askedForBody}>{askedFor || "No reason given"}</Text>
+        </View>
+      )}
+
       <Text style={s.label}>Date and time</Text>
 
       {Platform.OS === "ios" ? (
@@ -1164,7 +1210,8 @@ function ScheduleSheet({ subject, onCancel, onSave }) {
   );
 }
 
-function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onSchedule }) {
+function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onSchedule,
+                           onScheduleRequest }) {
   const pull = usePullToRefresh(onRefresh);
 
   /* Today's stops, in appointment order. The order is not ours to optimise —
@@ -1314,19 +1361,36 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
         </View>
       )}
 
+      {/* Somebody on this caseload has asked to be seen.
+        *
+        * This used to list them and then say "Set a date from the web console"
+        * — a notification on the device the officer is holding, pointing at a
+        * laptop they are not sitting at. The console has answered these since
+        * they existed; the app showed the badge and stopped.
+        *
+        * Each row schedules directly now, and carries the requested visit's OWN
+        * id, so the request BECOMES that visit. Posting without it creates a
+        * second visit beside a request that stays open forever — the officer
+        * would answer it and the subject would still be waiting. */}
       {requests.length > 0 && (
         <View style={[s.card, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>
           <Text style={{ fontWeight: "700", color: "#b45309", fontSize: 15 }}>
             {requests.length} appointment {requests.length === 1 ? "request" : "requests"}
           </Text>
           {requests.map(r => (
-            <Text key={r.id} style={[s.cardMeta, { color: "#92400e" }]}>
-              {r.subject_name}{r.request_note ? ` — ${r.request_note}` : ""}
-            </Text>
+            <Pressable key={r.id}
+                       onPress={() => onScheduleRequest(r)}
+                       style={({ pressed }) => [s.reqRow, pressed && { opacity: 0.6 }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.reqName}>{r.subject_name}</Text>
+                <Text style={s.reqNote}>{r.request_note || "No reason given"}</Text>
+                {r.requested_at ? (
+                  <Text style={s.reqWhen}>Asked {fmtVisit(r.requested_at)}</Text>
+                ) : null}
+              </View>
+              <Text style={s.reqGo}>Schedule ›</Text>
+            </Pressable>
           ))}
-          <Text style={[s.cardMeta, { color: "#92400e", marginTop: 8 }]}>
-            Set a date from the web console.
-          </Text>
         </View>
       )}
 
@@ -4828,6 +4892,25 @@ const s = StyleSheet.create({
   reSignBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   cardMeta: { marginTop: 6, fontSize: 13, color: C.muted },
   resultLine: { marginTop: 4, fontSize: 13.5, fontWeight: "700" },
+
+  /* An appointment request, on the amber card. Its own colours rather than the
+     shared ones because it sits on an amber ground, where C.muted is unreadable
+     and C.ink is heavier than the card wants. */
+  reqRow: { flexDirection: "row", alignItems: "center", gap: 12,
+            paddingVertical: 12, marginTop: 10,
+            borderTopWidth: 1, borderTopColor: "#fde68a" },
+  reqName: { fontSize: 15, fontWeight: "700", color: "#7c2d12" },
+  reqNote: { fontSize: 13.5, color: "#92400e", marginTop: 2 },
+  reqWhen: { fontSize: 12, color: "#b45309", marginTop: 4 },
+  reqGo:   { fontSize: 14, fontWeight: "700", color: "#b45309" },
+
+  /* Why they asked, shown in the scheduling sheet. Quoted, not editable, and
+     not pre-filled into the officer's own note — see ScheduleSheet. */
+  askedFor: { backgroundColor: "#fffbeb", borderWidth: 1, borderColor: "#fde68a",
+              borderRadius: 10, padding: 12, marginTop: 4 },
+  askedForLabel: { fontSize: 11.5, fontWeight: "700", color: "#b45309",
+                   letterSpacing: 0.4, textTransform: "uppercase" },
+  askedForBody: { fontSize: 14, color: "#7c2d12", marginTop: 5, lineHeight: 20 },
 
   pill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   pillOk: { backgroundColor: C.okSoft },

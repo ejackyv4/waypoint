@@ -119,6 +119,27 @@ export function updateVisit(id, patch) {
     run(`UPDATE visits SET accepted_at = NULL, seen_at = NULL,
            status = 'scheduled' WHERE id = ?`, id);
 
+  /**
+   * A requested visit given a date is a scheduled visit.
+   *
+   * `scheduleRequested()` is the proper way to answer a request and both the
+   * console and the app use it. This is the back stop for the other door: the
+   * status change above only fires for a visit already accepted or seen, and a
+   * request has been neither — so anything reaching here with a request id
+   * would set a date and leave the row `requested` forever.
+   *
+   * That state is silently wrong rather than obviously broken. The officer's
+   * list filters on having no date, so it would empty and the badge would
+   * clear; the subject's app asks whether any visit has status `requested` and
+   * would go on telling them they were still waiting, for an appointment that
+   * had been booked days earlier. Two surfaces reading one fact two ways.
+   *
+   * The date is the fact and the status derives from it, so the derivation is
+   * made here too rather than left to whoever calls this next.
+   */
+  if (cur.status === "requested" && patch.scheduled_at)
+    run(`UPDATE visits SET status = 'scheduled' WHERE id = ?`, id);
+
   return { ok: true, visit: visit(id), reconfirm: moved && !!cur.accepted_at };
 }
 
@@ -145,13 +166,27 @@ export function requestVisit({ subject_id, note }) {
 }
 
 /** The officer turns a request into a real appointment. */
-export function scheduleRequested(id, { scheduled_at, officer, location }) {
+/**
+ * @param notes  instructions for the subject, optional.
+ *
+ * Omitted leaves whatever is there; the console's request form has a date and
+ * nothing else, and must not blank a note by not mentioning it. The app does
+ * offer the field — an officer answering a request from the doorstep has a
+ * reason to say "bring the pay stub" — and a field that silently discarded
+ * what was typed into it would be worse than not offering one.
+ *
+ * `request_note` is left alone throughout. What the subject said when they
+ * asked is theirs, and is not overwritten by the officer's reply to it.
+ */
+export function scheduleRequested(id, { scheduled_at, officer, location, notes }) {
   const v = visit(id);
   if (!v) return { error: "no such request" };
   if (v.status !== "requested") return { error: "that appointment is already scheduled" };
   run(`UPDATE visits SET scheduled_at = ?, officer = ?, location = ?,
                          status = 'scheduled', seen_at = NULL
         WHERE id = ?`, scheduled_at, officer ?? null, location ?? null, id);
+  if (notes !== undefined && notes !== null && String(notes).trim())
+    run(`UPDATE visits SET notes = ? WHERE id = ?`, String(notes).trim(), id);
   return { ok: true, visit: visit(id) };
 }
 
