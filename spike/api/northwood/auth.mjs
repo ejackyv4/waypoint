@@ -11,10 +11,11 @@
  */
 
 import {
-  officerByEmail, recordLoginFailure, clearLoginFailures,
+  officerByEmail, officerById, saveOfficer, emailTakenBy, setOfficerPassword,
+  recordLoginFailure, clearLoginFailures,
   createStaffSession, revokeStaffSession
 } from "../db/northwood.mjs";
-import { verifyPassword, newStaffToken, hashToken, STAFF_TTL_MS,
+import { verifyPassword, hashPassword, newStaffToken, hashToken, STAFF_TTL_MS,
          staffCookie, clearStaffCookie } from "../auth.mjs";
 import { SAAS_ORIGIN } from "../config.mjs";
 import { readJson } from "../http.mjs";
@@ -72,8 +73,79 @@ export const routes = {
 
   "ALL /auth/me": async (req, res, ctx) => {
     if (!ctx.session) return saasJson(res, 401, { error: "not signed in" });
+    const o = officerById(ctx.session.officer_id);
     return saasJson(res, 200, {
       user: { name: ctx.session.name, email: ctx.session.email,
-              role: ctx.session.role, officer_id: ctx.session.officer_id } });
+              role: ctx.session.role, officer_id: ctx.session.officer_id,
+              /* The extra profile fields, so the console can show and edit them
+                 without a second round trip on every page load. */
+              phone: o?.phone ?? null, badge: o?.badge ?? null,
+              office_id: o?.office_id ?? null } });
+  },
+
+  /**
+   * An officer editing their own profile.
+   *
+   * WHOSE profile comes from the session, never from the payload. An id in a
+   * request body is a value the client chose, and this system already has a
+   * rule about treating that as proof of identity — it is the same bug as the
+   * customer id in a URL.
+   *
+   * `role` and `active` are not editable here at all: letting somebody change
+   * their own role is privilege escalation with a form around it.
+   */
+  "POST /api/officer/profile": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const id = ctx.session.officer_id;
+
+    const name = String(b.name || "").trim();
+    if (!name) return saasJson(res, 400, { error: "A name is required." });
+
+    const email = String(b.email || "").trim();
+    if (!email) return saasJson(res, 400, { error: "An email is required." });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+      return saasJson(res, 400, { error: "That does not look like an email address." });
+    /* Sign-in is by email, so a duplicate would make one of the two accounts
+       unreachable — a silent lockout rather than an error. */
+    if (emailTakenBy(email, id))
+      return saasJson(res, 409, {
+        error: "Another officer already signs in with that email." });
+
+    const officer = saveOfficer(id, {
+      name, email,
+      phone: String(b.phone || "").trim() || null,
+      badge: String(b.badge || "").trim() || null,
+      office_id: b.office_id ? Number(b.office_id) : null
+    });
+    return saasJson(res, 200, {
+      officer: { name: officer.name, email: officer.email, phone: officer.phone,
+                 badge: officer.badge, office_id: officer.office_id,
+                 role: officer.role, officer_id: officer.id } });
+  },
+
+  /**
+   * Changing your own password.
+   *
+   * The current one is required even though the session already proves who
+   * they are: a session is a device left unlocked, and "knows the old password"
+   * is what stops somebody at an unattended desk locking the real officer out
+   * of their own account.
+   */
+  "POST /api/officer/password": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const officer = officerById(ctx.session.officer_id);
+    if (!officer) return saasJson(res, 404, { error: "no such officer" });
+
+    if (!verifyPassword(String(b.current || ""), officer.password_hash))
+      return saasJson(res, 403, { error: "That is not your current password." });
+
+    const next = String(b.password || "");
+    if (next.length < 8)
+      return saasJson(res, 400, { error: "Use at least 8 characters." });
+    if (next === String(b.current || ""))
+      return saasJson(res, 400, { error: "The new password matches the old one." });
+
+    setOfficerPassword(officer.id, hashPassword(next));
+    return saasJson(res, 200, { ok: true });
   }
 };

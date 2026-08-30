@@ -87,6 +87,11 @@ p.pagesub{color:var(--muted);margin:0 0 22px;font-size:14px}
 .pill{padding:4px 11px;border-radius:999px;font-size:12px;font-weight:650;white-space:nowrap}
 .pill.ok{background:var(--ok-soft);color:var(--ok)}
 .pill.err{background:var(--err-soft);color:var(--err)}
+.badge.calm{background:var(--brand,#2563eb)}
+.actRow{display:flex;gap:14px;align-items:center;justify-content:space-between}
+.actBody{font-size:15px;line-height:1.45}
+.actMeta{font-size:12.5px;color:var(--muted);margin-top:4px}
+.actMeta.late{color:var(--err);font-weight:650}
 .pill.go{background:var(--brand-soft);color:var(--brand)}
 .pill.muted{background:var(--bg);color:var(--muted)}
 .cta{display:block;width:100%;margin-top:16px;padding:14px;border:0;border-radius:11px;
@@ -144,6 +149,17 @@ p.pagesub{color:var(--muted);margin:0 0 22px;font-size:14px}
 .notice{display:flex;gap:12px;align-items:flex-start;padding:15px 17px;border-radius:12px;
         margin-bottom:16px;font-size:14.5px;line-height:1.55;font-weight:600}
 .notice.warn{background:#fffbeb;color:#b45309;border:1px solid #fde68a}
+
+/* The one way this site says something worked. The console and the app both
+   have a toast; this had nothing, so every save here looked identical to doing
+   nothing. One idiom across all three clients, not three. */
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,14px);
+       background:var(--ok);color:#fff;font-size:14px;font-weight:600;
+       padding:11px 18px;border-radius:999px;box-shadow:var(--shadow);
+       opacity:0;transition:opacity .18s ease,transform .18s ease;z-index:60;
+       max-width:88vw;text-align:center}
+#toast.err{background:var(--err)}
+#toast.in{opacity:1;transform:translate(-50%,0)}
 .notice.warn a,.notice.warn button{color:#b45309}
 .notice .ico{font-size:17px;line-height:1.2}
 .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,14px);opacity:0;
@@ -165,6 +181,18 @@ p.pagesub{color:var(--muted);margin:0 0 22px;font-size:14px}
 const API = "";                                  // same origin as this page
 const SAAS = "__SAAS_ORIGIN__";                  // Northwood's own system
 const app = document.getElementById("app");
+/** Say that something worked, or did not. Named `toast` because that is what
+ *  the console and the app call it — one word for one idea, across all three. */
+function toast(msg, kind = "ok") {
+  document.getElementById("toast")?.remove();
+  const t = document.createElement("div");
+  t.id = "toast"; t.className = kind === "err" ? "err" : "";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("in"));
+  setTimeout(() => { t.classList.remove("in"); setTimeout(() => t.remove(), 220); }, 2400);
+}
+
 const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]));
 const dur = s => { s = Math.max(0, Math.round(+s || 0));
   const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
@@ -334,6 +362,10 @@ function paint() {
     ${hasAgreement ? `
       <nav class="tabs">
         <button class="tab ${tab === "programs" ? "on" : ""}" data-tab="programs">My Learning</button>
+        <button class="tab ${tab === "actions" ? "on" : ""}" data-tab="actions">
+          What I agreed to${myActions().length
+            ? `<span class="badge${myActions().some(overdueAction) ? "" : " calm"}">${
+                myActions().length}</span>` : ""}</button>
         <button class="tab ${tab === "agreement" ? "on" : ""}" data-tab="agreement">
           Supervision agreement${needsAck() ? `<span class="badge">1</span>` : ""}</button>
       </nav>` : ""}
@@ -344,8 +376,17 @@ function paint() {
     b.onclick = () => { tab = b.dataset.tab; paint(); scrollTo(0, 0); });
 
   if (tab === "agreement") return paintAgreement();
+  if (tab === "actions")   return paintActions();
 
   document.getElementById("wrap").innerHTML = `
+    ${(caseData?.unseen_actions || 0) > 0 ? `
+      <div class="notice warn">
+        <span class="ico">&check;</span>
+        <div>${caseData.unseen_actions} new thing${
+          caseData.unseen_actions === 1 ? "" : "s"} you agreed to at a visit ${
+          caseData.unseen_actions === 1 ? "has" : "have"} been added.
+          <button class="link" id="toAct" style="margin-left:6px">Open</button></div>
+      </div>` : ""}
     ${needsAck() ? `
       <div class="notice warn">
         <span class="ico">&#9888;</span>
@@ -360,7 +401,82 @@ function paint() {
 
   const jump = document.getElementById("toAg");
   if (jump) jump.onclick = () => { tab = "agreement"; paint(); scrollTo(0, 0); };
+  const jumpAct = document.getElementById("toAct");
+  if (jumpAct) jumpAct.onclick = () => { tab = "actions"; paint(); scrollTo(0, 0); };
   app.querySelectorAll("[data-program]").forEach(b => b.onclick = () => launch(b));
+}
+
+/* ---------------- what I agreed to ----------------
+
+   The commitments a subject made out loud at a visit, in their own words.
+
+   This exists on the web because the phone is not the only way somebody reaches
+   this. A person on supervision may have a library computer and a phone that is
+   out of credit, and a list of what they owe that only one of those can show is
+   a list that fails the person most likely to need it.
+
+   Reporting, not deciding: they say they have done it and the record says who
+   said so. A list only the officer can close is a list the subject is merely
+   watched against. */
+const myActions = () => (caseData?.actions || []);
+const overdueAction = a =>
+  !!a.due_date && a.due_date < new Date().toISOString().slice(0, 10);
+
+async function reportActionDone(id, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const r = await fetch(`${SAAS}/api/me/actions/done`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json",
+                 Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify({ id })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "Couldn't update that");
+    toast("Reported as done");
+    await loadCase();
+    paint();
+  } catch (e) {
+    toast(String(e.message || e), "err");
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+function paintActions() {
+  const list = myActions();
+  /* Opening this tab is what marks them seen — the same rule as the app, so a
+     subject who reads them on a library computer does not get chased again on
+     their phone. Fire and forget: the banner clearing is not worth blocking
+     the page for, and the next load will reflect it. */
+  if (caseData?.unseen_actions) {
+    fetch(`${SAAS}/api/me/case?actions_seen=1`,
+          { headers: { Authorization: `Bearer ${auth.token}` } })
+      .then(() => { if (caseData) caseData.unseen_actions = 0; })
+      .catch(() => {});
+  }
+  document.getElementById("wrap").innerHTML = `
+    <h2 class="pagetitle">What I agreed to</h2>
+    <p class="pagesub">Things you committed to at a visit. Tick one off once you
+      have done it &mdash; your officer sees that you reported it.</p>
+
+    ${list.length ? list.map(a => `
+      <div class="card actRow">
+        <div>
+          <div class="actBody">${esc(a.body)}</div>
+          <div class="actMeta${overdueAction(a) ? " late" : ""}">
+            ${a.due_date ? `Due ${esc(a.due_date)}` : "No date set"}
+            ${a.due_hint ? ` &middot; you said &ldquo;${esc(a.due_hint)}&rdquo;` : ""}
+            ${a.scheduled_at ? ` &middot; from the visit on ${
+              esc(a.scheduled_at.slice(0, 10))}` : ""}
+          </div>
+        </div>
+        <button class="btn" data-done="${a.id}">Mark done</button>
+      </div>`).join("")
+    : `<div class="card empty">Nothing outstanding.</div>`}`;
+
+  app.querySelectorAll("[data-done]").forEach(b =>
+    b.onclick = () => reportActionDone(Number(b.dataset.done), b));
 }
 
 /* ---------------- supervision agreement ----------------

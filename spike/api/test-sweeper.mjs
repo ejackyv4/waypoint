@@ -7,9 +7,13 @@
  *
  *   node spike/api/test-sweeper.mjs
  */
+/* MUST be first: db/connect.mjs opens the database when it is evaluated, so the
+   data directory has to be chosen before any import below it runs. */
+import "./test-isolate.mjs";
+
+import { execFileSync } from "node:child_process";
 import { openRegistration, updateRegistration, registration, upsertPerson,
          upsertProgram, latestVersion, idleRegistrations, now, db } from "./db/waypoint.mjs";
-import { DB_PATH } from "./db/connect.mjs";
 import { sweepIdleSessions } from "./sweeper.mjs";
 
 let pass = 0, fail = 0;
@@ -21,10 +25,28 @@ console.log("\n\x1b[1mSession sweeper\x1b[0m\n");
 /* Guard the path itself. Moving connect.mjs one directory deeper silently
    relocated the database, and `./spike/demo reset` then deleted an empty
    directory and reported success — stale data survived every "clean slate"
-   for two hours. The tooling assumes spike/data; assert it. */
-ok(DB_PATH.endsWith("/spike/data/waypoint.db"),
-   `\x1b[1mthe database is at spike/data, where the tooling expects it\x1b[0m`
-   + (DB_PATH.endsWith("/spike/data/waypoint.db") ? "" : ` — found ${DB_PATH}`));
+   for two hours. The tooling assumes spike/data; assert it.
+ *
+ * Asked of a CHILD process with the override removed, because this one is
+ * deliberately pointed at a temporary directory. Checking our own DB_PATH here
+ * would only prove the isolation worked and would silently stop guarding the
+ * thing it was written to guard — a test that still passes while no longer
+ * testing anything is worse than one that fails. */
+const DEFAULT_DB = (() => {
+  try {
+    const env = { ...process.env };
+    delete env.WAYPOINT_DATA_DIR;
+    return execFileSync(process.execPath,
+      ["--input-type=module", "-e",
+       `const m = await import(${JSON.stringify(new URL("./db/connect.mjs", import.meta.url).href)});`
+       + `console.log(m.DB_PATH)`],
+      { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch { return "(could not resolve)"; }
+})();
+
+ok(DEFAULT_DB.endsWith("/spike/data/waypoint.db"),
+   `\x1b[1mthe database defaults to spike/data, where the tooling expects it\x1b[0m`
+   + (DEFAULT_DB.endsWith("/spike/data/waypoint.db") ? "" : ` — found ${DEFAULT_DB}`));
 
 const person  = upsertPerson({ subject_id: "sweep-" + Date.now() });
 const program = upsertProgram({ program_id: "golf-101", title: "Golf Explained" });

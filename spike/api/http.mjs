@@ -20,11 +20,33 @@ export const jsonTo = origin => (res, code, body) => {
   res.end(s);
 };
 
-/** Body parser. A malformed body is marked rather than thrown, so a handler
- *  can answer 400 instead of the process answering 500. */
-export async function readJson(req) {
+/**
+ * Body parser, with a ceiling.
+ *
+ * The whole body is buffered in memory, so an unbounded read is a way to
+ * exhaust the process with one request. A megabyte is far more than any JSON
+ * payload here needs; the routes that accept an image pass their own limit.
+ *
+ * A malformed or oversized body is MARKED rather than thrown, so a handler can
+ * answer 400 or 413 instead of the process answering 500.
+ */
+export async function readJson(req, maxBytes = 1024 * 1024) {
+  /* Reject on the declared length before reading a byte. Destroying the socket
+     mid-request instead leaves the client with no answer at all — curl reports
+     a bare "100 Continue" — and a caller that cannot tell "too large" from
+     "the network died" will retry the same doomed upload. */
+  const declared = Number(req.headers["content-length"]);
+  if (declared > maxBytes) { req.resume(); return { __tooBig: true, maxBytes }; }
+
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    // Backstop for a chunked body that declared no length. Stop keeping the
+    // bytes, but let the request finish so the response can be delivered.
+    if (size > maxBytes) { req.resume(); return { __tooBig: true, maxBytes }; }
+    chunks.push(c);
+  }
   if (!chunks.length) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString()); }
   catch { return { __bad: true }; }

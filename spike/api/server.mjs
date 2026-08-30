@@ -24,7 +24,7 @@ import { sweepIdleSessions } from "./sweeper.mjs";
 import { API_KEY } from "./auth.mjs";
 import { DB_PATH } from "./db/connect.mjs";
 import {
-  APP_PORT, CONTENT_PORT, SAAS_PORT,
+  APP_PORT, CONTENT_PORT, SAAS_PORT, BIND_HOST,
   APP_ORIGIN, CONTENT_ORIGIN, SAAS_ORIGIN, SWEEP_EVERY_MS
 } from "./config.mjs";
 
@@ -46,7 +46,17 @@ const servers = [
     console.log(`  (mock SaaS listening — it holds the API key, the browser never sees it)\n`)]
 ];
 
-for (const [server, port, banner] of servers) server.listen(port, banner);
+/* Bind to BIND_HOST, not to every interface.
+ *
+ * Behind a reverse proxy these three should only ever be reachable from
+ * localhost — the browser talks to Caddy on 443 and Caddy talks to them here.
+ * Left on 0.0.0.0 they are exposed the moment a firewall rule is flushed or
+ * mistyped, and nothing about the app would look different until it was.
+ *
+ * Defaults to every interface so a laptop can still be reached from a phone
+ * on the same wifi, which is the whole point of HOST in development. */
+for (const [server, port, banner] of servers)
+  server.listen(port, BIND_HOST, banner);
 
 /* Northwood provisions its subjects' logins the way any customer would: over
    the API, once the servers are up. It cannot reach into Waypoint's tables. */
