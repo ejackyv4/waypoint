@@ -40,7 +40,14 @@ const servers = [
     console.log(`  Console           ${APP_ORIGIN}/console`);
     console.log(`  Learner site      ${APP_ORIGIN}/learn`);
     console.log(`  Mock SaaS         ${SAAS_ORIGIN}`);
-    console.log(`  API key           ${API_KEY}`);
+    /* The key in full only when it was GENERATED — a development run with no
+       key configured, where it has to be shown or nothing can call the API.
+       A key supplied through the environment is one somebody already holds,
+       and printing it writes a live credential into journalctl on every
+       restart, where it long outlives the key and survives rotating it. */
+    console.log(process.env.WAYPOINT_API_KEY
+      ? `  API key           from the environment (${API_KEY.slice(0, 6)}…)`
+      : `  API key           ${API_KEY}   (generated — set WAYPOINT_API_KEY)`);
   }],
   [saas,    SAAS_PORT,    () =>
     console.log(`  (mock SaaS listening — it holds the API key, the browser never sees it)\n`)]

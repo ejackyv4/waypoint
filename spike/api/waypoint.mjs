@@ -20,9 +20,11 @@ import {
   credentialByIdentifier, markCredentialUsed, personById, catalog,
   assignmentState, unassign, enrollments, now
 } from "./db/waypoint.mjs";
+import { audit, callerIp } from "./db/audit.mjs";
 import { API_KEY, WEBHOOK_SECRET, requireApiKey, requireSession, mintSession,
-         signWebhook, hashPassword, verifyPassword,
-         mintLearnerSession, requireLearner } from "./auth.mjs";
+         signWebhook, hashPassword, verifyPassword } from "./auth.mjs";
+import { mintLearnerSession, requireLearner, endLearnerSession,
+         endAllLearnerSessions, verifyLearnerSession } from "./learner-session.mjs";
 import { ingestPackage, CONTENT_DIR } from "./ingest.mjs";
 import { applyStatus, toSeconds, fromSeconds, suspendCap } from "./scorm.mjs";
 import { APP_ORIGIN, CONTENT_ORIGIN, SAAS_ORIGIN, DEMO_ROUTES } from "./config.mjs";
@@ -31,6 +33,34 @@ import { jsonTo, readJson, guard } from "./http.mjs";
 /* Only the content origin may read this API — that is the player calling home.
    Never "*". */
 const json = jsonTo(CONTENT_ORIGIN);
+
+/**
+ * Throttle repeated failed sign-ins, per identifier.
+ *
+ * In memory, and deliberately: a restart forgiving a few attempts is a much
+ * smaller problem than a lockout table somebody has to clear by hand, and this
+ * is the same trade the front door makes. A real deployment would persist it.
+ *
+ * Keyed by identifier rather than by address because a phone's address moves
+ * between wifi and cellular mid-guess, and the thing being protected is the
+ * account. The cost is that somebody can lock a person out by guessing at
+ * their email — which is why the window is fifteen minutes and not a day.
+ */
+const LOGIN_FAILS = new Map();
+const LOGIN_LOCK_AFTER = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+function loginLocked(who) {
+  const f = LOGIN_FAILS.get(who);
+  if (!f) return false;
+  if (Date.now() - f.at > LOGIN_LOCK_MS) { LOGIN_FAILS.delete(who); return false; }
+  return f.n >= LOGIN_LOCK_AFTER;
+}
+function recordLoginFailure(who) {
+  const f = LOGIN_FAILS.get(who) || { n: 0 };
+  LOGIN_FAILS.set(who, { n: f.n + 1, at: Date.now() });
+}
+const clearLoginFailures = who => LOGIN_FAILS.delete(who);
 
 export const app = createServer(guard("waypoint", json, async (req, res) => {
   const url = new URL(req.url, APP_ORIGIN);
@@ -237,20 +267,84 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
        Used by both the website and the mobile app. */
     if (p === "/api/auth/login" && req.method === "POST") {
       const b = await readJson(req);
-      const cred = b.identifier ? credentialByIdentifier(String(b.identifier)) : null;
+      const who = String(b.identifier || "").toLowerCase();
+
+      /* Staff sign-in has locked out after five wrong answers since it existed.
+         This one — the subjects' own sign-in, the credential that opens a
+         person's supervision record from a phone — had nothing at all, and a
+         password guesser could work through it at whatever rate the network
+         allowed. The weaker-protected door was the one in front of the more
+         sensitive room. */
+      if (loginLocked(who))
+        return json(res, 429, { error: "Too many attempts. Try again in a few minutes." });
 
       // Same response whether the account is unknown or the password is
       // wrong — otherwise this endpoint enumerates who has an account.
+      const cred = who ? credentialByIdentifier(String(b.identifier)) : null;
       const good = cred && verifyPassword(String(b.password || ""), cred.secret_hash);
-      if (!good) return json(res, 401, { error: "Incorrect email or password" });
+      if (!good) {
+        /* Counted against the identifier that was TRIED, whether or not it
+           exists — counting only real accounts would answer "is this an
+           account?" by how the endpoint behaves, which is the enumeration the
+           identical error message above exists to prevent. */
+        recordLoginFailure(who);
+        return json(res, 401, { error: "Incorrect email or password" });
+      }
+      clearLoginFailures(who);
 
       markCredentialUsed(cred.id);
       const person = personById(cred.person_id);
+      /* Address and device are recorded against the session so that "end every
+         session this person has" can be followed by "and here is where they
+         were" — a lost phone is the case this exists for. */
+      const token = mintLearnerSession(person.id, {
+        ip: req.socket.remoteAddress,
+        user_agent: req.headers["user-agent"] });
+      audit({ actor: `subject:${person.subject_id}`, action: "signin",
+              entity: "person", entity_id: person.subject_id,
+              ip: req.socket.remoteAddress });
       return json(res, 200, {
-        token: mintLearnerSession(person.id),
+        token,
         must_change_password: !!cred.must_change,
         person: { subject_id: person.subject_id, name: person.name, email: person.email }
       });
+    }
+
+    /* Signing out, which a stateless token could not do.
+     *
+     * Idempotent and always 200: a client that has already thrown its token
+     * away, or is retrying after a dropped connection, must not be told that
+     * signing out failed. There is nothing it could usefully do about it. */
+    if (p === "/api/auth/logout" && req.method === "POST") {
+      const h = req.headers["authorization"] || "";
+      const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+      if (token) {
+        const personId = verifyLearnerSession(token);
+        endLearnerSession(token);
+        if (personId) {
+          const person = personById(personId);
+          audit({ actor: `subject:${person?.subject_id ?? personId}`, action: "signout",
+                  entity: "person", entity_id: person?.subject_id ?? String(personId),
+                  ip: req.socket.remoteAddress });
+        }
+      }
+      return json(res, 200, { ok: true });
+    }
+
+    /* Every session this person has, ended at once — the answer to a lost
+       phone. Staff-operated, so it carries the API key: Northwood asks on the
+       officer's behalf rather than the subject asking for themselves. */
+    if (p === "/api/people/end-sessions" && req.method === "POST") {
+      const auth = requireApiKey(req);
+      if (auth.error) return json(res, auth.status, { error: auth.error });
+      const b = await readJson(req);
+      const person = b.subject_id ? personBySubjectId(String(b.subject_id)) : null;
+      if (!person) return json(res, 404, { error: "unknown subject" });
+      endAllLearnerSessions(person.id);
+      audit({ actor: "api-key", action: "revoke", entity: "person",
+              entity_id: person.subject_id, detail: "all sessions ended",
+              ip: req.socket.remoteAddress });
+      return json(res, 200, { ok: true, subject_id: person.subject_id });
     }
 
     /* --- the signed-in learner -------------------------------------------
@@ -409,11 +503,26 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
     if ((m = p.match(/^\/api\/registrations\/([^/]+)$/)))
       return json(res, 200, { registrations: registrationsFor(decodeURIComponent(m[1])) });
 
-    /* --- console data --- */
-    if (p === "/api/console/registrations")
-      return json(res, 200, { registrations: allRegistrations() });
-    if (p === "/api/console/deliveries")
-      return json(res, 200, { deliveries: deliveries() });
+    /* --- console data ---
+       Every registration in the system: who is enrolled on what, their scores,
+       their completion state and their resume data. These answered any caller
+       at all, with no credential.
+     *
+     * "Who is enrolled on which programme" is not something to hand to the
+     * internet, and least of all here — the subjects are people under
+     * supervision. It also made the gate on every other read decorative: the
+     * data those endpoints protect was available two paths over.
+     *
+     * Behind the API key now, like /api/console/keys below. The console is
+     * Waypoint's own admin view and holds the key for the length of a session;
+     * nothing else reads these. */
+    if (p === "/api/console/registrations" || p === "/api/console/deliveries") {
+      const auth = requireApiKey(req);
+      if (auth.error) return json(res, auth.status, { error: auth.error });
+      return p.endsWith("registrations")
+        ? json(res, 200, { registrations: allRegistrations() })
+        : json(res, 200, { deliveries: deliveries() });
+    }
     /* The API key provisions users, assigns programs and mints launch tickets;
        the webhook secret forges completions. Handing both to any unauthenticated
        caller made every other control here decorative. Reading them now costs

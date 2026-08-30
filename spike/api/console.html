@@ -144,11 +144,43 @@ const dur = s => { s = Math.max(0, Math.round(+s||0));
   return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
 const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
 
+/* The API key, for as long as this tab is open.
+ *
+ * A plain variable on purpose. localStorage or sessionStorage would outlive
+ * the reason it was entered, survive the key being rotated, and sit where any
+ * script on this origin can read it — and this project has already been bitten
+ * once by caching a credential "so it survives a reload", which meant it also
+ * survived becoming invalid and looked exactly like a working one.
+ *
+ * Reload and you are asked again. That is the intended cost. */
+let KEY = null;
+
+const authed = path => {
+  if (!KEY) KEY = prompt(
+    "Waypoint admin key\n\n"
+  + "This console reads every registration, so it needs the API key.\n"
+  + "It is held for this tab only, and asked for again on reload.") || "";
+  return fetch(path, { headers: { Authorization: `Bearer ${KEY}` } });
+};
+
 async function load(){
-  const [rr, dd] = await Promise.all([
-    fetch("/api/console/registrations").then(r => r.json()),
-    fetch("/api/console/deliveries").then(r => r.json()),
+  const [r1, r2] = await Promise.all([
+    authed("/api/console/registrations"),
+    authed("/api/console/deliveries"),
   ]);
+
+  /* A rejected key is thrown away rather than reused. Keeping it means every
+     later call fails identically and the page simply looks broken. */
+  if (!r1.ok || !r2.ok) {
+    KEY = null;
+    const why = (r1.status === 401 || r2.status === 401 || r1.status === 403 || r2.status === 403)
+      ? "That key was not accepted." : "Could not load the console.";
+    document.getElementById("stats").innerHTML =
+      `<div class="stat"><div class="l">${why} Reload to try again.</div></div>`;
+    return;
+  }
+
+  const [rr, dd] = await Promise.all([r1.json(), r2.json()]);
   const regs = rr.registrations || [], hooks = dd.deliveries || [];
 
   /* headline numbers */

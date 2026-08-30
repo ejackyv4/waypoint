@@ -135,6 +135,84 @@ ok(r0.status === 401, "SaaS endpoint without an API key is refused");
 r0 = await call("/api/assign", { subject_id: "x", program_id: "y" }, { Authorization: "Bearer nope" });
 ok(r0.status === 403, "SaaS endpoint with a wrong API key is refused");
 
+/* ---- the console reads ----
+   These answered anybody, with no credential: every registration in the
+   system, who is enrolled on what, their scores and their resume data. In a
+   corrections context that is not a listing to leave open, and it made the
+   gate on every other read here decorative — the same data was two paths over.
+   Asserted rather than remembered, because it was already shipped once. */
+for (const p of ["/api/console/registrations", "/api/console/deliveries"]) {
+  const anon = await fetch(API + p).then(r => ({ status: r.status }));
+  ok(anon.status === 401, `\x1b[1m${p} is refused without a key\x1b[0m`);
+  const wrong = await fetch(API + p, { headers: { Authorization: "Bearer nope" } })
+    .then(r => ({ status: r.status }));
+  ok(wrong.status === 403, `${p} is refused with a wrong key`);
+  const right = await fetch(API + p, { headers: { Authorization: `Bearer ${KEY}` } })
+    .then(r => ({ status: r.status }));
+  ok(right.status === 200, `${p} answers the console's own key`);
+}
+
+/* ---- guessing at a subject's password ----
+   Staff sign-in has locked out after five wrong answers since it existed.
+   The subjects' own sign-in — the credential that opens a person's supervision
+   record from a phone — had nothing, so the weaker-protected door was the one
+   in front of the more sensitive room. */
+{
+  const guess = () => call("/api/auth/login",
+    { identifier: "nobody-here@example.com", password: "wrong" });
+  let last = 0;
+  for (let i = 0; i < 6; i++) last = (await guess()).status;
+  ok(last === 429, "\x1b[1mrepeated wrong passwords lock the subject sign-in\x1b[0m");
+
+  /* Per identifier, so one person being guessed at cannot shut everyone out. */
+  const other = await call("/api/auth/login",
+    { identifier: "cust-1041@example.com", password: "northwood" });
+  ok(other.status === 200,
+     "and the lockout is per account — everyone else can still sign in");
+}
+
+/* ---- a session that can be ENDED ----
+   It used to be a signed token carrying a person id and an expiry: no table,
+   no lookup, and no way to revoke. A subject who lost their phone had one
+   answer — wait twelve hours — and an officer had nothing they could do. */
+{
+  const me = tok => fetch(API + "/api/me", { headers: { Authorization: `Bearer ${tok}` } })
+    .then(r => r.status);
+
+  const a = (await call("/api/auth/login",
+    { identifier: "cust-1041@example.com", password: "northwood" })).body.token;
+  ok(await me(a) === 200, "a fresh session is accepted");
+
+  await fetch(API + "/api/auth/logout",
+    { method: "POST", headers: { Authorization: `Bearer ${a}` } });
+  ok(await me(a) === 401,
+     "\x1b[1msigning out ends the session — the same token stops working\x1b[0m");
+
+  /* Idempotent: a client retrying after a dropped connection, or one that has
+     already thrown its token away, must not be told signing out failed. */
+  const again = await fetch(API + "/api/auth/logout",
+    { method: "POST", headers: { Authorization: `Bearer ${a}` } });
+  ok(again.status === 200, "signing out twice is not an error");
+
+  /* The lost phone: every session, everywhere, at once. */
+  const p1 = (await call("/api/auth/login",
+    { identifier: "cust-1041@example.com", password: "northwood" })).body.token;
+  const p2 = (await call("/api/auth/login",
+    { identifier: "cust-1041@example.com", password: "northwood" })).body.token;
+  ok(await me(p1) === 200 && await me(p2) === 200,
+     "two devices can be signed in at once");
+
+  const revoked = await post("/api/people/end-sessions", { subject_id: "cust-1041" });
+  ok(revoked.status === 200, "an officer can end every session a subject has");
+  ok(await me(p1) === 401 && await me(p2) === 401,
+     "\x1b[1mand both devices are signed out, not just the one that asked\x1b[0m");
+
+  /* Staff-operated. A subject cannot end somebody else's sessions, and the
+     endpoint carries the API key rather than anybody's own token. */
+  const nokey = await call("/api/people/end-sessions", { subject_id: "cust-2298" });
+  ok(nokey.status === 401, "ending sessions needs the API key, not a subject's token");
+}
+
 /* ---- ingest ---- */
 let r = await post("/api/ingest", { zip: "spike/corpus/RuntimeBasicCalls_SCORM12.zip",
                                     program_id: "golf-101", title: "Golf Explained" });
