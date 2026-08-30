@@ -224,10 +224,37 @@ Used by your web app or mobile app after the learner signs in.
 
 ```
 POST /api/auth/login          { identifier, password } → { token, person }
+POST /api/auth/logout         ends THIS session
 GET  /api/me                  the signed-in person
 GET  /api/me/assignments      their programs, with status
 POST /api/me/launch           { program_id } → { launch_url }
 ```
+
+**The session is a server-side row, so it can be ended.** It was a signed token
+carrying the person id and an expiry — cheap, needing no table, and impossible
+to revoke: a subject who lost their phone had one answer, wait twelve hours,
+and an officer had nothing they could do for them meanwhile.
+
+`POST /api/auth/logout` is idempotent and always answers 200. A client that has
+already discarded its token, or is retrying after a dropped connection, must
+not be told that signing out failed — there is nothing useful it could do about
+that.
+
+Sign-in is throttled: five wrong passwords for an identifier locks it for
+fifteen minutes. Counted against the identifier that was *tried*, whether or
+not it exists, because counting only real accounts would answer "is this an
+account?" through behaviour — which is what the identical error message exists
+to prevent.
+
+### Ending every session a person has
+
+```
+POST /api/people/end-sessions  { subject_id } → { ok, subject_id }
+```
+
+Carries the **API key**, not a subject's token: this is an officer acting on
+somebody's behalf after a phone is lost or taken, not a person signing
+themselves out. Every session that subject has, on every device, ends at once.
 
 Two properties worth knowing:
 
