@@ -36,6 +36,9 @@ Needs Node 22+ (for built-in SQLite) and, for the app, Xcode with a simulator.
 | **[REQUIREMENTS.md](docs/REQUIREMENTS.md)** | Scope, success criteria, and every SCORM finding |
 | **[DISCOVERY-BRIEF.md](docs/DISCOVERY-BRIEF.md)** | How SCORM works, in plain language |
 | **[SCHEMA-PLAN.md](docs/SCHEMA-PLAN.md)** | Data model plan for the corrections side |
+| **[SQLITE-TO-SQL.md](docs/SQLITE-TO-SQL.md)** | What moving off SQLite would take, and whether to |
+| **[SubjectRecording.md](docs/SubjectRecording.md)** | Recording a visit, transcribing it, and what the summary may and may not assert |
+| **[DEMO-CONVERSATION.md](docs/DEMO-CONVERSATION.md)** | Two-minute script to record for demonstrating the transcript and summary |
 | **[CLAUDE.md](CLAUDE.md)** | Engineering lessons and pitfalls |
 | **[TRANSCRIPT.md](docs/session/TRANSCRIPT.md)** | The full build session |
 
@@ -72,6 +75,7 @@ docs/               everything above
 ```bash
 node spike/api/smoke.mjs http://<host>:8090   # 88 end-to-end assertions
 node spike/api/test-sweeper.mjs               # abandoned sessions are closed
+node spike/api/test-insights.mjs              # transcription and summary, stubbed provider
 node spike/api/check-boundary.mjs             # Northwood never reaches into Waypoint
 node spike/api/check-docs.mjs                 # every route matches API.md
 node spike/api/check-feedback.mjs             # every save confirms it worked

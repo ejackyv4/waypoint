@@ -360,6 +360,7 @@ webhook       delivered to Northwood, signature verified
 ```bash
 node spike/api/smoke.mjs http://<host>:8090   # 86 end-to-end assertions
 node spike/api/test-sweeper.mjs               # abandoned sessions are closed
+node spike/api/test-insights.mjs              # transcription and summary, stubbed provider
 node spike/inspect.mjs spike/corpus           # inspect every package
 ```
 

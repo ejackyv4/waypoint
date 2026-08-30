@@ -23,6 +23,58 @@ There are two ways a learner reaches a course, and both are ours:
 Both use the same server and the same records. A learner can start a course on
 their phone and finish it in a browser.
 
+## How the SCORM part actually works
+
+This is the part with no shortcuts, so it is worth understanding.
+
+**A SCORM package is a zip of working web pages.** Inside is a manifest naming
+the entry point, and a pile of HTML, JavaScript, images and fonts. When it runs,
+the course expects to find a JavaScript object called `API` somewhere above it in
+the page, and to talk to that object for the whole of the learner's session:
+*here is their score, here is where they got to, save this, I am finished.*
+Everything below follows from that one sentence.
+
+**So we provide that object.** Waypoint unpacks the zip and serves it, and frames
+it inside a player page of ours that exposes the `API` object the course is
+hunting for. The course talks to the player; the player talks to our server. Every
+value the course sends is written to the database immediately.
+
+**The awkward part is where that player has to live.** Uploaded course code is
+third-party code that we execute in our customers' browsers, so it must be served
+from a different web address than the application — otherwise a course's
+JavaScript could read a logged-in session and act as the user. But the way a
+course *finds* the `API` object only works when the page above it shares the same
+address. Those two requirements pull in opposite directions.
+
+The resolution: the player lives on the **content** address, next to the course,
+so discovery works — and the player is the only thing allowed to call back to the
+application, over a locked-down cross-origin connection with a token scoped to
+that one course launch. The course itself can reach nothing.
+
+**What gets recorded**, and four decisions inside it that were cheap to make now
+and expensive to retrofit:
+
+- **Completion and pass/fail are separate columns.** A learner can finish a course
+  and fail it. Older SCORM blurs the two into one value; collapsing them into a
+  single "status" is the most painful mistake available here, because every report
+  built afterwards inherits it.
+- **Resume data is stored exactly as given, and never read.** The course sends an
+  opaque blob describing where the learner is. Our only job is to hand back the
+  identical bytes. Parsing it, trimming it, or re-encoding it breaks resume for
+  that course, and the learner is who finds out.
+- **Time is converted to seconds on the way in.** The two SCORM versions express
+  duration in incompatible formats. Both are normalised at the boundary, so only
+  one representation ever reaches a report.
+- **Course versions are immutable.** Upload an updated course and anyone
+  mid-progress keeps the version they started. Re-uploading creates a new version;
+  it never overwrites.
+
+**Getting one course to play is a week. Getting everyone's courses to play is the
+job.** Real courses from real authoring tools behave nothing like the tidy samples
+published by the people who wrote the specification, and testing against a genuine
+11 MB export found seven defects in an afternoon that the samples could not have
+surfaced. [`LMS.md`](LMS.md) records each one and what it would have cost.
+
 ## What it's built in
 
 The server is **plain Node.js (v22) with zero third-party dependencies** — no
