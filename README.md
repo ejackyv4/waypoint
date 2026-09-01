@@ -7,6 +7,11 @@ third-party LMS involved.
 **Status: proof of concept.** Deliberately disposable. Single-tenant, SQLite, no admin UI.
 See [Limitations](docs/BUILD.md#limitations-be-honest-about-these).
 
+**Canonical repository:** [github.com/ejackyv4/waypoint](https://github.com/ejackyv4/waypoint)
+
+New developers should begin with [CONTRIBUTING.md](CONTRIBUTING.md), then use
+[BUILD.md](docs/BUILD.md) for the complete local and physical-iPhone setup.
+
 ---
 
 ## Quick start
@@ -33,6 +38,8 @@ CocoaPods, an Apple Development signing identity, and a paired device. See
 
 | | |
 |---|---|
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | New-developer setup, Git workflow, checks and local-only files |
+| **[DEMO.md](DEMO.md)** | Live-demo checklist, including Teams and physical-iPhone audio |
 | **[LMS.md](docs/LMS.md)** | How the LMS plays SCORM, and what real content cost us to support |
 | **[BUILD.md](docs/BUILD.md)** | What exists, how to run it, what it proves and what it doesn't |
 | **[API.md](docs/API.md)** | Endpoints, authentication, the completion webhook |
@@ -76,7 +83,7 @@ docs/               everything above
 ## Tests
 
 ```bash
-node spike/api/smoke.mjs http://<host>:8090   # 88 end-to-end assertions
+node spike/api/smoke.mjs http://<host>:8090   # 393 end-to-end assertions
 node spike/api/test-sweeper.mjs               # abandoned sessions are closed
 node spike/api/test-insights.mjs              # transcription and summary, stubbed provider
 node spike/api/check-boundary.mjs             # Northwood never reaches into Waypoint
