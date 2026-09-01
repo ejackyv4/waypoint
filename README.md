@@ -40,6 +40,7 @@ CocoaPods, an Apple Development signing identity, and a paired device. See
 |---|---|
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | New-developer setup, Git workflow, checks and local-only files |
 | **[DEMO.md](DEMO.md)** | Live-demo checklist, including Teams and physical-iPhone audio |
+| **[Demo-Auth.MD](docs/Demo-Auth.MD)** | Plan to replace IP-based Door access with stable domains and a sales reset page |
 | **[LMS.md](docs/LMS.md)** | How the LMS plays SCORM, and what real content cost us to support |
 | **[BUILD.md](docs/BUILD.md)** | What exists, how to run it, what it proves and what it doesn't |
 | **[API.md](docs/API.md)** | Endpoints, authentication, the completion webhook |
