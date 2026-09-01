@@ -14,6 +14,8 @@
 
 import { one, all, run, now, db } from "./connect.mjs";
 import "./schema.mjs";
+import { transcriptsForVisit, summariesForVisit } from "./insights.mjs";
+import { agendaFor } from "./agenda.mjs";
 
 /* ---------------- mock SaaS inbox ---------------- */
 
@@ -29,20 +31,44 @@ export const saasInbox = (limit = 50) =>
 /* ---------------- visits (corrections side) ---------------- */
 
 export function scheduleVisit(v) {
-  run(`INSERT INTO visits (subject_id, scheduled_at, officer, location, notes, created_at)
-       VALUES (?,?,?,?,?,?)`,
+  run(`INSERT INTO visits (subject_id, scheduled_at, officer, location, notes,
+                           time_fixed, created_at)
+       VALUES (?,?,?,?,?,?,?)`,
       v.subject_id, v.scheduled_at, v.officer ?? null, v.location ?? null,
-      v.notes ?? null, now());
+      v.notes ?? null, v.time_fixed ? 1 : 0, now());
   return one(`SELECT * FROM visits WHERE subject_id = ? ORDER BY id DESC LIMIT 1`, v.subject_id);
 }
 
 export const visitsFor = subject_id =>
   all(`SELECT * FROM visits WHERE subject_id = ? ORDER BY scheduled_at ASC`, subject_id)
-    .map(v => ({ ...v, notes_log: notesForVisit(v.id) }));
+    .map(hydrate);
 
-/** Unseen visits drive the badge on the mobile app's Visits tab. */
+/**
+ * Visits the subject has not looked at yet.
+ *
+ * A genuinely separate fact from whether they have confirmed one — the
+ * console shows "Seen, not confirmed" as its own state for exactly that
+ * reason — but it is NOT what a badge should count. See below.
+ */
 export const unseenVisitCount = subject_id =>
   one(`SELECT COUNT(*) n FROM visits WHERE subject_id = ? AND seen_at IS NULL`, subject_id)?.n ?? 0;
+
+/**
+ * Visits still waiting on the subject to confirm.
+ *
+ * This is what the badge counts. It used to count unseen visits, which meant
+ * glancing at the Visits tab cleared the indicator on an appointment nobody
+ * had confirmed — the badge said "nothing to do" while the officer's screen
+ * still said "Not confirmed".
+ *
+ * Seen is not acted on. Same mistake as a completion status that also has to
+ * mean passed: one indicator, two facts, and the one that disappears is the
+ * one somebody needed.
+ */
+export const unconfirmedVisitCount = subject_id => one(
+  `SELECT COUNT(*) n FROM visits
+    WHERE subject_id = ? AND accepted_at IS NULL
+      AND status NOT IN ('cancelled','completed','requested')`, subject_id)?.n ?? 0;
 
 export const markVisitsSeen = subject_id =>
   run(`UPDATE visits SET seen_at = ? WHERE subject_id = ? AND seen_at IS NULL`, now(), subject_id);
@@ -50,7 +76,85 @@ export const markVisitsSeen = subject_id =>
 export const cancelVisit = id =>
   run(`UPDATE visits SET status = 'cancelled' WHERE id = ?`, id);
 
-export const visit = id => one(`SELECT * FROM visits WHERE id = ?`, id);
+const VISIT_FIELDS = ["scheduled_at", "officer", "location", "notes", "time_fixed"];
+
+/**
+ * Change a visit that has not started yet.
+ *
+ * Only that. Once an officer has arrived, the visit is no longer a plan — it
+ * is something happening, and rescheduling it while standing on the doorstep
+ * is not a real act. Once it is complete it is a record, and a correction is
+ * a note, which is the rule everywhere else here.
+ *
+ * The console hides Edit in both cases, but hiding a button is not enforcing
+ * a rule: anything that only the interface prevents is something the next
+ * client does by accident.
+ *
+ * Moving it in time or place withdraws the subject's acceptance. They agreed
+ * to be somewhere at a time; change either and they have not agreed to
+ * anything — the same rule an amended agreement and a moved appointment
+ * follow.
+ */
+export function updateVisit(id, patch) {
+  const cur = one(`SELECT * FROM visits WHERE id = ?`, id);
+  if (!cur) return { error: "no such visit" };
+  if (cur.status === "completed")
+    return { error: "This visit has already taken place. Add a note instead." };
+  if (cur.status === "cancelled")
+    return { error: "This visit was cancelled." };
+  if (cur.started_at)
+    return { error: "This visit is under way. Add a note instead of rescheduling it." };
+
+  // Merge, never overwrite: a payload that omits a field leaves it alone.
+  const fields = VISIT_FIELDS.filter(f => patch[f] !== undefined);
+  if (fields.length) {
+    const vals = fields.map(f => f === "time_fixed" ? (patch[f] ? 1 : 0) : patch[f]);
+    run(`UPDATE visits SET ${fields.map(f => `${f}=?`).join(", ")} WHERE id = ?`,
+        ...vals, id);
+  }
+
+  const moved = ["scheduled_at", "location"].some(f =>
+    patch[f] !== undefined && patch[f] !== cur[f]);
+  if (moved && (cur.accepted_at || cur.seen_at))
+    run(`UPDATE visits SET accepted_at = NULL, seen_at = NULL,
+           status = 'scheduled' WHERE id = ?`, id);
+
+  /**
+   * A requested visit given a date is a scheduled visit.
+   *
+   * `scheduleRequested()` is the proper way to answer a request and both the
+   * console and the app use it. This is the back stop for the other door: the
+   * status change above only fires for a visit already accepted or seen, and a
+   * request has been neither — so anything reaching here with a request id
+   * would set a date and leave the row `requested` forever.
+   *
+   * That state is silently wrong rather than obviously broken. The officer's
+   * list filters on having no date, so it would empty and the badge would
+   * clear; the subject's app asks whether any visit has status `requested` and
+   * would go on telling them they were still waiting, for an appointment that
+   * had been booked days earlier. Two surfaces reading one fact two ways.
+   *
+   * The date is the fact and the status derives from it, so the derivation is
+   * made here too rather than left to whoever calls this next.
+   */
+  if (cur.status === "requested" && patch.scheduled_at)
+    run(`UPDATE visits SET status = 'scheduled' WHERE id = ?`, id);
+
+  return { ok: true, visit: visit(id), reconfirm: moved && !!cur.accepted_at };
+}
+
+/**
+ * A visit is never just its own row. Its notes and photographs are part of the
+ * record, so every path that returns a visit returns them too — defined once
+ * here rather than remembered at each call site.
+ */
+export const hydrate = v =>
+  v && { ...v, notes_log: notesForVisit(v.id), photos: photosForVisit(v.id),
+         agenda: agendaFor(v.id), recordings: recordingsFor(v.id),
+         transcripts: transcriptsForVisit(v.id),
+         summaries: summariesForVisit(v.id) };
+
+export const visit = id => hydrate(one(`SELECT * FROM visits WHERE id = ?`, id));
 
 /** The subject asks for an appointment. No date — the officer sets that. */
 export function requestVisit({ subject_id, note }) {
@@ -62,13 +166,27 @@ export function requestVisit({ subject_id, note }) {
 }
 
 /** The officer turns a request into a real appointment. */
-export function scheduleRequested(id, { scheduled_at, officer, location }) {
+/**
+ * @param notes  instructions for the subject, optional.
+ *
+ * Omitted leaves whatever is there; the console's request form has a date and
+ * nothing else, and must not blank a note by not mentioning it. The app does
+ * offer the field — an officer answering a request from the doorstep has a
+ * reason to say "bring the pay stub" — and a field that silently discarded
+ * what was typed into it would be worse than not offering one.
+ *
+ * `request_note` is left alone throughout. What the subject said when they
+ * asked is theirs, and is not overwritten by the officer's reply to it.
+ */
+export function scheduleRequested(id, { scheduled_at, officer, location, notes }) {
   const v = visit(id);
   if (!v) return { error: "no such request" };
   if (v.status !== "requested") return { error: "that appointment is already scheduled" };
   run(`UPDATE visits SET scheduled_at = ?, officer = ?, location = ?,
                          status = 'scheduled', seen_at = NULL
         WHERE id = ?`, scheduled_at, officer ?? null, location ?? null, id);
+  if (notes !== undefined && notes !== null && String(notes).trim())
+    run(`UPDATE visits SET notes = ? WHERE id = ?`, String(notes).trim(), id);
   return { ok: true, visit: visit(id) };
 }
 
@@ -79,7 +197,7 @@ export function acceptVisit(id, subject_id) {
   if (!v) return { error: "no such visit" };
   if (v.status === "cancelled") return { error: "this visit was cancelled" };
   if (v.status === "completed") return { error: "this visit has already taken place" };
-  if (v.accepted_at) return { ok: true, visit: v };            // idempotent
+  if (v.accepted_at) return { ok: true, visit: hydrate(v) };   // idempotent
   run(`UPDATE visits SET status = 'accepted', accepted_at = ? WHERE id = ?`, now(), id);
   return { ok: true, visit: visit(id) };
 }
@@ -90,6 +208,43 @@ export function addVisitNote({ visit_id, body, author }) {
   run(`INSERT INTO visit_notes (visit_id, body, author, created_at) VALUES (?,?,?,?)`,
       visit_id, body, author ?? null, now());
   return one(`SELECT * FROM visit_notes WHERE visit_id = ? ORDER BY id DESC LIMIT 1`, visit_id);
+}
+
+/* ---------------- visit photographs ---------------- */
+
+export const photosForVisit = visit_id => all(
+  `SELECT * FROM visit_photos WHERE visit_id = ? ORDER BY id`, visit_id);
+
+export const photoById = id => one(`SELECT * FROM visit_photos WHERE id = ?`, id);
+
+/** Append only, deliberately. See the table comment. */
+export function addVisitPhoto(p) {
+  run(`INSERT INTO visit_photos
+         (visit_id, filename, mime_type, byte_size, caption, author, created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      p.visit_id, p.filename, p.mime_type, p.byte_size ?? null,
+      p.caption ?? null, p.author ?? null, now());
+  return one(`SELECT * FROM visit_photos WHERE visit_id = ? ORDER BY id DESC LIMIT 1`,
+             p.visit_id);
+}
+
+/* ---------------- visit recordings ---------------- */
+
+export const recordingsFor = visit_id => all(
+  `SELECT * FROM visit_recordings WHERE visit_id = ? ORDER BY id`, visit_id);
+
+export const recordingById = id =>
+  one(`SELECT * FROM visit_recordings WHERE id = ?`, id);
+
+/** Append only, deliberately. See the table comment. */
+export function addVisitRecording(r) {
+  run(`INSERT INTO visit_recordings
+         (visit_id, filename, mime_type, byte_size, duration_ms, note, author, created_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      r.visit_id, r.filename, r.mime_type, r.byte_size ?? null,
+      r.duration_ms ?? null, r.note ?? null, r.author ?? null, now());
+  return one(`SELECT * FROM visit_recordings WHERE visit_id = ? ORDER BY id DESC LIMIT 1`,
+             r.visit_id);
 }
 
 export const notesForVisit = visit_id =>
@@ -184,6 +339,42 @@ const SUBJECT_FIELDS = ["first_name","last_name","case_number","dob","phone","em
  * field must leave it alone — the same partial-save rule that once blanked an
  * entire supervision agreement.
  */
+/**
+ * A new person on the roster.
+ *
+ * The subject_id is minted here, not accepted from the client. It is the key
+ * every other table hangs off, it appears in URLs, and a caller that could
+ * choose it could collide with an existing record or overwrite one — the same
+ * reason a recording's filename is generated rather than supplied.
+ *
+ * They land on the creating officer's caseload. Moving them elsewhere is
+ * `reassignSubject`, which writes a case note naming both officers; a subject
+ * who changes hands with nothing on the record is how a case goes quiet.
+ */
+export function createSubject(patch, officer_id) {
+  let subject_id;
+  do { subject_id = `cust-${Math.floor(1000 + Math.random() * 9000)}`; }
+  while (one(`SELECT 1 FROM subjects WHERE subject_id = ?`, subject_id));
+
+  /* first_name, last_name and case_number are NOT NULL, so they belong in the
+     insert rather than in the update that follows. A case number is real-world
+     data an officer should type, but the column will not take nothing — so an
+     obviously-provisional one is minted and shown in the form to be replaced,
+     which is better than an empty string that looks like a real value. */
+  const caseNo = String(patch.case_number || "").trim()
+    || `NC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+
+  run(`INSERT INTO subjects
+         (subject_id, first_name, last_name, case_number, status, officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      subject_id, patch.first_name, patch.last_name, caseNo,
+      patch.status || "active", officer_id ?? null, now());
+
+  /* Everything else goes through the same update path the edit form uses, so
+     there is one place that knows how a subject's fields are written. */
+  return saveSubject(subject_id, { ...patch, case_number: caseNo });
+}
+
 export function saveSubject(subject_id, patch) {
   const cols = SUBJECT_FIELDS.filter(f => patch[f] !== undefined);
   if (cols.length)
@@ -209,11 +400,12 @@ export function seedRoster(officers, subjects) {
     const off = one(`SELECT id FROM officers WHERE name = ?`, s.officer);
     run(`INSERT INTO subjects
          (subject_id, case_number, first_name, last_name, dob, phone, email,
-          address_line1, city, state, postal_code, status, officer_id,
+          address_line1, address_line2, city, state, postal_code, status, officer_id,
           intake_date, next_review, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         s.subject_id, s.case_number, s.first_name, s.last_name, s.dob, s.phone,
-        s.email ?? null, s.address_line1, s.city, s.state, s.postal_code,
+        s.email ?? null, s.address_line1, s.address_line2 ?? null,
+        s.city, s.state, s.postal_code,
         s.status, off?.id ?? null, s.intake_date, s.next_review, now());
   }
   return true;
@@ -225,6 +417,68 @@ export const officerByEmail = email => one(
   `SELECT * FROM officers WHERE lower(email) = lower(?) AND active = 1`, email);
 
 export const officerById = id => one(`SELECT * FROM officers WHERE id = ?`, id);
+
+/* What an officer may change about themselves.
+ *
+ * `role` and `active` are deliberately absent. Letting someone edit their own
+ * role is privilege escalation with a form around it, and the whole point of a
+ * profile screen is that it edits the person who is signed in — so the two
+ * fields that decide what they may do are not on it. Those move through
+ * whatever admin path exists, and there is currently none, which is honest for
+ * a proof of concept.
+ */
+const OFFICER_FIELDS = ["name", "email", "phone", "badge", "office_id"];
+
+export function saveOfficer(officer_id, patch) {
+  const cols = OFFICER_FIELDS.filter(f => patch[f] !== undefined);
+  if (cols.length)
+    run(`UPDATE officers SET ${cols.map(c => `${c}=?`).join(", ")} WHERE id = ?`,
+        ...cols.map(c => patch[c]), officer_id);
+  return officerById(officer_id);
+}
+
+/** Is this email already somebody else's? Sign-in is by email, so a duplicate
+ *  would make one of the two accounts unreachable. */
+export const emailTakenBy = (email, exceptId) => one(
+  `SELECT id FROM officers WHERE lower(email) = lower(?) AND id <> ?`,
+  email, exceptId ?? -1);
+
+/**
+ * Where this officer starts their day.
+ *
+ * Their own office if one is set, otherwise the first active office — a
+ * fallback rather than a guess, and never a name match. An officer without a
+ * base is a data problem to fix, not a reason for a route to have no origin.
+ */
+export const officerBase = officer_id => one(
+  `SELECT o.id, o.name, o.address, o.phone
+     FROM officers f
+     LEFT JOIN offices o ON o.id = f.office_id
+    WHERE f.id = ? AND o.id IS NOT NULL`, officer_id)
+  ?? one(`SELECT id, name, address, phone FROM offices WHERE active = 1 ORDER BY id LIMIT 1`)
+  ?? null;
+
+export const setOfficerOffice = (officer_id, office_id) =>
+  run(`UPDATE officers SET office_id = ? WHERE id = ?`, office_id, officer_id);
+
+/**
+ * Move a subject to a different officer.
+ *
+ * Deliberately its own function rather than a field on the details form: who
+ * supervises someone is an assignment decision with consequences — it changes
+ * whose caseload they appear on and who is accountable for their visits — and
+ * it should not be reachable by a payload aimed at an address change.
+ */
+export function reassignSubject(subject_id, officer_id) {
+  const s = one(`SELECT * FROM subjects WHERE subject_id = ?`, subject_id);
+  if (!s) return { error: "no such subject" };
+  const o = one(`SELECT * FROM officers WHERE id = ? AND active = 1`, officer_id);
+  if (!o) return { error: "no such officer" };
+  if (s.officer_id === o.id) return { ok: true, unchanged: true, officer: o.name };
+  const from = s.officer_id ? officerById(s.officer_id)?.name : null;
+  run(`UPDATE subjects SET officer_id = ? WHERE subject_id = ?`, o.id, subject_id);
+  return { ok: true, officer: o.name, from };
+}
 
 export const setOfficerPassword = (id, hash, must_change = 0) =>
   run(`UPDATE officers SET password_hash = ?, must_change = ? WHERE id = ?`,
@@ -274,12 +528,13 @@ export const revokeStaffSession = token_hash =>
 export const officerSchedule = officer_id => all(
   `SELECT v.*, s.first_name || ' ' || s.last_name AS subject_name,
           s.case_number, s.phone,
-          s.address_line1, s.city, s.state, s.postal_code
+          s.address_line1, s.address_line2, s.city, s.state, s.postal_code
      FROM visits v
      JOIN subjects s ON s.subject_id = v.subject_id
     WHERE s.officer_id = ?
       AND v.status IN ('scheduled','accepted','requested')
-    ORDER BY (v.scheduled_at IS NULL) ASC, v.scheduled_at ASC`, officer_id);
+    ORDER BY (v.scheduled_at IS NULL) ASC, v.scheduled_at ASC`, officer_id)
+  .map(hydrate);
 
 /** Recently completed, so the officer can see what they have already done. */
 export const officerRecent = (officer_id, limit = 10) => all(
@@ -287,7 +542,8 @@ export const officerRecent = (officer_id, limit = 10) => all(
      FROM visits v
      JOIN subjects s ON s.subject_id = v.subject_id
     WHERE s.officer_id = ? AND v.status = 'completed'
-    ORDER BY v.completed_at DESC LIMIT ?`, officer_id, limit);
+    ORDER BY v.completed_at DESC LIMIT ?`, officer_id, limit)
+  .map(hydrate);
 
 export const officerCaseload = officer_id => all(
   `SELECT s.*, s.first_name || ' ' || s.last_name AS name,
@@ -304,25 +560,56 @@ export const officerCaseload = officer_id => all(
 export const vehiclesFor = subject_id =>
   all(`SELECT * FROM subject_vehicles WHERE subject_id = ? ORDER BY id`, subject_id);
 
+/**
+ * A model year, normalised to the one type the column holds.
+ *
+ * `year` is a TEXT column, and the two callers disagreed about what to send:
+ * the form posts the string "2014", the seed passed the number 2014 — which
+ * node:sqlite binds as REAL, so SQLite stored the text "2014.0". Same field,
+ * same function, two different values on disk depending on who wrote it.
+ *
+ * Normalised here rather than at each call site, because "normalise at the
+ * boundary, once" is the only version of this that stays true.
+ */
+const modelYear = y => {
+  if (y === null || y === undefined || y === "") return null;
+  const n = Math.trunc(Number(y));
+  return Number.isFinite(n) && n > 1885 && n < 2100 ? String(n) : null;
+};
+
 export function saveVehicle(v) {
   if (v.id) {
     run(`UPDATE subject_vehicles
             SET make=?, model=?, year=?, color=?, plate=?, state=?, notes=?, updated_at=?
           WHERE id = ?`,
-        v.make ?? null, v.model ?? null, v.year ?? null, v.color ?? null,
+        v.make ?? null, v.model ?? null, modelYear(v.year), v.color ?? null,
         v.plate ?? null, v.state ?? null, v.notes ?? null, now(), v.id);
     return one(`SELECT * FROM subject_vehicles WHERE id = ?`, v.id);
   }
   run(`INSERT INTO subject_vehicles
        (subject_id, make, model, year, color, plate, state, notes, created_at)
        VALUES (?,?,?,?,?,?,?,?,?)`,
-      v.subject_id, v.make ?? null, v.model ?? null, v.year ?? null, v.color ?? null,
+      v.subject_id, v.make ?? null, v.model ?? null, modelYear(v.year), v.color ?? null,
       v.plate ?? null, v.state ?? null, v.notes ?? null, now());
   return one(`SELECT * FROM subject_vehicles WHERE subject_id = ? ORDER BY id DESC LIMIT 1`,
              v.subject_id);
 }
 
 export const deleteVehicle = id => run(`DELETE FROM subject_vehicles WHERE id = ?`, id);
+
+/* ---------------- case notes ---------------- */
+
+/** Newest first — an officer opening a case wants the latest, not the oldest. */
+export const caseNotesFor = subject_id => all(
+  `SELECT * FROM case_notes WHERE subject_id = ? ORDER BY id DESC`, subject_id);
+
+/** Append only. There is deliberately no update and no delete. */
+export function addCaseNote({ subject_id, body, author }) {
+  run(`INSERT INTO case_notes (subject_id, body, author, created_at) VALUES (?,?,?,?)`,
+      subject_id, body, author ?? null, now());
+  return one(`SELECT * FROM case_notes WHERE subject_id = ? ORDER BY id DESC LIMIT 1`,
+             subject_id);
+}
 
 /* ---------------- family contacts ---------------- */
 

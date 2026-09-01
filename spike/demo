@@ -3,11 +3,15 @@
 # Waypoint PoC — demo control.
 #
 #   ./spike/demo start     start the servers (API, content, mock SaaS)
+#   ./spike/demo restart   pick up a change under spike/api, keeping Metro up
 #   ./spike/demo mobile    start Metro and open the iOS simulator
 #   ./spike/demo reset     wipe and re-seed (snapshots the old db first)
 #   ./spike/demo restore   put the most recent snapshot back
-#   ./spike/demo stop      stop the servers (leaves Metro alone)
+#   ./spike/demo stop      stop the servers AND Metro
 #   ./spike/demo status    what is running, and the URLs
+#
+# A change to the app's JavaScript needs none of these — Metro reloads it.
+# Use `restart` only for a change under spike/api.
 #
 # The LAN address is detected each time and written into the mobile config,
 # because a device cannot reach "localhost" and the IP changes with the network.
@@ -18,7 +22,11 @@ cd "$(dirname "$0")/.."          # repo root — ingest uses paths relative to i
 APP_PORT=8090
 CONTENT_PORT=8091
 SAAS_PORT=8092
-METRO_PORT=8082                  # 8081 is often taken by another Expo project
+# 8081, because the dev build looks there and nowhere else. Without
+# expo-dev-client installed the app has no launcher screen and no deep-link
+# handling, so the port cannot be told to it at run time — it is baked in.
+# Override METRO_PORT if another Expo project is already holding 8081.
+METRO_PORT=${METRO_PORT:-8081}
 API_KEY=wp_demo_key_123
 DATA_DIR=spike/data
 # Two packages, deliberately different in kind:
@@ -29,6 +37,10 @@ SEED_ZIP=spike/corpus/RuntimeBasicCalls_SCORM12.zip
 SEED_ZIP2=spike/corpus/Rise360_DiversityBasics_SCORM12.zip
 LOG=/tmp/waypoint-demo.log
 METRO_LOG=/tmp/waypoint-metro.log
+# The app is a DEVELOPMENT BUILD, not Expo Go. Expo Go only ever supports the
+# latest RELEASED SDK and cannot open this project — which is also why the
+# microphone prompt shows our own wording rather than Expo Go's generic one.
+BUNDLE_ID=com.waypoint.supervision
 
 b()  { printf '\033[1m%s\033[0m\n' "$1"; }
 ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -45,6 +57,24 @@ HOST=$(lan_ip)
 
 metro_up() { curl -fs -o /dev/null --max-time 2 "http://localhost:$METRO_PORT/status" 2>/dev/null; }
 
+# Metro, once. Shared by `phone` and `sim` because it is the same bundle either
+# way — only who fetches it changes. Started detached so the command never
+# blocks the terminal and is safe to run repeatedly.
+start_metro() {
+  if metro_up; then ok "Metro already running on $METRO_PORT"; return 0; fi
+  # --dev-client, because the app is a development build rather than Expo Go.
+  # Without it Metro serves an Expo Go manifest, the dev build gets no script
+  # URL, and the screen reads "No script URL provided" — which sounds like
+  # Metro is down when it is running perfectly and answering the wrong question.
+  (cd spike/mobile && nohup npx expo start --dev-client --port "$METRO_PORT" \
+    >"$METRO_LOG" 2>&1 &) >/dev/null 2>&1
+  for _ in $(seq 1 40); do metro_up && break; sleep 0.5; done
+  if metro_up; then ok "Metro started on $METRO_PORT"; return 0; fi
+  no "Metro would not start — last lines of $METRO_LOG:"
+  tail -8 "$METRO_LOG" | sed 's/^/      /'
+  return 1
+}
+
 servers_up() { curl -fs -o /dev/null --max-time 2 "http://$HOST:$APP_PORT/api/health" 2>/dev/null; }
 
 stop_servers() {
@@ -58,8 +88,20 @@ stop_servers() {
 
 start_servers() {
   stop_servers || return 1
+  # spike/.env holds the API keys, read by Node itself — no dotenv package,
+  # which keeps the zero-dependency rule. Absent, the server still starts and
+  # simply reports transcription and summarising as unavailable.
+  #
+  # Computed BEFORE the env-prefix line below: that line ends in a backslash,
+  # and anything inserted between it and the command breaks the continuation.
+  # The ports then never reach node, CONTENT_PORT silently falls back to its
+  # 8081 default, and it collides with Metro — a failure that reads as a port
+  # conflict and is really a line-continuation bug.
+  local envfile=""
+  [ -f spike/.env ] && envfile="--env-file=spike/.env"
+
   HOST=$HOST APP_PORT=$APP_PORT CONTENT_PORT=$CONTENT_PORT SAAS_PORT=$SAAS_PORT \
-    WAYPOINT_API_KEY=$API_KEY nohup node spike/api/server.mjs >"$LOG" 2>&1 &
+    WAYPOINT_API_KEY=$API_KEY nohup node $envfile spike/api/server.mjs >"$LOG" 2>&1 &
   for _ in $(seq 1 20); do servers_up && break; sleep 0.4; done
   if ! servers_up; then
     no "servers failed to start — last lines of $LOG:"
@@ -82,16 +124,37 @@ seed_content() {
   ingest_one "$SEED_ZIP"  golf-101      "Golf Explained (Rustici sample)"
   [ -f "$SEED_ZIP2" ] && ingest_one "$SEED_ZIP2" diversity-101 "Diversity Basics: Foundations (Rise 360)" \
                       || dim "no Rise export present — skipping diversity-101"
+
+  # Assigning happens HERE and not in the JS seed, because the JS seed runs the
+  # moment the server is listening and the content is not ingested until the
+  # line above. Putting it there gave "no content ingested for golf-101" — the
+  # ordering constraint is real, so it lives where the ordering is visible.
+  #
+  # One course assigned so the demo opens with a program in progress; the
+  # second is left alone so the Assign flow is still worth showing.
+  local code
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$HOST:$APP_PORT/api/assign" \
+    -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+    -d '{"subject_id":"cust-2298","name":"Marcus Oyelaran","program_id":"golf-101"}')
+  [ "$code" = "200" ] && ok "golf-101 assigned to Marcus Oyelaran" \
+                      || dim "could not assign golf-101 (HTTP $code)"
 }
 
 sync_mobile_config() {
-  cat > spike/mobile/config.js <<EOF
-/** Written by ./spike/demo — a device cannot reach "localhost". */
-export const API_BASE = "http://$HOST:$APP_PORT";
-/** Northwood's own system. The app is a client of both. */
-export const SAAS_BASE = "http://$HOST:$SAAS_PORT";
-EOF
-  ok "mobile config pointed at http://$HOST:$APP_PORT"
+  # Only the fallback line. The app works its own host out from Metro at
+  # runtime, which is what makes moving between networks a non-event; this is
+  # for a build with no packager to ask.
+  #
+  # Rewriting the whole file, as this used to, meant every network change also
+  # needed the app rebuilt — and the symptom was the app quietly talking to an
+  # address that had not existed since the last coffee shop.
+  local f=spike/mobile/config.js
+  if [ -f "$f" ] && grep -q "^const WRITTEN_HOST" "$f"; then
+    sed -i '' "s|^const WRITTEN_HOST = .*|const WRITTEN_HOST = \"$HOST\";|" "$f"
+    ok "mobile fallback host set to $HOST (the app detects it live)"
+  else
+    no "spike/mobile/config.js is missing its WRITTEN_HOST line"
+  fi
 }
 
 # Three surfaces, three DIFFERENT logins. Printing the URL without the login
@@ -114,10 +177,38 @@ urls() {
 
 script() {
   echo
+  b "Already set up, so the demo does not open on empty screens"
+  dim "Marcus Oyelaran address, vehicle, family, curfew, employment"
+  dim "                3 fines — one overdue, one due next week"
+  dim "                3 goals — one under way, one not started, one already met"
+  dim "                supervision agreement — signed and issued, NOT acknowledged"
+  dim "                reentry plan — 51/53 done, 2 checkpoints awaiting his signature"
+  dim "                golf-101 assigned, not yet started"
+  dim "                a visit TOMORROW, and 5 appointments across the week"
+  dim "Dana Whitfield  on the same caseload, deliberately bare — so every empty"
+  dim "                state and Create flow can be demonstrated"
+  echo
+  dim "Dana has nothing at all, and a second course is unassigned: those are"
+  dim "the live parts."
+  echo
   b "Demo script"
-  dim "1. Northwood      → pick a subject, Programs, assign Golf Explained"
-  dim "2. Learner site   → sign in, Start course, work through it, finish the quiz"
-  dim "3. Northwood      → the completion appears within a few seconds"
+  dim "1. Northwood      Dana → Programs → assign Golf Explained"
+  dim "2. Learner site   sign in, Start course, work through it, finish the quiz"
+  dim "3. Northwood      the completion appears within a few seconds"
+  echo
+  dim "4. Northwood      subject → Visits → schedule one (address pre-filled,"
+  dim "                  with a map link), then Start it and record observations"
+  dim "5. Mobile app     the subject accepts the visit; the officer can also"
+  dim "                  conduct it from the app, with notes and photographs"
+  echo
+  dim "6. Mobile app     Marcus opens it and owes two things:"
+  dim "                    - acknowledge her conditions of supervision"
+  dim "                    - sign off 2 reentry checkpoints"
+  dim "7. Northwood      subject → Reentry Plan → the readiness dial goes to 100%"
+  dim "                  and Certify complete turns from red to green"
+  echo
+  dim "Steps 6 and 7 are the argument: supervision is something the officer and"
+  dim "the subject do together, and neither can complete a checkpoint alone."
   echo
   b "Logins"
   dim "Staff     r.alvarez@northwood.gov / northwood"
@@ -180,6 +271,28 @@ case "${1:-start}" in
     urls
     ;;
 
+  # Restart the API servers and LEAVE METRO ALONE.
+  #
+  # `stop && start` was the obvious way to pick up a server-side change, and it
+  # was a trap: stop kills Metro too, start does not bring it back, and the app
+  # then shows "No script URL provided" on a red screen. That reads as a broken
+  # app rather than as a missing packager, and the fix — restart Metro — is not
+  # in the message.
+  #
+  # A JS change needs none of this: Metro reloads it live. This is only for a
+  # change under spike/api.
+  restart|reload)
+    b "Restarting the servers"
+    stop_servers && ok "servers stopped"
+    start_servers || exit 1
+    if metro_up 2>/dev/null || curl -s -o /dev/null --max-time 2 "http://localhost:$METRO_PORT/status"; then
+      ok "Metro left running — the app will reconnect on its own"
+    else
+      dim "Metro is not running — ./spike/demo phone or sim when you need it"
+    fi
+    urls
+    ;;
+
   stop)
     b "Stopping"
     stop_servers && ok "servers stopped"
@@ -188,28 +301,42 @@ case "${1:-start}" in
                    || dim "Metro was not running"
     ;;
 
-  mobile|app)
+  phone|mobile|app)
     servers_up || { no "servers are not running — ./spike/demo start first"; exit 1; }
     sync_mobile_config
-    b "Opening the mobile app"
+    b "Waypoint on your iPhone"
+    start_metro || exit 1
 
-    # 1. Metro. Start it in the background if it is not already up, so this
-    #    command never blocks the terminal and is safe to run repeatedly.
-    if metro_up; then
-      ok "Metro already running on $METRO_PORT"
+    # The phone runs the development build we compiled onto it, so there is
+    # nothing to open a URL in — it finds Metro over wifi by itself. All this
+    # does is launch it, if the phone happens to be plugged in.
+    dev=$(xcrun devicectl list devices 2>/dev/null | grep -i "available" \
+          | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' \
+          | head -1)
+    if [ -n "$dev" ]; then
+      xcrun devicectl device process launch --device "$dev" "$BUNDLE_ID" \
+        >/dev/null 2>&1 && ok "Waypoint launched on your iPhone" \
+        || dim "open Waypoint on the phone yourself — it will find Metro"
     else
-      (cd spike/mobile && nohup npx expo start --port "$METRO_PORT" \
-        >"$METRO_LOG" 2>&1 &) >/dev/null 2>&1
-      for _ in $(seq 1 40); do metro_up && break; sleep 0.5; done
-      if metro_up; then ok "Metro started on $METRO_PORT"
-      else
-        no "Metro would not start — last lines of $METRO_LOG:"
-        tail -8 "$METRO_LOG" | sed 's/^/      /'
-        exit 1
-      fi
+      dim "no iPhone connected by cable — just open Waypoint on the phone"
     fi
+    dim "the phone must be on the same wifi as this Mac ($HOST)"
+    echo
+    dim "Errors and console.log:  tail -f $METRO_LOG"
+    dim "React Native DevTools:   press j in the Metro terminal"
+    dim "Rebuild (native changes only, e.g. a new expo-* package):"
+    dim "  cd spike/mobile && npx expo run:ios --device"
+    echo
+    ;;
 
-    # 2. A booted simulator. Boot the first available iPhone if none is up.
+  sim|simulator)
+    servers_up || { no "servers are not running — ./spike/demo start first"; exit 1; }
+    sync_mobile_config
+    b "Waypoint in the iOS simulator"
+    dim "note: the simulator cannot capture audio — recording produces silence"
+    start_metro || exit 1
+
+    # A booted simulator. Boot the first available iPhone if none is up.
     if ! xcrun simctl list devices | grep -q "(Booted)"; then
       dev=$(xcrun simctl list devices available \
             | grep -oE 'iPhone [^(]*\([0-9A-F-]{36}\)' | head -1 \
@@ -224,14 +351,35 @@ case "${1:-start}" in
       && ok "simulator booted" || { no "no simulator available"; exit 1; }
     open -a Simulator 2>/dev/null
 
-    # 3. Open the app. Terminate first so a reload always picks up changes.
-    xcrun simctl terminate booted host.exp.Exponent >/dev/null 2>&1
-    sleep 1
-    xcrun simctl openurl booted "exp://$HOST:$METRO_PORT" >/dev/null 2>&1 \
-      && ok "app opening — first launch takes a few seconds to bundle" \
-      || no "could not open the app"
-    dim "Metro logs: tail -f $METRO_LOG"
+    # The dev build, NOT Expo Go — Expo Go cannot open this project's SDK.
+    #
+    # Launched through the development-client URL rather than bare, because a
+    # bare launch leaves the app waiting on whichever Metro it last saw. That
+    # is usually 8081, the port `expo run:ios` starts for itself, and not the
+    # 8082 this project uses — so the app sits on a blank screen looking for a
+    # server that is not there. Naming the URL removes the guesswork.
+    if xcrun simctl get_app_container booted "$BUNDLE_ID" >/dev/null 2>&1; then
+      xcrun simctl terminate booted "$BUNDLE_ID" >/dev/null 2>&1
+      sleep 1
+      xcrun simctl openurl booted \
+        "$BUNDLE_ID://expo-development-client/?url=http%3A%2F%2F$HOST%3A$METRO_PORT" \
+        >/dev/null 2>&1 \
+        && ok "Waypoint launched against Metro on $METRO_PORT" \
+        || no "could not launch Waypoint"
+    else
+      no "Waypoint is not installed on this simulator"
+      dim "build it once:  cd spike/mobile && npx expo run:ios"
+      dim "Expo Go will not work — it only supports the latest released SDK"
+    fi
     echo
+    dim "Errors and console.log:  tail -f $METRO_LOG"
+    echo
+    ;;
+
+  script|walkthrough)
+    # Printed after start and reset, but worth having on demand — it is the
+    # thing you read once more before hitting record.
+    script
     ;;
 
   status)
@@ -268,8 +416,10 @@ PY
   *)
     b "Waypoint demo"
     dim "./spike/demo start    start the servers"
-    dim "./spike/demo mobile   open the app in the iOS simulator"
+    dim "./spike/demo phone    Metro for your iPhone (the dev build)"
+    dim "./spike/demo sim      Metro + the iOS simulator (no microphone)"
     dim "./spike/demo reset    wipe and re-seed for a fresh demo"
+  dim "./spike/demo script   print the walkthrough"
     dim "./spike/demo stop     stop the servers"
     dim "./spike/demo status   what's running"
     echo

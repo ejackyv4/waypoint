@@ -36,9 +36,21 @@ docs/session/transcript-raw.jsonl
 .env
 .env.local
 
+# How to reach the server, and what is on it. Hostnames, IPs, the shape of the
+# firewall — none of it is a secret on its own, and all of it is a map for
+# somebody who finds the repo. Kept beside the code so it is findable, kept out
+# of the history so it is not published.
+*.local.md
+
 # macOS
 .DS_Store
 
 # Client requirements document — handled outside the repo
 mytrackRequirementsAnalysis.pdf
 *.pdf
+spike/.env
+
+# Test recordings dropped at the repo root while working on audio. The real
+# corpus lives in spike/corpus; these are scratch and should not be history.
+/*.m4a
+/*.wav

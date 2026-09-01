@@ -18,23 +18,30 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  allSubjects, subjectByKey, saveSubject,
+  allSubjects, subjectByKey, saveSubject, createSubject, reassignSubject,
   vehiclesFor, saveVehicle, deleteVehicle, vehicleById,
   curfewFor, saveCurfew,
   obligationsFor, saveObligation, deleteObligation,
   travelPermitFor, saveTravelPermit, TRAVEL_LEVELS,
   employmentFor, saveEmployment,
   contactsFor, contactById, saveContact, deleteContact,
+  caseNotesFor, addCaseNote,
   documentsFor, documentById,
+  agreementFor, visitsFor,
   activeOffices, activeOfficers,
   SUPERVISION_KINDS, SUPERVISION_LEVELS, OBLIGATION_UNITS,
   EMPLOYMENT_STATUSES, CONTACT_RELATIONSHIPS, CONDITION_CATEGORIES
 } from "../db/northwood.mjs";
 import { APP_ORIGIN } from "../config.mjs";
+import { audit, callerIp } from "../db/audit.mjs";
 import { readJson } from "../http.mjs";
-import { saasJson, asProfile, waypoint } from "./shared.mjs";
+import { saasJson, asProfile, waypoint, programsForSubject } from "./shared.mjs";
 import { validEmployment, validContact, cleanContact } from "./validate.mjs";
 import { DOCS_DIR } from "./documents.mjs";
+import { planFor } from "../db/reentry.mjs";
+import { goalsFor } from "../db/goals.mjs";
+import { financialSummary } from "../db/financial.mjs";
+import { datesSummary } from "../db/dates.mjs";
 
 /**
  * Mark which subjects can actually sign in.
@@ -53,11 +60,63 @@ async function withLogins(subjects) {
 export const routes = {
 
   "ALL /api/subjects": async (req, res) =>
-    saasJson(res, 200, { subjects: await withLogins(allSubjects().map(asProfile)) }),
+    saasJson(res, 200, { subjects: await withLogins(allSubjects().map(asProfile)),
+                         officers: activeOfficers() }),
+
+  /* Reassignment is its own action, and it leaves a trace. A subject who moves
+     between officers without anything on the record is how a case goes quiet. */
+  "POST /api/subject/officer": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const r = reassignSubject(String(b.subject_id || ""), Number(b.officer_id));
+    if (r.error) return saasJson(res, 400, r);
+    if (!r.unchanged)
+      addCaseNote({ subject_id: b.subject_id,
+        body: `Supervision transferred${r.from ? ` from ${r.from}` : ""} to ${r.officer}.`,
+        author: ctx.session?.name || null });
+    return saasJson(res, 200, { ...r, subject: asProfile(subjectByKey(b.subject_id)) });
+  },
 
   /* The subject's own details. Demographics an officer maintains — not the
      assignment decisions (which officer, which programs), which are made
      elsewhere and are not editable from a form. */
+  /**
+   * A new subject.
+   *
+   * Its own route rather than a branch inside the update, because creating a
+   * person and editing one are different acts with different blast radii —
+   * the same reasoning that keeps reassignment off the details form.
+   */
+  "POST /api/subjects": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const first = String(b.first_name || "").trim();
+    const last = String(b.last_name || "").trim();
+    if (!first) return saasJson(res, 400, { error: "A first name is required." });
+    if (!last) return saasJson(res, 400, { error: "A last name is required." });
+
+    for (const f of ["dob", "intake_date", "next_review"])
+      if (b[f] && !/^\d{4}-\d{2}-\d{2}$/.test(b[f]))
+        return saasJson(res, 400, { error: `${f} must be a date (YYYY-MM-DD)` });
+
+    /* Whoever is signed in takes the case. Reassignment is its own endpoint
+       and writes a case note; there is nothing to note yet. */
+    const subject = createSubject({
+      first_name: first, last_name: last,
+      case_number: String(b.case_number || "").trim() || null,
+      dob: b.dob || null,
+      phone: String(b.phone || "").trim() || null,
+      email: String(b.email || "").trim() || null,
+      address_line1: String(b.address_line1 || "").trim() || null,
+      address_line2: String(b.address_line2 || "").trim() || null,
+      city: String(b.city || "").trim() || null,
+      state: b.state || null,
+      postal_code: String(b.postal_code || "").trim() || null,
+      intake_date: b.intake_date || null,
+      next_review: b.next_review || null
+    }, ctx.session?.officer_id);
+
+    return saasJson(res, 200, { subject: asProfile(subject) });
+  },
+
   "POST /api/subject": async (req, res) => {
     const b = await readJson(req);
     if (!b.subject_id) return saasJson(res, 400, { error: "subject_id required" });
@@ -86,16 +145,77 @@ export const routes = {
 
   /* Every profile module in one call — the profile paints them together, and
      six round trips to draw one screen is six chances to look half-loaded. */
+  /**
+   * A subject's whole file, in one call.
+   *
+   * One request rather than eight, because the officer opening this is
+   * frequently standing on a doorstep on a phone signal, and eight round
+   * trips is eight chances to end up with half a case file. Everything here
+   * is Northwood's own data — the programs a subject has been assigned live
+   * in Waypoint and are fetched separately, over its API, like any other
+   * integrator would.
+   */
   "ALL /api/subject/detail": async (req, res, ctx) => {
     const sid = ctx.url.searchParams.get("subject_id");
     if (!sid) return saasJson(res, 400, { error: "subject_id required" });
+    const row = subjectByKey(sid);
+    if (!row) return saasJson(res, 404, { error: "no such subject" });
+
+    /* Opening somebody's file is the read worth recording. It returns their
+       address, their vehicles, their employment, their contacts and their
+       obligations in one response — everything an officer would otherwise have
+       to visit five screens to see, which is exactly why "who looked at this,
+       and when" has a subject entitled to an answer.
+       A miss (404) is not recorded: there is no person for it to be about. */
+    audit({ actor: ctx.session ? `officer:${ctx.session.officer_id}` : "unknown",
+            action: "read", entity: "subject", entity_id: sid,
+            detail: "case file opened", ip: callerIp(req) });
+
+    const agreement = agreementFor(sid);
+    const plan = planFor(sid);
     return saasJson(res, 200, {
+      subject: asProfile(row),
       vehicles: vehiclesFor(sid),
-      curfew: curfewFor(sid),
       community_service: obligationsFor(sid, "community_service"),
-      travel_permit: travelPermitFor(sid),
-      employment: employmentFor(sid),
-      contacts: contactsFor(sid)
+      contacts: contactsFor(sid),
+      /* `?? null`, not bare, because a lookup that finds nothing returns
+         undefined and JSON.stringify drops the key entirely — so a subject
+         with no travel permit got a response with no `travel_permit` field
+         at all. A client then cannot tell "there is no permit" from "this
+         endpoint did not tell me about permits", and the honest answer is a
+         key that is always present and sometimes null. */
+      curfew: curfewFor(sid) ?? null,
+      travel_permit: travelPermitFor(sid) ?? null,
+      employment: employmentFor(sid) ?? null,
+      case_notes: caseNotesFor(sid),
+      goals: goalsFor(sid),
+      /* Training lives in Waypoint, so this crosses the boundary over HTTP.
+         An unreachable LMS yields an empty list rather than failing the whole
+         case file — the other eleven modules are still worth having. */
+      programs: await programsForSubject(sid),
+      financial: financialSummary(sid),
+      important_dates: datesSummary(sid),
+      documents: documentsFor(sid),
+      visits: visitsFor(sid),
+      /* Summaries, not the documents themselves. An officer glancing at a
+         case file needs to know where the agreement and the plan stand; the
+         full text has its own screen and its own signatures. */
+      agreement: agreement && {
+        id: agreement.id, status: agreement.status, kind: agreement.kind,
+        supervision_level: agreement.supervision_level,
+        start_date: agreement.start_date, end_date: agreement.end_date,
+        officer_signed_at: agreement.officer_signed_at,
+        subject_signed_at: agreement.subject_signed_at,
+        amended_at: agreement.amended_at,
+        condition_count: (agreement.conditions || []).length
+      },
+      reentry: plan && {
+        id: plan.id, status: plan.status,
+        target_release_date: plan.target_release_date,
+        subject_signed_at: plan.subject_signed_at,
+        certified_at: plan.certified_at, certified_by: plan.certified_by,
+        readiness: plan.readiness
+      }
     });
   },
 
@@ -186,6 +306,27 @@ export const routes = {
   /* ---- family contacts: both sides write one list ---- */
   "POST /api/contacts":        contactsHandler,
   "POST /api/contacts/delete": contactsHandler,
+
+  /* ---- case notes: the officer's running record of a case ----
+     Append-only. There is no edit and no delete, by design — a note that can
+     be rewritten later is worth nothing at a hearing. */
+  "ALL /api/case-notes": async (req, res, ctx) => {
+    const sid = ctx.url.searchParams.get("subject_id");
+    if (!sid) return saasJson(res, 400, { error: "subject_id required" });
+    return saasJson(res, 200, { notes: caseNotesFor(sid) });
+  },
+
+  "POST /api/case-notes": async (req, res, ctx) => {
+    const b = await readJson(req);
+    if (!b.subject_id) return saasJson(res, 400, { error: "subject_id required" });
+    if (!subjectByKey(b.subject_id)) return saasJson(res, 404, { error: "no such subject" });
+    if (!String(b.body || "").trim())
+      return saasJson(res, 400, { error: "A note cannot be empty." });
+
+    const note = addCaseNote({ subject_id: b.subject_id, body: String(b.body).trim(),
+                               author: b.author || ctx.session?.name || null });
+    return saasJson(res, 200, { note, notes: caseNotesFor(b.subject_id) });
+  },
 
   /* ---- documents ---- */
   "ALL /api/documents": async (req, res, ctx) => {

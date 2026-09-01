@@ -27,10 +27,18 @@ import { routes as authRoutes }      from "./northwood/auth.mjs";
 import { routes as pageRoutes }      from "./northwood/pages.mjs";
 import { routes as profileRoutes }   from "./northwood/profile.mjs";
 import { routes as agreementRoutes } from "./northwood/agreement.mjs";
+import { routes as reentryRoutes } from "./northwood/reentry.mjs";
+import { routes as goalRoutes } from "./northwood/goals.mjs";
+import { routes as financialRoutes } from "./northwood/financial.mjs";
+import { routes as dateRoutes } from "./northwood/dates.mjs";
+import { routes as dashboardRoutes } from "./northwood/dashboard.mjs";
+import { routes as routeRoutes } from "./northwood/route.mjs";
 import { routes as visitRoutes }     from "./northwood/visits.mjs";
 import { routes as officerRoutes }   from "./northwood/officer.mjs";
 import { routes as meRoutes }        from "./northwood/me.mjs";
 import { routes as lmsRoutes }       from "./northwood/lms.mjs";
+import { routes as insightRoutes, failStaleJobs, fillMissingDueDates }
+  from "./northwood/insights.mjs";
 
 import "./northwood/seed.mjs";
 export { seedSubjectLogins } from "./northwood/seed.mjs";
@@ -47,10 +55,22 @@ const router = createRouter("northwood")
   .mount(pageRoutes)        // the console itself
   .mount(profileRoutes)     // the roster and every module on a subject
   .mount(agreementRoutes)   // supervision agreement, officer side
+  .mount(reentryRoutes)     // reentry plan, officer side
+  .mount(goalRoutes)        // goals and action steps, officer side
+  .mount(financialRoutes)   // fines, restitution and fees
+  .mount(dateRoutes)        // hearings, court dates, appointments
+  .mount(dashboardRoutes)   // the officer's own landing page
+  .mount(routeRoutes)       // ordering a day's stops by distance
   .mount(visitRoutes)       // visits, officer side
   .mount(officerRoutes)     // an officer's own schedule and caseload
   .mount(meRoutes)          // the subject's own view — Waypoint token, not a session
+  .mount(insightRoutes)     // transcribing a recording, summarising a visit
   .mount(lmsRoutes);        // everything Northwood does WITH the LMS
+
+/* A job the process was running when it stopped is failed rather than left
+   turning a spinner on somebody's screen forever. */
+failStaleJobs();
+fillMissingDueDates();
 
 export const saas = createServer(guard("northwood", saasJson, async (req, res) => {
   const url = new URL(req.url, SAAS_ORIGIN);

@@ -24,7 +24,11 @@ const MAX_RATIO        = 100;
 export const CONTENT_DIR = join(DATA_DIR, "content");
 mkdirSync(CONTENT_DIR, { recursive: true });
 
-const sh = (cmd, args) => execFileSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+/* stderr is captured rather than inherited: a file that is not an archive makes
+   unzip print four lines about multi-part disks, which is already handled below
+   as "not a readable zip" and only obscures the answer when it reaches a log. */
+const sh = (cmd, args) => execFileSync(cmd, args,
+  { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 
 /** Everything checked before a single byte is extracted. */
 export function validateArchive(zip) {

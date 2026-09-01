@@ -119,8 +119,6 @@ export function requireSession(req, registrationId) {
    ask for launch tickets — never the right to write to a registration
    directly. That still requires redeeming a ticket. */
 
-const LEARNER_TTL_MS = 12 * 60 * 60 * 1000;
-
 /** scrypt with a per-credential salt. Format: scrypt$<salt>$<hash>. */
 export function hashPassword(plain) {
   const salt = randomBytes(16).toString("hex");
@@ -134,31 +132,12 @@ export function verifyPassword(plain, stored) {
   return safeEqual(scryptSync(plain, salt, 64).toString("hex"), hash);
 }
 
-export function mintLearnerSession(personId) {
-  const body = `L${personId}.${Date.now() + LEARNER_TTL_MS}`;
-  return `${b64(body)}.${sign(SESSION_SECRET, body)}`;
-}
-
-export function verifyLearnerSession(token) {
-  if (typeof token !== "string" || !token.includes(".")) return null;
-  const i = token.lastIndexOf(".");
-  let body;
-  try { body = unb64(token.slice(0, i)); } catch { return null; }
-  if (!safeEqual(token.slice(i + 1), sign(SESSION_SECRET, body))) return null;
-  const [who, expiry] = body.split(".");
-  if (!who?.startsWith("L") || !expiry) return null;   // not a learner token
-  if (Date.now() > +expiry) return null;
-  return +who.slice(1);
-}
-
-export function requireLearner(req) {
-  const h = req.headers["authorization"] || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
-  if (!token) return { error: "sign in required", status: 401 };
-  const personId = verifyLearnerSession(token);
-  if (personId === null) return { error: "session expired — please sign in again", status: 401 };
-  return { ok: true, person_id: personId };
-}
+/* The subject's session lives in learner-session.mjs.
+ *
+ * It needs Waypoint's tables, and this module is shared with Northwood — which
+ * is a CUSTOMER of Waypoint and must not have an import path to its data, even
+ * a transitive one through here. `check-boundary.mjs` only reads direct
+ * imports, so this is the kind of leak it would have missed. */
 
 /* ---------------- 2c. staff signing in to the admin app ----------------
 

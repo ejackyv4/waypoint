@@ -380,11 +380,42 @@ async function post(path, body){
   if (!token) return fatal("No launch link",
     "This page can only be opened from a valid course link. Launch the course from your program list.");
 
-  const res = await post("/api/runtime/redeem", { token });
+  /* Redeemed with its OWN fetch rather than through post().
+   *
+   * post() throws on any non-2xx BEFORE it reads the body, and every ticket
+   * refusal is a 403 — so `res` arrived as null and the three branches below
+   * were unreachable. Expired, already used, and never existed all produced
+   * "we couldn't verify your launch link", which is the one wording that says
+   * nothing about what to do next. Diagnosing a real failure took a server-side
+   * reproduction to find out which of the three had happened.
+   *
+   * A network failure is kept distinguishable from a refusal, because "try
+   * again in a moment" and "this link is spent" are different advice. */
+  let res = null, reachable = true;
+  try {
+    const r = await fetch(API + "/api/runtime/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    res = await r.json().catch(() => null);
+  } catch (e) {
+    reachable = false;
+    console.error("redeem failed:", e);
+  }
+
+  if (!reachable) return fatal("We can't reach the server",
+    "Check your connection, then open the course again from your program list.");
+
   if (!res || res.error) return fatal("This link can't be used",
-    res?.error === "ticket expired" ? "Your launch link has expired. Launch links are valid for a short time only — please open the course again from your program list."
-    : res?.error === "ticket already used" ? "This launch link has already been used. Please open the course again from your program list."
-    : "We couldn't verify your launch link. Please open the course again from your program list.");
+    res?.error === "ticket expired"
+      ? "Launch links are valid for one minute and this one has run out. Open "
+      + "the course again from your program list and it will work."
+    : res?.error === "ticket already used"
+      ? "This launch link has already been opened. Each one works once — open "
+      + "the course again from your program list for a fresh link."
+    : "We couldn't verify your launch link. Open the course again from your "
+      + "program list.");
 
   const reg = res.registration;
   regId = reg.id;
