@@ -94,14 +94,36 @@ rather than implying the visit is off.
 2. The request appears in the officer's console **top bar**, visible from every
    screen: `🔴 1 Appointment Request`, and as a badge on the officer app's
    Schedule tab.
-3. Officer opens it, sees who asked and their reason, and clicks **Schedule it**.
-4. They land on that subject's Visits screen and set a date.
+3. Officer opens it and sees who asked and their reason.
+4. Officer answers it, from **either** surface:
+   - **Console** — they land on that subject's Visits screen and set a date.
+   - **App** — the request row opens the scheduling sheet directly, with what
+     the subject asked for shown above the date picker. They can add
+     instructions for the subject while they are there.
+5. The request **becomes** the scheduled visit. It does not sit alongside a new
+   one.
 
 **Alternate — the officer reads it and does nothing.** The alert **stays**. Only
 giving the request a date and time clears it.
 
+**Alternate — a second officer opens the same request.** Answering an
+already-answered request is refused rather than silently booking a second
+appointment.
+
 **Postcondition** The request becomes a scheduled visit with an agenda, and
 UC-2 begins.
+
+> **Why "becomes" is the whole point.** Booking a new visit instead would leave
+> the request open beside an appointment nobody had connected to it. The
+> officer's own list filters on visits without a date, so it would have emptied
+> and the badge would have cleared — while the subject's app, which asks whether
+> any visit is still *requested*, went on telling them they were waiting to hear
+> back about something already booked. Two surfaces reading one fact two
+> different ways.
+
+> **Why the app could not do this until recently.** It listed the requests and
+> then said *"Set a date from the web console."* A notification on the device the
+> officer is holding, pointing at a laptop they are not sitting at.
 
 ---
 
@@ -118,7 +140,7 @@ UC-2 begins.
    seconds at a door to remember why you came.
 4. Officer works down it, tapping each item as it is covered.
 5. Officer adds notes as things come up, and photographs — a damaged window, a
-   room, a document.
+   room, a document. They can also **record the conversation**, which is UC-16.
 6. Officer taps **End visit**, records the observations (is the location safe,
    contraband, demeanour, who else was present, concerns), and saves.
 
@@ -467,6 +489,99 @@ rather than the demo.
 
 ---
 
+## UC-16 · Recording a visit, and what comes out of it
+
+**Actor** Officer · **Where** mobile app
+**Precondition** A visit is under way (UC-4, step 2).
+
+1. Officer taps **Record**. The app asks for the microphone the first time and
+   records the conversation.
+2. Officer taps stop. The app shows how long it captured, and **refuses to
+   upload silence** — if the meter never moved, it says the recording has no
+   sound in it rather than filing an empty file.
+3. Before uploading, the app **names the subject and the visit** and asks the
+   officer to confirm. Audio filed against the wrong person is not a mistake
+   that announces itself.
+4. The audio uploads and is attached to the visit. Nothing further is pressed.
+5. **Transcription starts by itself.** A minute or so later the transcript is on
+   the visit.
+6. **Summarising starts by itself** when the transcript lands. A written summary
+   appears under *Visit Summary*: what was discussed, and what was agreed.
+7. Anything that sounded like a commitment becomes an **action item** — "book
+   the written test", "call the employer" — with an owner and, where the
+   conversation implied one, a due date.
+8. Those items appear on the subject's record, in the officer's dashboard, and
+   in the subject's own app.
+
+**Alternate — the officer wants to hear it back.** Playing the recording works
+in the console and in the app, including seeking to a point partway through.
+
+**Alternate — the officer disagrees with an item.** Wording, owner and due date
+are all editable. What the model originally proposed is kept beside what a
+person changed it to.
+
+**Alternate — the visit is re-summarised.** A new summary is added; the previous
+one stays. Items from the older summary that nobody has touched are superseded
+so the list does not double.
+
+**Exception — no key configured.** Both features report themselves off and the
+buttons are hidden. "Not yet" is a supported state, which matters where sending
+audio anywhere may not be permitted.
+
+**Exception — transcription or summarising fails.** The row says *failed* with a
+*try again*, rather than a spinner that turns until somebody reloads. A job
+interrupted by a restart is failed on boot for the same reason.
+
+**Postcondition** The visit carries the audio, a transcript, one or more
+summaries, and a live list of action items that both sides can see and either
+side can close.
+
+> **Every claim carries its quote.** Each line of the summary keeps the words
+> from the transcript that produced it, and the transcript is one tap from the
+> audio. An officer can check what was actually said rather than taking the
+> summary's word for it — and they should, because a model will occasionally
+> add a word nobody used.
+
+> **Due dates are arithmetic, never a guess.** "Next Tuesday" is resolved
+> against the visit's own date by code. The model is never asked for a date.
+
+> **The recording is evidence and is never deleted.** The transcript is a
+> reading of it and can be replaced by a better one. Summaries append, because
+> a document somebody may have relied on is not something to quietly rewrite
+> underneath them.
+
+---
+
+## UC-17 · A subject loses their phone
+
+**Actor** Officer · **Where** console
+
+1. Subject reports the phone lost or taken.
+2. Officer ends every session that person has, on every device.
+3. Any app still holding a session stops working immediately. The next screen it
+   loads returns them to sign-in.
+4. The subject signs in again on a replacement device, with the same
+   credentials, and picks up where they were.
+
+**Alternate — the subject still has the phone and simply wants to sign out.**
+Signing out ends that one session and leaves any others alone.
+
+**Alternate — signing out twice**, or from a client that already discarded its
+token. Answered as success. There is nothing useful a client could do about
+being told that signing out failed.
+
+**Postcondition** No session exists for that person until they sign in again.
+The revocation is on the audit log with who did it and when.
+
+> **This was not possible until recently.** The subject's session was a signed
+> token carrying an identifier and an expiry: nothing to look up, and nothing to
+> revoke. The only answer to a lost phone was to wait twelve hours. Staff
+> sessions had been revocable from the start, which meant the weaker of the two
+> was the one guarding a person's own supervision record, on the device far more
+> likely to go missing.
+
+---
+
 ## Coverage
 
 | Use case | Modules it exercises |
@@ -474,7 +589,7 @@ rather than the demo.
 | UC-1 Schedule a visit | visits · agenda · financial · dates · goals · programs · demographics |
 | UC-2 Confirm an appointment | visits · badges |
 | UC-3 Request a visit | visits · officer alerts |
-| UC-4 Conduct in the field | visits · agenda · notes · photos · observations |
+| UC-4 Conduct in the field | visits · agenda · notes · photos · observations · audio |
 | UC-5 Conduct from the desk | as UC-4, through the console |
 | UC-6 Conditions of supervision | agreement · acknowledgments · documents |
 | UC-7 Training | programs · Waypoint · launch tickets · webhooks · SCORM runtime |
@@ -486,7 +601,14 @@ rather than the demo.
 | UC-13 Subject's to-dos | every subject-facing module |
 | UC-14 Integration | the API boundary |
 | UC-15 Demo | the seed |
+| UC-16 Recording a visit | audio · transcription · summaries · action items · the audit log |
+| UC-17 A lost phone | sessions · revocation · the audit log |
 
 Two modules appear only inside others and have no case of their own: **case
 notes** (written from UC-12 and by hand) and **documents** (filed by UC-6 and
 UC-11). That is honest — neither is a goal somebody sets out to achieve.
+
+**The audit log has no case of its own either, and that is the point.** Nobody
+sets out to write an audit entry; it happens because somebody opened a file or
+played a recording. It appears in UC-16 and UC-17 as a consequence rather than
+a step.
