@@ -31,13 +31,15 @@ inside our own web and mobile apps, securely, without a third-party LMS.
 Everything is driven by one script. From the repo root:
 
 ```bash
-cd /Users/ericjacky/Documents/GitHub/WaypointLMS
+cd /path/to/waypoint
 ```
 
 | Command | What it does |
 |---|---|
 | `./spike/demo start` | Start the three servers. Seeds content if the database is empty. |
-| `./spike/demo mobile` | Open the app in the iOS simulator. Starts Metro if needed. Non-blocking; safe to re-run. |
+| `./spike/demo phone` | Start Metro for the development build and try to launch it on a connected iPhone. Open Waypoint manually if it does not launch. |
+| `./spike/demo sim` | Start Metro and open the app in the iOS simulator. The simulator cannot record audio. |
+| `./spike/demo restart` | Restart the API servers after server-side changes while leaving Metro running. |
 | `./spike/demo reset` | **Wipe everything and re-seed.** Run this before a demo. |
 | `./spike/demo status` | What is running, the URLs, and current record counts. |
 | `./spike/demo stop` | Stop the servers and Metro. |
@@ -60,11 +62,83 @@ completion, restarts, re-ingests the course, and prints the URLs.
 ### Notes
 
 - The database lives at **`spike/data`** — not `spike/api/data`.
-- Metro runs on **8082**, avoiding a conflict with the `pp-VetteCruise2027` project on 8081.
+- Metro runs on **8081**. The installed development build expects that port.
 - The demo script rewrites `spike/mobile/config.js` with your current LAN IP each run, so
   the app keeps working when your network changes. A device cannot reach `localhost`.
 - Server logs: `/tmp/waypoint-demo.log`. Metro logs: `/tmp/waypoint-metro.log`.
 - If a port is stuck: `pgrep -f server.mjs | xargs kill -9`.
+
+### Physical iPhone development
+
+Recording a visit requires a real iPhone. The iOS simulator may show the microphone
+permission prompt, but it does not provide usable microphone input for this workflow.
+
+#### First build on a new Mac
+
+1. Install Xcode, select it under **Xcode > Settings > Locations > Command Line Tools**,
+   and pair the unlocked iPhone in **Window > Devices and Simulators**.
+2. Install CocoaPods. On an Apple silicon Mac with Homebrew:
+
+   ```bash
+   brew install cocoapods
+   pod --version
+   ```
+
+3. In **Xcode > Settings > Accounts**, select the Apple Account and team, open
+   **Manage Certificates**, and create an **Apple Development** certificate.
+4. Verify that macOS has a usable certificate and private key:
+
+   ```bash
+   security find-identity -v -p codesigning
+   ```
+
+   It must report at least one valid identity. If Keychain Access says the certificate
+   is not trusted, install Apple's current **Worldwide Developer Relations - G3**
+   intermediate certificate from the [Apple PKI page](https://www.apple.com/certificateauthority/).
+5. Build and install the native development app once:
+
+   ```bash
+   cd spike/mobile
+   npx expo run:ios --device
+   ```
+
+   Select the connected iPhone and keep it unlocked. This command is needed again only
+   after native dependency or native configuration changes.
+
+#### Normal phone workflow
+
+From the repo root:
+
+```bash
+./spike/demo start
+./spike/demo phone
+```
+
+`phone` is the trigger for daily device development: it writes the Mac's current LAN
+address into the local mobile config, starts Metro on port 8081 if necessary, and tries
+to launch the already-installed Waypoint development build. If automatic launch fails,
+open Waypoint on the phone. JavaScript and UI changes reload through Metro and do not
+require another native build.
+
+The Mac and iPhone must be on the same Wi-Fi network. If the phone shows **Could not
+connect to development server**, get the Mac address with:
+
+```bash
+ipconfig getifaddr en0
+```
+
+Then open `http://<mac-ip>:8081/status` in Safari on the phone. It should show
+`packager-status:running`. If another local Waypoint page such as
+`http://<mac-ip>:8092` opens but port 8081 does not, restart the old Metro process with:
+
+```bash
+./spike/demo stop
+./spike/demo start
+./spike/demo phone
+```
+
+Also confirm Waypoint has Local Network permission on the iPhone and Xcode has Local
+Network permission on the Mac. For Metro output, run `tail -f /tmp/waypoint-metro.log`.
 
 ---
 

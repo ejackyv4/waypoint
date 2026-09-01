@@ -12,6 +12,7 @@
 
 import { one, all, run, now, db } from "./connect.mjs";
 import "./schema.mjs";
+import { registrationResumable } from "../scorm.mjs";
 
 /* ---------------- people & programs ---------------- */
 
@@ -86,15 +87,13 @@ export function openRegistration({ person_id, content_version_id }) {
 
   if (prev && !prev.terminated_at) return prev;                 // still open
 
-  /* Suspended and unfinished: resume that attempt.
-     Suspended and COMPLETED is a different thing. Rise 360 leaves
-     exit_mode="suspend" on a course the learner finished, so this returned
-     the completed row — relaunching would have dropped them back into the
-     attempt that already says they passed, and anything they did next would
-     have overwritten that record instead of starting attempt 2.
+  /* Suspended and unfinished: resume that attempt. Completion alone is not
+     enough to make a quiz course finished — Rustici's Golf sample writes it
+     on ARRIVAL at the quiz page. A missing result plus an explicit suspend is
+     still resumable. Rise's completed courses carry passed/failed, so they
+     correctly fall through to a new attempt even if Rise leaves suspend set.
      Attempts are rows, not overwritten fields. */
-  if (prev && prev.exit_mode === "suspend"
-           && prev.completion_status !== "completed") return prev;
+  if (prev && registrationResumable(prev)) return prev;
 
   const attempt = prev ? prev.attempt + 1 : 1;
   // Time accrues across attempts — the accrued total only, never a

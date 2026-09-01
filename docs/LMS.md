@@ -134,6 +134,14 @@ Waypoint stores `completion_status` and `success_status` as **separate columns
 from the first migration**. Writing `passed` does not destroy the fact that the
 course was completed, and writing `completed` does not invent a pass.
 
+That separation also matters while a learner is taking an assessment. Some
+packages write `completion_status = completed` as soon as the learner reaches
+the quiz, before the quiz is submitted and before a result exists. Waypoint
+therefore treats `completed + unknown + suspend` as **effectively incomplete**:
+the attempt is still in progress and must be resumable. A `passed` or `failed`
+result definitively finishes the attempt even if the package leaves `suspend`
+behind; without `suspend`, the course's `completed` declaration remains final.
+
 Collapsing these into one "status" is the most expensive schema mistake
 available here, and every report built on top inherits it.
 
@@ -161,6 +169,15 @@ one representation ever reaches the database and no report can mix them.
 
 "How many tries did this take" is unanswerable if attempt 2 clobbers attempt 1.
 Each attempt is its own row. Accrued time carries forward; completion does not.
+
+The resume decision uses all three signals rather than trusting any one field:
+
+| Stored state | Learner-facing meaning | Next launch |
+|---|---|---|
+| Incomplete + suspend | Course underway | Resume the same attempt |
+| Completed + unknown + suspend | Assessment not yet submitted | Resume the same attempt |
+| Completed + unknown, no suspend | Course-declared completion | Retake as a new attempt |
+| Completed + passed/failed | Finished | Retake as a new attempt |
 
 ---
 
@@ -194,6 +211,11 @@ rule and a security rule at once.
 The customer verifies the signature before trusting a word of it, and the
 payload carries their own `subject_id` and `program_id`, so they never have to
 store a Waypoint identifier.
+
+Reporting uses the same effective-status rule as the learner experience. A raw
+`completed + unknown + suspend` state is reported as incomplete until the
+course supplies a pass/fail result, preventing a visit to the quiz page from
+being announced to the customer's system as a finished course.
 
 The webhook is the push; `GET /api/status` is the pull. A system needs both:
 the push for timeliness, the pull for reconciling anything missed.
@@ -302,7 +324,7 @@ nothing logged, nothing surfaced. A third of the job, believed to be all of it.
 Fixed and tested: stored in full, stamped, logged loudly, flagged in the
 console.
 
-### 6. A completed course offered "Resume", and meant it
+### 6. `completed` and `suspend` can both be true
 
 Rise leaves `exit_mode = "suspend"` on a course the learner **finished**.
 Waypoint checked the suspend flag before the completion flag, so a finished
@@ -310,8 +332,20 @@ course showed *Resume course*.
 
 The label was the harmless half. Clicking it **resumed the attempt that already
 said they passed** — and anything done next would have overwritten that
-completion record instead of starting attempt 2. Fixed in the resume decision
-and in both clients.
+completion record instead of starting attempt 2.
+
+A later run with Rustici's Golf course exposed the opposite edge case. Golf
+writes `completion_status = completed` when the learner reaches its final page,
+which is the quiz, before the quiz has been submitted. Saving and exiting there
+leaves `success_status = unknown` and `exit_mode = suspend`. Treating every
+`completed` value as final made that unfinished attempt appear complete and
+offered *Retake course* instead of *Resume course*.
+
+Fixed in the API and mobile client: `completed + unknown + suspend` resumes the
+same attempt, while `completed + passed/failed` remains finished even if the
+package also left `suspend` behind. The mobile app now shows *In progress* and
+*Resume course* for the pending-quiz state, preserving the learner's bookmark
+and original attempt.
 
 ### 7. The player lied about failures
 
@@ -358,7 +392,7 @@ webhook       delivered to Northwood, signature verified
 ## Testing
 
 ```bash
-node spike/api/smoke.mjs http://<host>:8090   # 86 end-to-end assertions
+node spike/api/smoke.mjs http://<host>:8090   # 393 end-to-end assertions
 node spike/api/test-sweeper.mjs               # abandoned sessions are closed
 node spike/api/test-insights.mjs              # transcription and summary, stubbed provider
 node spike/inspect.mjs spike/corpus           # inspect every package
@@ -366,7 +400,8 @@ node spike/inspect.mjs spike/corpus           # inspect every package
 
 Every bug above has a regression test. The suite covers ingest and rejection,
 status derivation, `suspend_data` round-tripping and overflow, both time
-formats, attempt semantics, ticket replay and forgery, cross-registration
+formats, pending-assessment resume and completed-attempt retake semantics,
+ticket replay and forgery, cross-registration
 writes, learner authorisation, session survival across restart, and webhook
 delivery.
 

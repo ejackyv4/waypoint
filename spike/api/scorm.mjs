@@ -29,6 +29,27 @@ export function applyStatus(raw, current = { completion: "not attempted", succes
 }
 
 /**
+ * A course can report that its content was completed before its assessment
+ * has a result. Rustici's Golf sample does exactly that when the learner
+ * reaches the quiz page. If that session then exits with "suspend", the
+ * learner is still meant to return to the same attempt and take the quiz.
+ *
+ * A completed course with a pass/fail result is genuinely finished even when
+ * a package (notably Rise) leaves its exit mode set to suspend.
+ */
+export const registrationResumable = reg =>
+  reg?.exit_mode === "suspend" &&
+  (reg?.completion_status !== "completed" || reg?.success_status === "unknown");
+
+export const registrationDone = reg =>
+  reg?.completion_status === "completed" && !registrationResumable(reg);
+
+export const effectiveCompletionStatus = reg =>
+  registrationDone(reg) ? "completed"
+  : reg?.completion_status === "not attempted" ? "not attempted"
+  : "incomplete";
+
+/**
  * Both time formats to seconds. Only seconds ever reach the database.
  *
  * SCORM 1.2 uses HHHH:MM:SS.SS — and the fractional part is OPTIONAL.

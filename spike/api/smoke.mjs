@@ -351,20 +351,38 @@ ok(r2.body.registration.entry === "ab-initio",
   ok(back.body.registration.entry === "resume",
      "\x1b[1ma suspended registration is announced as a resume, not a fresh start\x1b[0m");
 
-  /* Rise 360 leaves exit_mode="suspend" on a course the learner FINISHED.
-     Resuming that row would drop them back into the attempt that already says
-     they passed, and overwrite it. Attempts are rows. */
+  /* The Golf sample writes completed on ARRIVAL at its quiz page. With no
+     result and an explicit suspend, that is still the same attempt: the
+     learner has not taken the quiz yet. */
   const rid2 = back.body.registration.id, sess3 = back.body.session;
   await runtime(`/api/runtime/${rid2}/set`,
                 { key: "cmi.core.lesson_status", value: "completed" }, sess3);
   await runtime(`/api/runtime/${rid2}/set`,
                 { key: "cmi.core.exit", value: "suspend" }, sess3);
-  await runtime(`/api/runtime/${rid2}/terminate`, {}, sess3);
+  const beforeQuiz = await runtime(`/api/runtime/${rid2}/terminate`, {}, sess3);
+  ok(beforeQuiz.body.webhook?.payload?.completion_status === "incomplete",
+     "completed + no result + suspend reports as still in progress");
+
+  const pendingLaunch = await post("/api/launch", { subject_id: SUBJECT, program_id: "golf-101" });
+  const pendingQuiz = await call("/api/runtime/redeem", { token: pendingLaunch.body.token });
+  ok(pendingQuiz.body.registration.id === rid2
+     && pendingQuiz.body.registration.entry === "resume",
+     "\x1b[1mcompleted at the quiz page, without a result, RESUMES the same attempt\x1b[0m");
+
+  /* Rise 360 leaves exit_mode="suspend" on a course the learner FINISHED.
+     A pass/fail result distinguishes that state from the pending quiz above,
+     so relaunching starts a new attempt instead of overwriting the old one. */
+  const pendingSession = pendingQuiz.body.session;
+  await runtime(`/api/runtime/${rid2}/set`,
+                { key: "cmi.core.lesson_status", value: "passed" }, pendingSession);
+  await runtime(`/api/runtime/${rid2}/set`,
+                { key: "cmi.core.exit", value: "suspend" }, pendingSession);
+  await runtime(`/api/runtime/${rid2}/terminate`, {}, pendingSession);
 
   const retake = await post("/api/launch", { subject_id: SUBJECT, program_id: "golf-101" });
   const fresh = await call("/api/runtime/redeem", { token: retake.body.token });
-  ok(fresh.body.registration.attempt === back.body.registration.attempt + 1,
-     "\x1b[1ma COMPLETED course starts a new attempt, even when left suspended\x1b[0m");
+  ok(fresh.body.registration.attempt === pendingQuiz.body.registration.attempt + 1,
+     "\x1b[1ma COMPLETED + PASSED course starts a new attempt, even when left suspended\x1b[0m");
   ok(fresh.body.registration.completion_status !== "completed",
      "and the retake does not inherit the previous attempt's completion");
   ok(back.body.registration.suspend_data === "state-here"

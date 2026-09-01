@@ -2300,7 +2300,7 @@ const wasAmended = c => !!(c?.agreement?.amended_at && needsAck(c));
  * Nothing here is new information — it is the counts the badges already carry,
  * given room to say what they mean.
  */
-function homeCards(c, open) {
+function homeCards(c, programs, open) {
   const cards = [];
   const add = (x) => cards.push(x);
 
@@ -2377,6 +2377,14 @@ function homeCards(c, open) {
     cta: "Open", onPress: open.actions
   });
 
+  const notStarted = (programs || []).filter(p => !progStarted(p)).length;
+  if (notStarted) add({
+    key: "programs", icon: "book-outline", tone: "err",
+    title: "Programs",
+    line: `${notStarted} course${notStarted === 1 ? "" : "s"} not started`,
+    cta: "Open", onPress: open.programs
+  });
+
   return cards;
 }
 
@@ -2388,8 +2396,7 @@ function homeCards(c, open) {
  */
 function HomeScreen({ caseData, programs, onRefresh, open }) {
   const pull = usePullToRefresh(onRefresh);
-  const cards = homeCards(caseData, open);
-  const notStarted = (programs || []).filter(p => !p.started).length;
+  const cards = homeCards(caseData, programs, open);
 
   const TONE = { err: [C.err, C.errSoft], warn: [C.amber, C.amberSoft],
                  brand: [C.brand, C.brandSoft] };
@@ -2424,12 +2431,6 @@ function HomeScreen({ caseData, programs, onRefresh, open }) {
             You are up to date. Anything new from a visit will appear here.
           </Text>
         </View>
-      ) : null}
-
-      {notStarted ? (
-        <Text style={[s.cardMeta, { marginTop: 14, color: C.faint }]}>
-          {notStarted} course{notStarted === 1 ? "" : "s"} not started — see Programs.
-        </Text>
       ) : null}
     </ScrollView>
   );
@@ -2805,7 +2806,13 @@ const needsPlanAck = c => !!(c?.reentry && !c.reentry.subject_signed_at);
    the list uses to label a card, defined once so the badge and the card
    cannot disagree about what "started" means. */
 const progStarted = p => !!p.registration_id && p.completion_status !== "not attempted";
-const progDone = p => p.completion_status === "completed";
+/* Some SCORM packages mark their content completed on ARRIVAL at the quiz.
+   If there is no result yet and the attempt was explicitly suspended, the
+   learner still has something to resume. Completed with passed/failed remains
+   a real completion even when a package leaves its exit mode as suspend. */
+const progResumable = p => p.exit_mode === "suspend" &&
+  (p.completion_status !== "completed" || p.success_status === "unknown");
+const progDone = p => p.completion_status === "completed" && !progResumable(p);
 
 /**
  * What the Programs tab badge says.
@@ -4272,7 +4279,7 @@ function ProgramList({ programs, error, onReload, onLaunch, onSignOut }) {
           const passed = p.success_status === "passed";
           const failed = p.success_status === "failed";
           const started = progStarted(p);
-          const suspended = p.exit_mode === "suspend";
+          const suspended = progResumable(p);
 
           return (
             <Pressable

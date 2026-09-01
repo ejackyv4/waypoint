@@ -26,7 +26,8 @@ import { API_KEY, WEBHOOK_SECRET, requireApiKey, requireSession, mintSession,
 import { mintLearnerSession, requireLearner, endLearnerSession,
          endAllLearnerSessions, verifyLearnerSession } from "./learner-session.mjs";
 import { ingestPackage, CONTENT_DIR } from "./ingest.mjs";
-import { applyStatus, toSeconds, fromSeconds, suspendCap } from "./scorm.mjs";
+import { applyStatus, toSeconds, fromSeconds, suspendCap,
+         registrationDone, effectiveCompletionStatus } from "./scorm.mjs";
 import { APP_ORIGIN, CONTENT_ORIGIN, SAAS_ORIGIN, DEMO_ROUTES } from "./config.mjs";
 import { jsonTo, readJson, guard } from "./http.mjs";
 
@@ -582,7 +583,7 @@ const asRegistration = reg => reg && ({ ...reg, total_seconds: elapsed(reg) });
  * and nothing about closing the session should alter it.
  */
 export async function closeSession(reg) {
-  const done = reg.completion_status === "completed";
+  const done = registrationDone(reg);
   const registration = updateRegistration(reg.id, {
     terminated_at: now(),
     // SCORM adds session_time to total_time when the session ends. Doing it
@@ -685,7 +686,7 @@ async function deliverCompletion(reg) {
     subject_id: ctx.subject_id,
     program_id: ctx.program_id,
     registration_id: reg.id,
-    completion_status: reg.completion_status,
+    completion_status: effectiveCompletionStatus(reg),
     success_status: reg.success_status,
     score: { raw: reg.score_raw, min: reg.score_min, max: reg.score_max },
     // Includes the open session, which has not accrued yet — otherwise a

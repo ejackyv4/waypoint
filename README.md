@@ -13,7 +13,8 @@ See [Limitations](docs/BUILD.md#limitations-be-honest-about-these).
 
 ```bash
 ./spike/demo start     # API, content origin and mock SaaS
-./spike/demo mobile    # the app in the iOS simulator
+./spike/demo phone     # Metro + the installed development build on an iPhone
+./spike/demo sim       # Metro + iOS simulator (no microphone recording)
 ./spike/demo reset     # wipe and re-seed for a fresh demo
 ./spike/demo status    # what's running, plus URLs
 ./spike/demo stop
@@ -22,7 +23,9 @@ See [Limitations](docs/BUILD.md#limitations-be-honest-about-these).
 Then open the mock business system it prints, pick a subject, assign **Golf Explained**,
 and take the credentials it gives you to the learner site.
 
-Needs Node 22+ (for built-in SQLite) and, for the app, Xcode with a simulator.
+Needs Node 22+ (for built-in SQLite) and Xcode. A physical-iPhone build also needs
+CocoaPods, an Apple Development signing identity, and a paired device. See
+[Physical iPhone development](docs/BUILD.md#physical-iphone-development).
 
 ---
 
@@ -48,7 +51,7 @@ Needs Node 22+ (for built-in SQLite) and, for the app, Xcode with a simulator.
 
 ```
 spike/
-  demo              start / stop / reset / mobile / status
+  demo              start / stop / reset / phone / sim / status
   api/
     server.mjs      composition root — starts the three listeners, nothing else
     waypoint.mjs    the LMS: content, registrations, runtime, results
