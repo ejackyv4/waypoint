@@ -4,6 +4,10 @@ The DigitalOcean box was a weekend solution to a demo problem. This is what a
 real environment needs, what carries over, and what has been deliberately left
 for this move rather than built twice.
 
+For the public hostname layout, DNS records and TLS verification, see
+[`domain.md`](domain.md). For replacing the current IP-based Door and retaining
+an easy sales reset, see [`Demo-Auth.MD`](Demo-Auth.MD).
+
 **Read [`SQLITE-TO-SQL.md`](SQLITE-TO-SQL.md) alongside this.** It covers the
 data-layer mechanics — the async conversion, transactions, types, migrations —
 in detail and is not repeated here.

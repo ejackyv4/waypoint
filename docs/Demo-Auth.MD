@@ -32,7 +32,8 @@ the Door problem.
 ## Target architecture
 
 Use four HTTPS hostnames. The names below are examples; select the real domain
-before implementation.
+before implementation. [`domain.md`](domain.md) is the canonical DNS, TLS and
+hostname setup guide.
 
 ```text
 app.demo.example.com        Waypoint API, learner site and LMS console
@@ -121,6 +122,8 @@ Do not run any reset or database command until the operator has explicitly
 confirmed the target environment and database path.
 
 ### Phase 2 — Create stable DNS and TLS
+
+Follow [`domain.md`](domain.md) for the record layout and verification commands.
 
 1. Reserve a stable public IP or use a managed ingress whose address is stable.
 2. Add DNS records for the four selected hostnames.
