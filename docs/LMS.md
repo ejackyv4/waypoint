@@ -179,6 +179,17 @@ The resume decision uses all three signals rather than trusting any one field:
 | Completed + unknown, no suspend | Course-declared completion | Retake as a new attempt |
 | Completed + passed/failed | Finished | Retake as a new attempt |
 
+The learner-facing **Save & Exit** action is an explicit suspend. The web player
+sends `exit_mode: "suspend"` in the same request that closes the runtime session,
+so the bookmark and the resume decision cannot be separated by a request race.
+Backgrounding or closing the browser uses the same suspend-safe path. A normal
+course completion still follows the table above and a later launch is a new
+attempt.
+
+Save & Exit also carries the final session duration in its close request. This
+prevents the summary from showing `0s` when the separate bookmark/time write is
+still in flight as the session closes.
+
 ---
 
 ## Durability
@@ -219,6 +230,321 @@ being announced to the customer's system as a finished course.
 
 The webhook is the push; `GET /api/status` is the pull. A system needs both:
 the push for timeliness, the pull for reconciling anything missed.
+
+---
+
+## Reviewable responses inside a course
+
+The follow-on design for lesson-aware analysis and officer-reviewed completion
+summaries is documented in [LMS-AI.MD](LMS-AI.MD).
+
+**Decision record — 2026-09-03.** The Anger Management course introduced a
+different kind of LMS data from completion and quiz scores: reflective survey
+answers that a subject enters while reading the lesson and that staff need to
+review later in the business system.
+
+### The experience is part of the requirement
+
+The response must remain in the course, immediately after the material that
+prompted it. Sending the learner out of the course to find a separate form and
+then return would break the learning flow and is not an acceptable design.
+
+That does **not** require the response data to be owned by the course. An
+inline activity can look and behave like part of the lesson while Waypoint
+owns its authentication, structured storage and delivery to the business
+system.
+
+### What the first inspection found
+
+The Rise 360 package contains 24 survey blocks with 29 questions: 26 long-text
+responses and three linear scales. These are treatment reflections such as
+identifying personal anger cues, not merely scored quiz questions.
+
+Waypoint does not currently capture them in a reviewable form:
+
+- A registration belongs to a Waypoint person and therefore joins back to the
+  customer's `subject_id`. Completion, success, score, time, bookmark and
+  `suspend_data` are correctly stored against that registration.
+- `suspend_data` may contain some internal course state, but it is deliberately
+  opaque. It exists only so the package can resume. It must never be parsed or
+  turned into business data.
+- The player accepts any `SetValue` key, but the server maps only the runtime
+  fields listed above. A `cmi.interactions.*` write currently produces an empty
+  database patch, so even ordinary question detail is not persisted.
+- The Northwood Programs screen shows assignment state, completion, score and
+  time. It has no response-detail API or view.
+
+Rise quiz lessons can report interaction data such as the question identifier,
+learner response, correct response, result and latency. Survey Blocks are a
+newer, separate Rise feature. Articulate describes them as beta and says LMS
+survey reporting may involve its Connected Packages feature; a standard
+package depends on support from the LMS provider. The package's static code
+shows normal interaction reporting for multiple choice, multiple response,
+fill-in and matching quiz questions, but it does not prove where its
+`LONG_RESPONSE` and `LINEAR_SCALE` survey values go.
+
+References:
+
+- [Rise 360: Using Survey Blocks](https://www.articulatesupport.com/article/Rise-360-Using-Survey-Blocks-Beta)
+- [Rise 360: Quiz Data Sent to an LMS](https://www.articulatesupport.com/article/Rise-Quiz-Data-Sent-to-an-LMS)
+
+### Two viable data paths
+
+**A. Keep the native Rise Survey Blocks.** First determine whether the package
+sends responses through SCORM interactions, a documented Articulate service,
+or some other supported channel. If that channel provides exact, subject-level
+responses with stable identifiers, Waypoint can ingest it and expose it to
+Northwood. This is the least authoring work, but it may create an Articulate
+dependency and may provide anonymous or aggregate data rather than a case
+record.
+
+**B. Put a Waypoint-owned response activity inline in Rise.** Rise supports
+embedded web content in a lesson. A reusable response block could therefore
+appear exactly where each Survey Block appears now, save directly to Waypoint,
+and tell the course when the required response is complete. The learner would
+read, respond, save and continue without leaving the course.
+
+For option B, the activity must not receive an application cookie or a
+client-supplied `subject_id`. The player gives it a short-lived token scoped to
+one registration and one question. A narrowly validated, origin-checked
+`postMessage` bridge performs that handoff. The response endpoint derives the
+person and `subject_id` from the registration server-side.
+
+Reference: [Rise 360 embedded web content](https://www.articulatesupport.com/article/Rise-360-Manage-Course-Media).
+
+### Provisional direction
+
+Run the evidence-gathering test before selecting a path. If Rise exposes exact,
+stable, subject-level Survey Block responses through a supported channel, use
+it. If it does not, use inline Waypoint-owned response activities. Do **not**
+decode `suspend_data`, scrape the course DOM, or patch minified Rise internals;
+all three are package-specific implementations that will break on republish.
+
+Whichever path is selected, the durable model is structured and auditable:
+
+```text
+registration + attempt
+question id + question text snapshot + response type
+response value + submitted_at + revision
+```
+
+The client never asserts who answered. The registration owns that fact. If an
+answer is editable, revisions are append-only so an official treatment or case
+record cannot be silently rewritten.
+
+Northwood should pull the sensitive detail on demand through an authenticated
+server-to-server endpoint. A completion webhook may say that responses are
+available and give a count, but should not carry the answers themselves. Its
+Programs screen can then offer **Review responses**, grouped by course section
+and attempt, with unanswered items visible.
+
+### First test — prove the response channel
+
+Use a private server and throwaway database, never the shared demo database.
+
+1. Create a disposable subject, assign Anger Management and launch attempt 1.
+2. Enter unmistakable non-personal values in one long-response survey and one
+   linear-scale survey.
+3. Capture every SCORM `GetValue`, `SetValue` and commit, plus outbound network
+   requests made at submission.
+4. Check separately for `cmi.interactions.*`, `cmi.suspend_data`, and calls to
+   an Articulate service. Do not infer one from the presence of another.
+5. Inspect the throwaway database read-only and verify whether either exact
+   value exists, what identifier accompanies it and whether it can be joined
+   unambiguously to the disposable subject.
+6. Save and exit, resume the same attempt, and confirm whether the course itself
+   restores both responses.
+7. Record the result before implementing storage. The test must distinguish
+   "the learner can resume it," "Waypoint can review it," and "Articulate can
+   review it"—those are three different claims.
+
+Before implementation, decide who may review responses, whether they are an
+official case record, how long they are retained and whether subjects may edit
+an answer after submitting it.
+
+### Diagnostic mode for the response-channel test
+
+Waypoint has an opt-in, program-scoped trace at the SCORM write boundary.
+Set `WAYPOINT_SCORM_DIAGNOSTICS` to a comma-separated list of program IDs; the
+local demo enables it for `anger-management`. Each trace line contains the
+registration, program and SCORM field name. Values are retained only for
+`cmi.interactions.<n>.id` and `.type`, which are needed to identify the
+reporting channel. Learner responses, correct responses, comments and
+`suspend_data` are always replaced with a character count.
+
+This trace is evidence gathering, not response storage. It must not be changed
+to print answers, and it should not be enabled broadly in a deployed
+environment. After restarting the local server, reproduce one disposable
+response and inspect `/tmp/waypoint-demo.log` for `[SCORM diagnostic]` lines.
+The presence of a response field proves that Rise uses the interaction
+channel; it does not by itself make the response reviewable or durable.
+
+### First live result — inconclusive by itself
+
+On 2026-09-03, Dana resumed Anger Management attempt 1, submitted three native
+Rise Survey Block responses, then saved and exited. The program-scoped trace
+observed 86 SCORM writes:
+
+| Field | Writes |
+|---|---:|
+| `cmi.suspend_data` | 79 |
+| `cmi.core.lesson_location` | 4 |
+| `cmi.core.session_time` | 2 |
+| `cmi.core.exit` | 1 |
+| `cmi.interactions.*` | **0** |
+
+The course's opaque resume state changed repeatedly and finished at 978
+characters. The attempt remained `incomplete`, exited as `suspend`, retained
+its bookmark and accrued 60 seconds, so course progress and resume worked.
+No `cmi.interactions.*` **writes** were observed. That result does not rule out
+the standard SCORM interaction channel, because Waypoint's adapter did not
+implement or advertise the interaction collection: in particular,
+`cmi.interactions._count` returned an undefined-element error. The trace also
+captured only `SetValue`, not `GetValue`, so it could not show whether Rise
+queried the collection and then declined to report responses when the LMS said
+the collection was unavailable.
+
+Articulate's Survey Blocks guidance distinguishes two LMS export paths:
+
+- A **Connected Package** requires the Labs feature to make responses visible
+  in Rise 360 through **View LMS engagement**.
+- With a **standard package**, the customer is told to contact the third-party
+  LMS provider to access Survey Block data. Waypoint is that provider.
+
+Therefore Connected Packages are not a prerequisite for Waypoint's standard
+package path. At this point, implementing the applicable SCORM interaction
+data model and tracing both reads and writes was one hypothesis—not yet a
+decision—because the article does not identify the exact wire format. Static
+inspection of the package resolved that hypothesis in the next section.
+
+The article also notes that LMS exports may associate survey responses with a
+user ID. Waypoint must derive that identity from the server-owned registration
+and attempt; the course-provided learner ID is never accepted as proof of who
+answered.
+
+### Package inspection — the SCORM 1.2 export has no survey reporting hook
+
+Static inspection of the exact Anger Management package explains the zero
+interaction writes. When a learner submits a Survey Block, Rise builds a
+structured array containing the question id, question title, response type and
+response, then conditionally calls:
+
+```js
+window.Runtime?.reportUngradedAnswers
+  && await window.Runtime.reportUngradedAnswers(answers)
+```
+
+The package's standard SCORM runtime never defines or exports
+`reportUngradedAnswers`. It exports `reportAnswer` for ordinary quiz answers,
+but Survey Blocks deliberately use the separate, missing hook. Optional
+chaining makes the missing integration silent: the course shows its submitted
+confirmation and updates local resume state, but sends no survey response to
+the SCORM adapter. This means adding `cmi.interactions._count` support alone
+cannot make this SCORM 1.2 export report Survey Block responses.
+
+Articulate's documented xAPI contract is the next supported path to test. It
+defines `cmi.interaction` as a scored **or survey** question and uses the
+`answered` verb with a response, registration and learner actor. That matches
+Waypoint's need for exact response data tied server-side to a registration.
+That decision gate was satisfied by inspecting the xAPI export of this same
+course. Do not patch the generated SCORM package or inject a package-specific
+hook from the player; either would silently break when the course is
+republished.
+
+### xAPI export inspection — supported path confirmed
+
+The Anger Management xAPI export received on 2026-09-03 passes that decision
+gate. Its generated runtime defines and exports `reportUngradedAnswers`, then
+maps every Survey Block response to an xAPI interaction recorder:
+
+| Survey Block response | xAPI interaction |
+|---|---|
+| Short or long response | fill-in |
+| Rating | likert |
+| Linear scale | numeric |
+| Multiple choice or response | choice |
+
+The recorder carries the stable survey and question ids, question title,
+response, neutral result and latency. The package also contains `tincan.xml`
+with the course activity id and launch file. At launch, Waypoint must supply a
+registration-scoped xAPI endpoint, authorization credential and learner actor.
+The endpoint—not the actor sent by the browser—owns the registration identity.
+
+The minimal supported implementation therefore needs two durable stores:
+
+1. Append-only xAPI statements, stored once by statement id and owned by the
+   server-authenticated registration. Survey review is derived from `answered`
+   interaction statements rather than copied into a second response store.
+2. xAPI state documents, keyed by registration, activity and state id, so the
+   course can save and resume its progress.
+
+The existing registration remains the source of completion, success and total
+time. Those values are derived from accepted course statements at the xAPI
+boundary; the browser cannot assert ownership by changing its actor or
+registration fields.
+
+### Implemented xAPI path
+
+Waypoint now ingests either a SCORM package with `imsmanifest.xml` or an xAPI
+package with `tincan.xml`. An xAPI launch receives a registration-scoped
+endpoint and credential plus a server-derived actor, opaque registration UUID,
+and course activity ID. The endpoint accepts Articulate's direct xAPI requests
+and its older form/method-tunnel request shape.
+
+`answered` statements are stored append-only and idempotently by statement ID.
+Their actor and registration are replaced at the boundary with the values from
+the authenticated Waypoint registration, so changing browser-supplied identity
+cannot file an answer against somebody else. Completion, pass/fail, score and
+duration statements update the same registration model already used by SCORM.
+
+Course state is stored separately by registration, activity and state ID. It
+may be replaced or removed as the course's bookmark changes; doing so never
+alters the immutable answer statements.
+
+Northwood exposes **Review responses** for a started xAPI enrollment on the
+subject's Programs screen. It calls Waypoint over the existing server-to-server
+API-key boundary and shows the section, lesson, question, response and
+submission time in the existing read-only modal. A long response is kept whole
+up to Rise's 5,000-character limit; the PDF writer wraps it over as many pages
+as needed rather than truncating it. **Export PDF** creates a snapshot filed
+against the subject's documents, with the course/attempt header and the same
+section/lesson/question/response fields. The browser never receives the
+Waypoint API key, and SCORM enrollments keep their existing appearance and
+behavior.
+
+For Rise exports, the xAPI question object identifies the survey block and
+question, while the lesson hierarchy is carried in the package's encoded
+`runtime-data.js`. Waypoint resolves that immutable package metadata by the
+block/question IDs, so a response such as the Anger Myths survey is reported as
+**Section: Overview of Anger Management** and **Lesson: Myths About Anger**—not
+as the overall course title or an internal grouping URI. If a future exporter
+does not include that hierarchy, the response remains reviewable with the
+available fields rather than inventing a section or lesson.
+
+### Package compatibility boundary
+
+Waypoint supports both SCORM and xAPI as standards, but the guarantees differ:
+
+- **SCORM:** completion, success, scores, bookmarks, suspend data and time use
+  the existing SCORM runtime adapter. The original Anger Management SCORM 1.2
+  export does not expose Rise Survey Blocks through that adapter, so its survey
+  answers are not available through the SCORM path.
+- **xAPI:** any conformant package that sends an `answered` statement with its
+  response in `result.response` and question metadata in the activity
+  definition can use the same statement/state endpoints without custom code.
+
+Rise packages are additionally understood through their encoded
+`runtime-data.js`, which maps the survey block ID to the correct lesson and
+section. That mapping is reusable across Rise exports; it is not a hard-coded
+map of individual questions.
+
+Other authoring tools may organize section and lesson metadata differently. In
+that case the response itself still works and remains tied to the authenticated
+registration, but section/lesson labels may be unavailable until a small
+metadata adapter is added. A new package should therefore be tested once for
+standard xAPI statements and its hierarchy metadata before being treated as
+fully labeled. Do not customize every package by default, and do not patch a
+generated package's minified JavaScript.
 
 ---
 

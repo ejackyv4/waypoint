@@ -11,6 +11,7 @@
  */
 
 import { one, all, run, now, db } from "./connect.mjs";
+import { readFileSync } from "node:fs";
 import "./schema.mjs";
 import { registrationResumable } from "../scorm.mjs";
 
@@ -186,6 +187,139 @@ export const deliveries = (limit = 50) => all(
      JOIN people p ON p.id = r.person_id
     ORDER BY d.id DESC LIMIT ?`, limit);
 
+/* ---------------- xAPI statements & state ----------------
+   The registration-scoped session is the authority for both stores. Actor,
+   activity and registration values inside a submitted statement are useful
+   evidence, but they never decide which learner row receives it. */
+
+export function storeXapiStatement(registration_id, statement) {
+  const result = run(
+    `INSERT OR IGNORE INTO xapi_statements (id, registration_id, statement, stored_at)
+     VALUES (?,?,?,?)`,
+    statement.id, registration_id, JSON.stringify(statement), now());
+  return { inserted: result.changes === 1, id: statement.id };
+}
+
+export const xapiStatement = (registration_id, id) => one(
+  `SELECT * FROM xapi_statements WHERE registration_id = ? AND id = ?`,
+  registration_id, id);
+
+export const xapiStatements = registration_id => all(
+  `SELECT * FROM xapi_statements WHERE registration_id = ? ORDER BY stored_at, id`,
+  registration_id);
+
+const languageValue = value => {
+  if (!value || typeof value !== "object") return null;
+  return value["en-US"] || value["en"] || Object.values(value)[0] || null;
+};
+
+const activityLabels = activities => (Array.isArray(activities) ? activities : [])
+  .map(a => languageValue(a?.definition?.name) || a?.id || null).filter(Boolean);
+
+const COURSE_METADATA = new Map();
+function courseMetadata(storagePath) {
+  if (!storagePath || COURSE_METADATA.has(storagePath)) return COURSE_METADATA.get(storagePath) || new Map();
+  const map = new Map();
+  try {
+    const raw = readFileSync(`${storagePath}/scormcontent/runtime-data.js`, "utf8");
+    const b64 = raw.match(/__jsonp\("runtime-data\.js","([\s\S]*)"\);?$/)?.[1];
+    const course = b64 ? JSON.parse(Buffer.from(b64, "base64").toString()).course : null;
+    let section = null;
+    for (const lesson of course?.lessons || []) {
+      if (lesson.type === "section") { section = lesson.title; continue; }
+      const visit = item => {
+        if (!item || typeof item !== "object") return;
+        if (item.id) map.set(String(item.id), { lesson: lesson.title || null, section });
+        for (const child of item.items || []) visit(child);
+      };
+      for (const item of lesson.items || []) visit(item);
+    }
+  } catch {}
+  COURSE_METADATA.set(storagePath, map);
+  return map;
+}
+
+/** A staff-facing view derived from the immutable statement record. */
+export function xapiResponsesForRegistration(registration_id) {
+  const storage = one(`SELECT cv.storage_path FROM registrations r
+    JOIN content_versions cv ON cv.id = r.content_version_id WHERE r.id = ?`, registration_id)?.storage_path;
+  const metadata = courseMetadata(storage);
+  const answers = xapiStatements(registration_id).flatMap(row => {
+    let s;
+    try { s = JSON.parse(row.statement); } catch { return []; }
+    if (!String(s?.verb?.id || "").endsWith("/answered")) return [];
+    const definition = s?.object?.definition || {};
+    const objectId = String(s?.object?.id || "");
+    const parts = objectId.split("/");
+    const courseContext = metadata.get(parts.at(-2)) || metadata.get(parts.at(-1)) || {};
+    return [{
+      statement_id: s.id,
+      question_id: s?.object?.id || null,
+      question: languageValue(definition.description)
+        || languageValue(definition.name) || s?.object?.id || "Survey response",
+      interaction_type: definition.interactionType || null,
+      // Articulate includes parent/grouping activity metadata when available.
+      // Keep both labels separately so staff can distinguish a lesson from
+      // its containing section; raw statements remain the source if a future
+      // export adds richer activity definitions.
+      lesson: courseContext.lesson || activityLabels(s?.context?.contextActivities?.parent)
+        .find((_, i) => i > 0) || null,
+      section: courseContext.section || activityLabels(s?.context?.contextActivities?.grouping)
+        .find(v => v.includes("/section")) || null,
+      response: s?.result?.response ?? null,
+      submitted_at: s.timestamp || row.stored_at
+    }];
+  });
+  const prior = new Map();
+  return answers.map(answer => {
+    const text = typeof answer.response === "string" ? answer.response.trim() : "";
+    const flags = [];
+    if (!text) flags.push("empty");
+    const normalized = text.toLowerCase().replace(/\s+/g, " ");
+    if (normalized && prior.has(normalized)) flags.push("repeated");
+    if (normalized) prior.set(normalized, true);
+    // A conservative deterministic check for obvious keyboard-gibberish:
+    // long runs of repeated/alternating characters with no word boundaries.
+    if (text.length >= 8 && !/\s/.test(text)
+        && (/(.)\1{3,}/i.test(text) || /(.{1,3})\1{2,}/i.test(text)))
+      flags.push("possible_gibberish");
+    return { ...answer, quality_flags: flags,
+      quality_status: flags.length ? "review" : "ok" };
+  });
+}
+
+export const xapiState = (registration_id, activity_id, state_id) => one(
+  `SELECT * FROM xapi_state
+    WHERE registration_id = ? AND activity_id = ? AND state_id = ?`,
+  registration_id, activity_id, state_id);
+
+export const xapiStateIds = (registration_id, activity_id) => all(
+  `SELECT state_id FROM xapi_state
+    WHERE registration_id = ? AND activity_id = ? ORDER BY state_id`,
+  registration_id, activity_id).map(r => r.state_id);
+
+export function putXapiState({ registration_id, activity_id, state_id,
+                               document, content_type, etag }) {
+  run(`INSERT INTO xapi_state
+         (registration_id, activity_id, state_id, document, content_type, etag, updated_at)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(registration_id, activity_id, state_id) DO UPDATE SET
+         document = excluded.document,
+         content_type = excluded.content_type,
+         etag = excluded.etag,
+         updated_at = excluded.updated_at`,
+      registration_id, activity_id, state_id, document, content_type, etag, now());
+  return xapiState(registration_id, activity_id, state_id);
+}
+
+export const deleteXapiState = (registration_id, activity_id, state_id = null) =>
+  state_id === null
+    ? run(`DELETE FROM xapi_state WHERE registration_id = ? AND activity_id = ?`,
+          registration_id, activity_id)
+    : run(`DELETE FROM xapi_state
+            WHERE registration_id = ? AND activity_id = ? AND state_id = ?`,
+          registration_id, activity_id, state_id);
+
 /* Everything captured, for the console. */
 export const allRegistrations = () => all(
   `SELECT r.*, p.subject_id, p.name, pr.program_id, pr.title, cv.scorm_version, cv.version
@@ -276,6 +410,7 @@ export const catalog = () => all(
  *  completion — or for reconciling a delivery that was missed. */
 export const enrollments = () => all(
   `SELECT p.subject_id, p.name, pr.program_id, pr.title,
+          cv.scorm_version, r.id AS registration_id,
           r.completion_status, r.success_status, r.score_raw, r.score_max,
           (r.total_seconds + COALESCE(r.session_seconds,0)) AS total_seconds,
           r.attempt, r.exit_mode,

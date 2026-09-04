@@ -212,15 +212,16 @@ dl.demo dd{margin:0;font-size:15px;color:var(--ink)}
 .ro{padding:10px 0;font-size:15px;font-weight:600}
 .agActions{display:flex;align-items:center;justify-content:flex-end;gap:14px;margin-top:18px}
 .agSection{margin-bottom:14px}
-.agSection h2{display:flex;align-items:center;gap:9px}
+.agSection h2{display:flex;align-items:center;gap:9px;padding:12px 18px}
 .cnt{background:var(--bg);color:var(--muted);font-size:11.5px;font-weight:700;
      padding:2px 8px;border-radius:999px}
-.cond{display:flex;gap:16px;align-items:flex-start;padding:13px 0;border-bottom:1px solid var(--line)}
+.agSection .body{padding:10px 18px 12px}
+.cond{display:flex;gap:16px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
 .cond:last-of-type{border-bottom:0}
 .condbody{flex:1;font-size:14.5px;line-height:1.6}
 .condside{display:flex;align-items:center;gap:12px;white-space:nowrap}
-.addcond{display:flex;align-items:center;gap:14px;margin-top:14px;
-         padding-top:14px;border-top:1px solid var(--line)}
+.addcond{display:flex;align-items:center;gap:14px;margin-top:10px;
+         padding-top:10px;border-top:1px solid var(--line)}
 .tplsel{flex:1;font-size:14px;padding:9px 11px}
 textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;
          font:inherit;font-size:14.5px;line-height:1.6;color:var(--ink);
@@ -1599,6 +1600,7 @@ function renderProfile(s) {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <path d="M14 2v6h6M9 13h6M9 17h4"/></svg>
           Supervision Agreement
+          <span class="btnCount" id="agreementCount" hidden></span>
         </a>
         <a class="btn" id="toReentry">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -2235,7 +2237,8 @@ function renderTiles(s) {
            (!emp || emp.status === "not_employed" ? "Not employed"
               : emp.status === "self_employed" ? "Self-employed"
               : emp.company_name || "Employed")
-           + (emp?.updated_by === "subject" ? " &middot; reported by subject" : ""), "")
+           + (emp?.updated_by === "subject" ? " &middot; reported by subject" : ""),
+           emp && emp.status !== "not_employed" ? 1 : "")
     + tile("travel", "Travel Permit",
            !tp || tp.level === "none" ? "None permitted"
              : isExpired(tp) ? `${travelLabel(tp.level)} — expired ${asDate(tp.expires_on)}`
@@ -2272,12 +2275,22 @@ function renderTiles(s) {
   paintGoalCount();
   paintProgramCount();
   paintVisitCount();
+  paintProfileCounts();
 
   if (window.__savedTile) {
     const t = box.querySelector(`[data-tile="${window.__savedTile}"]`);
     window.__savedTile = null;
     if (t) { t.classList.add("saved"); setTimeout(() => t.classList.remove("saved"), 1400); }
   }
+}
+
+function paintProfileCounts() {
+  const agreement = DETAIL?.agreement;
+  paintCount("agreementCount", {
+    n: agreement ? 1 : 0,
+    urgent: agreement?.status === "draft",
+    tip: agreement ? `Agreement ${agreement.status}` : "No agreement"
+  });
 }
 
 /* ---------------- visits ---------------- */
@@ -3348,7 +3361,7 @@ function assignProgramModal(s) {
   fetch("/api/catalog").then(r => r.json()).then(d => {
     const items = d.content || [];
     el("program").innerHTML = items.length
-      ? items.map(c => `<option value="${esc(c.program_id)}">${esc(c.title)} &mdash; SCORM ${esc(c.scorm_version)}</option>`).join("")
+      ? items.map(c => `<option value="${esc(c.program_id)}">${esc(c.title)} &mdash; ${c.scorm_version === "xAPI" ? "xAPI" : `SCORM ${esc(c.scorm_version)}`}</option>`).join("")
       : `<option value="">No content available</option>`;
     btn.disabled = !items.length;
   }).catch(() => {
@@ -5987,7 +6000,9 @@ async function refresh(s) {
         <td class="mono">${e.total_seconds ? dur(e.total_seconds) : "—"}</td>
         <td class="mono">${when(e.last_write_at || e.assigned_at)}</td>
         <td>${started
-          ? `<span class="mono" style="color:var(--faint)">—</span>`
+          ? (e.scorm_version === "xAPI" && e.registration_id
+              ? `<button class="linkbtn" data-responses="${e.registration_id}">Review responses</button>`
+              : `<span class="mono" style="color:var(--faint)">—</span>`)
           : `<button class="linkbtn" data-cancel-prog="${esc(e.program_id)}">Cancel</button>`}</td>
       </tr>`;
     }).join("") : `<tr><td colspan="6" class="empty">Nothing assigned yet.</td></tr>`;
@@ -6010,6 +6025,109 @@ async function refresh(s) {
         // cancellation would simply have shown nothing at all.
         toast(String(e.message || e), "err");
         b.disabled = false; b.textContent = "Cancel";
+      }
+    });
+
+    body.querySelectorAll("[data-responses]").forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = "Loading…";
+      try {
+        const r = await fetch(`/api/program-responses?registration_id=${encodeURIComponent(b.dataset.responses)}`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        const answers = d.responses || [];
+        b.disabled = false; b.textContent = "Review responses";
+        const groups = [];
+        const byContext = new Map();
+        answers.forEach(a => {
+          const key = `${a.section || ""}\u0000${a.lesson || ""}`;
+          if (!byContext.has(key)) { const g = { section: a.section, lesson: a.lesson, answers: [] }; byContext.set(key, g); groups.push(g); }
+          byContext.get(key).answers.push(a);
+        });
+        const transcript = groups.map(g => `<div style="margin-bottom:24px">
+            ${g.section ? `<h3 style="margin:0 0 4px">${esc(g.section)}</h3>` : ""}
+            ${g.lesson ? `<div class="hint" style="margin-bottom:12px">${esc(g.lesson)}</div>` : ""}
+            ${g.answers.map(a => `<section style="margin-bottom:20px">
+                <div class="hint">${esc(a.question)}</div>
+                ${a.quality_flags?.length ? `<div class="pill muted" style="display:inline-block;margin-top:6px">Review: ${esc(a.quality_flags.join(", "))}</div>` : ""}
+                <div style="margin-top:6px;white-space:pre-wrap">${esc(typeof a.response === "object" ? JSON.stringify(a.response) : (a.response ?? "No response"))}</div>
+                <div class="mono" style="margin-top:6px;color:var(--faint)">${when(a.submitted_at)}</div>
+              </section>`).join("")}
+          </div>`).join("");
+        showModal("Survey responses", `${s.name} — ${answers.length} submitted`, `<div style="margin-bottom:18px"><button class="btn small" id="exportResponses">Export PDF</button> <button class="btn small" id="analyzeResponses">Analyze with AI</button><span id="analysisStatus" class="aiNote" style="margin-left:8px"></span></div>` + (answers.length
+          ? transcript
+          : `<p class="empty">No survey responses have been received for this attempt.</p>`));
+        el("exportResponses").onclick = async () => {
+          const x = el("exportResponses"); x.disabled = true; x.textContent = "Creating PDF…";
+          try {
+            const pdf = await fetch("/api/program-responses/pdf", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ registration_id: b.dataset.responses })
+            });
+            const out = await pdf.json();
+            if (!pdf.ok) throw new Error(out.error || `HTTP ${pdf.status}`);
+            window.open(`/documents/${out.document.id}`, "_blank", "noopener");
+            toast("Survey responses PDF exported");
+            x.disabled = false; x.textContent = "Export PDF";
+          } catch (e) { toast(String(e.message || e), "err"); x.disabled = false; x.textContent = "Export PDF"; }
+        };
+        el("analyzeResponses").onclick = async () => {
+          const x = el("analyzeResponses"), status = el("analysisStatus");
+          x.disabled = true; x.textContent = "Queuing…";
+          try {
+            const started = await fetch("/api/program-analysis", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ registration_id: b.dataset.responses })
+            });
+            const out = await started.json();
+            if (!started.ok) throw new Error(out.error || `HTTP ${started.status}`);
+            status.textContent = out.provider_ready ? "Running…" : "Provider disabled";
+            const poll = async () => {
+              const p = await fetch(`/api/program-analysis/${out.job.id}`).then(r => r.json());
+              if (p.job?.status === "draft") {
+                status.innerHTML = `<button class="linkbtn" id="viewAnalysisDraft">View draft</button>`;
+                el("viewAnalysisDraft").onclick = () => {
+                  let result = {};
+                  try { result = JSON.parse(p.job.result_json || "{}"); } catch {}
+                  const body = `<div class="aiWarn"><span>&#9888;</span><span>AI-assisted draft. Review the original responses before relying on this analysis.</span></div>
+                    ${result.headline ? `<h3>${esc(result.headline)}</h3>` : ""}
+                    <h4>What was found</h4>${Array.isArray(result.findings) && result.findings.length ? result.findings.map(f => `<p>${esc(f.text || "")}<br><span class="hint">Evidence: “${esc(f.evidence || "") }” · ${esc(f.confidence || "unknown")} confidence</span></p>`).join("") : `<div class="aiText">No findings returned.</div>`}
+                    ${Array.isArray(result.response_quality_flags) && result.response_quality_flags.length ? `<h4>Response quality</h4>${result.response_quality_flags.map(f => `<p><b>${esc(f.category || "Review")}:</b> ${esc(f.evidence || "")}</p>`).join("")}` : ""}
+                    ${Array.isArray(result.danger_signs) && result.danger_signs.length ? `<h4>Danger-sign review</h4>${result.danger_signs.map(f => `<p><b>${esc(f.severity || "Review")} · ${esc(f.category || "Signal")}:</b> ${esc(f.evidence || "")}<br><span class="hint">${esc(f.uncertainty || "")}</span></p>`).join("")}` : `<p class="hint">No danger signs were returned.</p>`}
+                    ${Array.isArray(result.follow_up_questions) && result.follow_up_questions.length ? `<h4>Suggested follow-up</h4>${result.follow_up_questions.map(q => `<p>${esc(q)}</p>`).join("")}` : ""}
+                    <p class="aiNote">Draft ${esc(p.job.id)} · ${esc(p.job.model || "configured provider")} · ${esc(p.job.prompt_version || "phase2-v1")}</p>
+                    <hr><h4>Officer review</h4><select id="analysisDisposition"><option value="approved">Approve</option><option value="edited">Approve with edits</option><option value="escalated">Escalate for further review</option><option value="dismissed">Dismiss draft</option></select>
+                    <textarea id="analysisNotes" placeholder="Review notes" style="width:100%;min-height:70px;margin-top:8px"></textarea>
+                    <div style="margin-top:10px"><button class="btn small" id="saveAnalysisReview">Save review</button> <button class="btn small" id="exportAnalysisPdf" disabled>Export reviewed PDF</button><span id="reviewStatus" class="aiNote" style="margin-left:8px"></span></div>`;
+                  showModal("Program Completion Summary — Draft", `${s.name} · ${answers.length} responses`, body);
+                  el("saveAnalysisReview").onclick = async () => {
+                    const save = el("saveAnalysisReview"), status = el("reviewStatus"); save.disabled = true; save.textContent = "Saving…";
+                    try {
+                      const rr = await fetch("/api/program-analysis/review", { method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ analysis_id: p.job.id, disposition: el("analysisDisposition").value, notes: el("analysisNotes").value }) });
+                      const out = await rr.json(); if (!rr.ok) throw new Error(out.error || `HTTP ${rr.status}`);
+                      status.textContent = "Review saved"; el("exportAnalysisPdf").disabled = out.review.disposition === "dismissed";
+                    } catch (e) { status.textContent = String(e.message || e); } finally { save.disabled = false; save.textContent = "Save review"; }
+                  };
+                  el("exportAnalysisPdf").onclick = async () => {
+                    const x = el("exportAnalysisPdf"), status = el("reviewStatus"); x.disabled = true; x.textContent = "Creating PDF…";
+                    try {
+                      const rr = await fetch("/api/program-analysis/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis_id: p.job.id }) });
+                      const out = await rr.json(); if (!rr.ok) throw new Error(out.error || `HTTP ${rr.status}`);
+                      window.open(`/documents/${out.document.id}`, "_blank", "noopener"); status.textContent = "PDF exported";
+                    } catch (e) { status.textContent = String(e.message || e); } finally { x.disabled = false; x.textContent = "Export reviewed PDF"; }
+                  };
+                };
+                x.textContent = "Analyze again"; x.disabled = false; return;
+              }
+              if (p.job?.status === "failed") { status.textContent = `Failed: ${p.job.error || "unknown error"}`; x.textContent = "Try again"; x.disabled = false; return; }
+              setTimeout(poll, 1000);
+            };
+            poll();
+          } catch (e) { status.textContent = String(e.message || e); x.disabled = false; x.textContent = "Analyze with AI"; }
+        };
+      } catch (e) {
+        toast(String(e.message || e), "err");
+        b.disabled = false; b.textContent = "Review responses";
       }
     });
 

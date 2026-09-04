@@ -94,6 +94,8 @@ Record these answers in this document before touching the hosted environment:
 - [ ] Who is allowed to know and rotate the reset password.
 - [ ] Exact baseline contents: accounts, subjects, visits, programs and courses.
 - [ ] Whether reset removes recordings, transcripts, summaries and action items.
+- [x] Local demo reset removes generated files in `spike/documents/` as well as
+      the SQLite data, so Dana returns to profile-only state.
 - [ ] Maximum acceptable reset time.
 - [ ] Who receives an alert when a reset fails.
 

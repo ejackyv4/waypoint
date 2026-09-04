@@ -23,10 +23,11 @@ spike/packages.json
 # https://scorm.com/scorm-explained/technical-scorm/golf-examples/
 spike/corpus/
 *.zip
-# Except our own Rise 360 export — see spike/.gitignore. It is the only
-# package in the corpus that cannot be re-downloaded, and docs/LMS.md is
-# written around what it found.
+# Except our own Rise 360 exports — see spike/.gitignore. They cannot be
+# re-downloaded, so a fresh clone needs the fixtures used by the demo.
 !spike/corpus/Rise360_DiversityBasics_SCORM12.zip
+!spike/corpus/Rise360_AngerManagement_SCORM12.zip
+!spike/corpus/Rise360_AngerManagement_xAPI.zip
 
 # The full session transcript as raw JSONL is 12MB of machine output.
 # The readable version, docs/session/TRANSCRIPT.md, IS committed.

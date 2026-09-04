@@ -203,6 +203,14 @@ anything before a completion, and reconciles a delivery that was missed.
 
 **A real integration needs both.** Push for timeliness, pull for everything else.
 
+#### `GET /api/registrations/:id/responses` — survey responses
+
+Returns the `answered` xAPI interaction statements for one registration as a
+staff-facing list of question, response, interaction type, and submission time.
+This requires the API key. Waypoint derives the learner from the registration;
+an actor or learner identifier supplied by course JavaScript is not trusted as
+proof of identity.
+
 #### `POST /api/ingest` — add content
 
 ```json
@@ -210,7 +218,7 @@ anything before a completion, and reconciles a delivery that was missed.
 ```
 
 Validates before unpacking anything (zip-slip, size caps, compression ratio, executable
-files, manifest position), then creates an **immutable content version**. Re-ingesting the
+files, manifest position), accepts SCORM `imsmanifest.xml` or xAPI `tincan.xml`, then creates an **immutable content version**. Re-ingesting the
 same program creates version N+1 — learners mid-progress keep the version they started on.
 
 Rejections are specific: `no trackable content: 19 resources, all assets, no SCO` rather
@@ -306,6 +314,22 @@ characters and real courses exceed it. Truncating to fit is what silently destro
 resume, and the learner is who discovers it. Waypoint stores the full value, records
 its length, stamps `suspend_overflow_at` the first time it exceeds the cap for that
 SCORM version, and warns in the log.
+
+For xAPI content, the launch URL carries a registration-scoped endpoint and
+credential plus the server-derived actor, registration UUID, and course activity
+ID. The content uses the xAPI endpoints below; they accept normal xAPI HTTP and
+the form/method tunnelling used by older Articulate TinCanJS exports.
+
+```
+GET|POST|PUT /api/xapi/:id/statements
+GET|POST|PUT|DELETE /api/xapi/:id/activities/state
+GET /api/xapi/:id/about
+```
+
+Statements are append-only and idempotent by statement ID. State documents are
+mutable resume data keyed by registration, activity, and state ID. These are
+deliberately separate stores: replacing a bookmark must never rewrite the record
+of what a learner submitted.
 
 ---
 
@@ -1688,6 +1712,14 @@ evidence.
 ```
 GET /api/catalog       what Waypoint offers, proxied
 GET /api/enrollments   live assignment state, proxied from Waypoint
+GET /api/program-responses?registration_id=…   xAPI survey answers for staff review
+POST /api/program-responses/pdf                 create a filed PDF of those answers
+POST /api/program-analysis { registration_id }  snapshot evidence and queue Phase 2 analysis
+GET  /api/program-analysis/:id                  read analysis job status and result
+POST /api/program-analysis/review               record officer disposition and notes
+POST /api/program-analysis/pdf                  export a reviewed completion summary PDF
+POST /api/program-analysis/compare              snapshot current vs previous completed attempt
+GET  /api/program-analysis/comparison/:id       read longitudinal comparison snapshot
 GET /api/results       completions Waypoint has pushed to this system's inbox
 GET /api/documents?subject_id=…   generated PDFs filed against a subject
 ```

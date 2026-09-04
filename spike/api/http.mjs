@@ -52,6 +52,22 @@ export async function readJson(req, maxBytes = 1024 * 1024) {
   catch { return { __bad: true }; }
 }
 
+/** Read a body without interpreting it. xAPI State documents may be JSON,
+ * text, or binary, so forcing them through the JSON parser would corrupt
+ * valid course resume data. */
+export async function readBody(req, maxBytes = 4 * 1024 * 1024) {
+  const declared = Number(req.headers["content-length"]);
+  if (declared > maxBytes) { req.resume(); return { __tooBig: true, maxBytes }; }
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > maxBytes) { req.resume(); return { __tooBig: true, maxBytes }; }
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks);
+}
+
 /**
  * Served content types are allowlisted, never sniffed from the file.
  *

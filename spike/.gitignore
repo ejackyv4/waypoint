@@ -1,11 +1,12 @@
 data/
 corpus/
-# ...except our own Rise 360 export. Rustici's samples are freely
-# re-downloadable; this one is ours, and it is the fixture that found
-# seven bugs the reference packages could not. A fresh clone needs it.
+# ...except our own Rise 360 exports. Rustici's samples are freely
+# re-downloadable; these are ours, and a fresh clone needs them for the demo.
 !corpus/
 corpus/*
 !corpus/Rise360_DiversityBasics_SCORM12.zip
+!corpus/Rise360_AngerManagement_SCORM12.zip
+!corpus/Rise360_AngerManagement_xAPI.zip
 packages/
 packages.json
 mobile/node_modules/

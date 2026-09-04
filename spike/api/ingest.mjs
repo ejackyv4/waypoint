@@ -61,6 +61,23 @@ export function validateArchive(zip) {
 export function readManifest(dir) {
   const p = join(dir, "imsmanifest.xml");
   if (!existsSync(p)) {
+    const tincan = join(dir, "tincan.xml");
+    if (existsSync(tincan)) {
+      const xml = readFileSync(tincan, "utf8");
+      // The course activity is the first activity in an Articulate xAPI
+      // export. Regex keeps the spike free of an XML parser and cannot resolve
+      // external entities; production should use a hardened parser.
+      const activity = xml.match(/<activity\b[^>]*\bid\s*=\s*["']([^"']+)["'][^>]*>[\s\S]*?<name\b[^>]*>([^<]*)<\/name>[\s\S]*?<launch\b[^>]*>([^<]+)<\/launch>/i);
+      if (!activity) return { error: "malformed tincan.xml: course activity or launch is missing" };
+      return {
+        scorm_version: "xAPI",
+        family: "xapi",
+        activity_id: activity[1].trim(),
+        title: activity[2].trim() || null,
+        launch_href: activity[3].trim(),
+        sco_count: 1
+      };
+    }
     // The most common import failure anywhere: the folder was zipped
     // instead of the folder's contents.
     const nested = readdirSync(dir, { withFileTypes: true })
@@ -68,7 +85,7 @@ export function readManifest(dir) {
       .find(d => existsSync(join(dir, d.name, "imsmanifest.xml")));
     return { error: nested
       ? `imsmanifest.xml is not at the top level — found inside "${nested.name}/". Zip the folder's contents, not the folder.`
-      : "no imsmanifest.xml found" };
+      : "no imsmanifest.xml or tincan.xml found" };
   }
 
   const xml = readFileSync(p, "utf8");
@@ -156,4 +173,3 @@ export function ingestPackage(zipPath, { program_id, title } = {}) {
     rmSync(staging, { recursive: true, force: true });
   }
 }
-

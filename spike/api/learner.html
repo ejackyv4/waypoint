@@ -197,6 +197,7 @@ const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({ "<":"&lt;", ">":"&gt;
 const dur = s => { s = Math.max(0, Math.round(+s || 0));
   const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
   return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
+const money = cents => `$${(Math.max(0, Number(cents) || 0) / 100).toFixed(2)}`;
 
 let auth = null, caseData = null, tab = "programs";
 
@@ -307,6 +308,7 @@ async function listView() {
   } catch { return signInView("Couldn't reach Waypoint."); }
 
   await loadCase(false);
+  if (caseData) caseData.programs = d.programs || [];
   const cards = (d.programs || []).map(p => {
     const done = p.completion_status === "completed";
     const passed = p.success_status === "passed", failed = p.success_status === "failed";
@@ -340,8 +342,6 @@ function paint() {
   const who = auth.person?.name || auth.person?.subject_id || "";
   const subject = caseData?.subject;
   const hasAgreement = !!caseData?.agreement;
-  if (!hasAgreement) tab = "programs";
-
   app.innerHTML = `
     <header class="topbar">
       <span class="mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"
@@ -359,16 +359,17 @@ function paint() {
             subject.officer ? ` &middot; Officer ${esc(subject.officer)}` : ""}</div>
         </div>
       </div>` : ""}
-    ${hasAgreement ? `
       <nav class="tabs">
+        <button class="tab ${tab === "home" ? "on" : ""}" data-tab="home">Home</button>
         <button class="tab ${tab === "programs" ? "on" : ""}" data-tab="programs">My Learning</button>
         <button class="tab ${tab === "actions" ? "on" : ""}" data-tab="actions">
           What I agreed to${myActions().length
             ? `<span class="badge${myActions().some(overdueAction) ? "" : " calm"}">${
                 myActions().length}</span>` : ""}</button>
-        <button class="tab ${tab === "agreement" ? "on" : ""}" data-tab="agreement">
-          Supervision agreement${needsAck() ? `<span class="badge">1</span>` : ""}</button>
-      </nav>` : ""}
+        ${hasAgreement ? `<button class="tab ${tab === "agreement" ? "on" : ""}" data-tab="agreement">Supervision agreement${needsAck() ? `<span class="badge">1</span>` : ""}</button>` : ""}
+        <button class="tab ${tab === "visits" ? "on" : ""}" data-tab="visits">Visits</button>
+        <button class="tab ${tab === "me" ? "on" : ""}" data-tab="me">Me</button>
+      </nav>
     <div class="wrap" id="wrap"></div>`;
 
   document.getElementById("out").onclick = () => { save(null); signInView(); };
@@ -377,6 +378,9 @@ function paint() {
 
   if (tab === "agreement") return paintAgreement();
   if (tab === "actions")   return paintActions();
+  if (tab === "home")      return paintHome();
+  if (tab === "visits")    return paintVisits();
+  if (tab === "me")        return paintMe();
 
   document.getElementById("wrap").innerHTML = `
     ${(caseData?.unseen_actions || 0) > 0 ? `
@@ -404,6 +408,42 @@ function paint() {
   const jumpAct = document.getElementById("toAct");
   if (jumpAct) jumpAct.onclick = () => { tab = "actions"; paint(); scrollTo(0, 0); };
   app.querySelectorAll("[data-program]").forEach(b => b.onclick = () => launch(b));
+}
+
+function paintHome() {
+  const programs = caseData?.programs || [];
+  const visits = caseData?.visits || [];
+  const actions = myActions();
+  const startedPrograms = programs.filter(p => p.registration_id && p.completion_status !== "not attempted");
+  const untouchedPrograms = programs.filter(p => !p.registration_id || p.completion_status === "not attempted");
+  const cards = [
+    startedPrograms.length && { title: "Programs", line: `${startedPrograms.length} course${startedPrograms.length === 1 ? "" : "s"} in progress`, tab: "programs" },
+    !startedPrograms.length && untouchedPrograms.length && { title: "Programs", line: `${untouchedPrograms.length} course${untouchedPrograms.length === 1 ? "" : "s"} not started`, tab: "programs" },
+    actions.length && { title: "What I agreed to", line: `${actions.length} item${actions.length === 1 ? "" : "s"} outstanding`, tab: "actions" },
+    visits.some(v => v.status === "scheduled") && { title: "Visits", line: `${visits.filter(v => v.status === "scheduled").length} upcoming`, tab: "visits" },
+    needsAck() && { title: "Supervision agreement", line: "Acknowledgment needed", tab: "agreement" }
+  ].filter(Boolean);
+  document.getElementById("wrap").innerHTML = `<h2 class="pagetitle">Home</h2><p class="pagesub">What needs your attention.</p>`
+    + (cards.length ? cards.map(c => `<button class="card" data-home-tab="${c.tab}" style="text-align:left;width:100%;cursor:pointer"><div class="cardtop"><h3>${esc(c.title)}</h3><span class="pill go">Open</span></div><div class="meta">${esc(c.line)}</div></button>`).join("") : `<div class="card empty">Nothing outstanding.</div>`);
+  document.querySelectorAll("[data-home-tab]").forEach(b => b.onclick = () => { tab = b.dataset.homeTab; paint(); scrollTo(0, 0); });
+}
+
+function paintVisits() {
+  const visits = (caseData?.visits || []).filter(v => v.status !== "cancelled");
+  document.getElementById("wrap").innerHTML = `<h2 class="pagetitle">Visits</h2><p class="pagesub">Appointments and visits connected to your supervision.</p>`
+    + (visits.length ? visits.map(v => `<div class="visitcard"><div class="top"><h3>${esc(fmtVisit(v.scheduled_at) || "Visit")}</h3><span class="pill ${v.status === "completed" ? "ok" : v.status === "scheduled" ? "go" : "muted"}">${esc(v.status || "scheduled")}</span></div><div class="meta">${esc(v.location || "Location to be confirmed")}</div>${v.note ? `<div class="note">${esc(v.note)}</div>` : ""}${v.status === "scheduled" && !v.subject_confirmed_at ? `<button class="cta" data-visit-accept="${v.id}">Confirm this visit</button>` : ""}</div>`).join("") : `<div class="card empty">No visits scheduled.</div>`);
+  document.querySelectorAll("[data-visit-accept]").forEach(b => b.onclick = async () => { b.disabled = true; try { const r = await fetch(`${SAAS}/api/me/visits/accept`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` }, body: JSON.stringify({ id: +b.dataset.visitAccept }) }); if (!r.ok) throw new Error("Could not confirm visit"); await loadCase(); paint(); toast("Visit confirmed"); } catch (e) { b.disabled = false; toast(e.message, "err"); } });
+}
+
+function paintMe() {
+  const s = caseData?.subject || auth.person || {};
+  const fin = caseData?.financial?.items || [], rp = caseData?.reentry;
+  const vehicles = caseData?.vehicles || [], contacts = caseData?.contacts || [];
+  const service = caseData?.community_service || [], cur = caseData?.curfew, travel = caseData?.travel_permit;
+  const totals = caseData?.financial?.totals || {};
+  const finRows = fin.map(f => `<div class="srow"><div><b>${esc((f.kind || "Obligation").replace(/^./, c => c.toUpperCase()))}</b><span class="meta">${f.due_date ? ` · ${esc(f.state === "overdue" ? "Was due" : "Due")} ${esc(f.due_date)}` : " · No due date"}${(f.payments || []).map(p => ` · Paid ${esc(p.paid_on || "")} ${money(p.amount_cents)}`).join("")}</span></div><span class="pill ${f.balance_cents === 0 ? "ok" : "muted"}">${money(f.balance_cents)} ${f.balance_cents === 0 ? "settled" : "remaining"}</span></div>`).join("");
+  document.getElementById("wrap").innerHTML = `<h2 class="pagetitle">Me</h2><p class="pagesub">Your profile and supervision details.</p><div class="card"><h3>${esc(s.name || "")}</h3><div class="meta">Case ${esc(s.case_number || "—")}</div><div class="meta">${esc(s.status || "")}</div>${s.officer ? `<div class="meta">Officer ${esc(s.officer)}</div>` : ""}</div><div class="card"><h3>Contact details</h3><div class="meta">${esc(s.phone || "No phone recorded")}</div><div class="meta">${esc(s.email || "No email recorded")}</div><div class="meta" style="white-space:pre-wrap">${esc(s.address || "No address recorded")}</div></div><div class="card"><h3>Curfew</h3><div class="meta">${cur?.active ? `${esc(to12h(cur.start_time))} to ${esc(to12h(cur.end_time))}` : "No curfew set"}</div>${cur?.notes ? `<div class="meta">${esc(cur.notes)}</div>` : ""}</div>${travel ? `<div class="card"><h3>Travel permit</h3><div class="meta">${esc(travel.level || "None")}${travel.expires_on ? ` · expires ${esc(travel.expires_on)}` : ""}</div></div>` : ""}${service.length ? `<div class="card"><h3>Community service</h3>${service.map(x => `<div class="srow"><div>${esc(x.description || "Service")}</div><span class="pill muted">${esc(x.status || "Open")}</span></div>`).join("")}</div>` : ""}${vehicles.length ? `<div class="card"><h3>My vehicles</h3>${vehicles.map(v => `<div class="srow"><div>${esc([v.year, v.make, v.model].filter(Boolean).join(" ") || "Vehicle")}</div><span class="meta">${esc(v.plate || "")}</span></div>`).join("")}</div>` : ""}${contacts.length ? `<div class="card"><h3>Family & contacts</h3>${contacts.map(c => `<div class="srow"><div>${esc(c.name || "Contact")}</div><span class="meta">${esc(c.relationship || "")}</span></div>`).join("")}</div>` : ""}${caseData?.employment ? `<div class="card"><h3>Employment</h3><div class="meta">${esc(caseData.employment.employer_name || "Recorded")}</div></div>` : ""}${fin.length ? `<div class="card"><h3>Financial obligations</h3><div class="bigtime">${money(totals.balance_cents)} due</div><div class="meta">${money(totals.paid_cents)} paid of ${money(totals.owed_cents)}${totals.overdue_cents ? ` · ${money(totals.overdue_cents)} overdue` : ""}</div>${finRows}</div>` : ""}${rp ? `<div class="card"><h3>Reentry plan</h3><div class="meta">${esc(rp.status || "Active")}</div><div class="meta">${rp.readiness?.percent != null ? `${rp.readiness.percent}% ready` : "In progress"}</div></div>` : ""}${caseData?.agreement ? `<button class="card" data-home-tab="agreement" style="text-align:left;width:100%;cursor:pointer"><h3>Supervision agreement</h3><div class="meta">${needsAck() ? "Acknowledgment needed" : "Acknowledged"}</div></button>` : ""}`;
+  document.querySelectorAll("[data-home-tab]").forEach(b => b.onclick = () => { tab = b.dataset.homeTab; paint(); });
 }
 
 /* ---------------- what I agreed to ----------------
@@ -445,6 +485,7 @@ async function reportActionDone(id, btn) {
 
 function paintActions() {
   const list = myActions();
+  const goals = caseData?.goals || [];
   /* Opening this tab is what marks them seen — the same rule as the app, so a
      subject who reads them on a library computer does not get chased again on
      their phone. Fire and forget: the banner clearing is not worth blocking
@@ -459,6 +500,8 @@ function paintActions() {
     <h2 class="pagetitle">What I agreed to</h2>
     <p class="pagesub">Things you committed to at a visit. Tick one off once you
       have done it &mdash; your officer sees that you reported it.</p>
+
+    ${goals.length ? `<h3>Goals</h3>${goals.map(g => `<div class="card"><div class="cardtop"><h3>${esc(g.title)}</h3><span class="pill ${g.status === "complete" ? "ok" : "go"}">${esc(g.status || "open")}</span></div>${g.detail ? `<div class="meta">${esc(g.detail)}</div>` : ""}${g.steps?.length ? g.steps.map(st => `<div class="srow"><div>${esc(st.label || st.title || "Step")}</div><span class="pill ${st.done_at ? "ok" : "muted"}">${st.done_at ? "Done" : "To do"}</span></div>`).join("") : ""}</div>`).join("")}` : ""}
 
     ${list.length ? list.map(a => `
       <div class="card actRow">
@@ -610,7 +653,13 @@ async function launch(btn) {
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
     // The player lives on the content origin. Tickets last ~60s, so this
     // must open immediately after being issued.
-    location.href = d.launch_url;
+    /* The player is on the content origin, which may be an IP/port different
+       from the learner site. Carry the page that launched it so Done returns
+       to this exact learner view instead of guessing from the player API
+       origin. */
+    const target = new URL(d.launch_url);
+    target.searchParams.set("return_to", `${location.origin}/learn`);
+    location.href = target.toString();
   } catch (e) {
     btn.disabled = false; btn.textContent = label;
     toast(String(e.message || e), "err");

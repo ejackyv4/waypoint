@@ -86,6 +86,18 @@ export function mintSession(registrationId) {
   return `${b64(body)}.${sign(SESSION_SECRET, body)}`;
 }
 
+/** Stable, opaque xAPI registration UUID for one internal registration row. */
+export function xapiRegistrationId(registrationId) {
+  const hex = createHmac("sha256", SESSION_SECRET)
+    .update(`waypoint-xapi-registration:${registrationId}`).digest("hex").slice(0, 32);
+  // RFC 4122 variant/version bits make this acceptable to clients that insist
+  // the xAPI registration value be UUID-shaped.
+  const versioned = `${hex.slice(0, 12)}5${hex.slice(13, 16)}`
+    + `${((parseInt(hex[16], 16) & 3) | 8).toString(16)}${hex.slice(17)}`;
+  return `${versioned.slice(0,8)}-${versioned.slice(8,12)}-${versioned.slice(12,16)}`
+    + `-${versioned.slice(16,20)}-${versioned.slice(20)}`;
+}
+
 export function verifySession(token) {
   if (typeof token !== "string" || !token.includes(".")) return null;
   const i = token.lastIndexOf(".");

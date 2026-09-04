@@ -303,6 +303,13 @@ body.embedded .card h2{font-size:19px}
    Every write goes straight to the server. Courses do not call Commit.
 ------------------------------------------------------------------ */
 const API = "__APP_ORIGIN__";
+const returnTo = (() => {
+  const value = new URL(location.href).searchParams.get("return_to");
+  /* This is navigation only, but restrict it to an HTTP(S) URL so a crafted
+     launch link cannot turn Done into a javascript: or data: redirect. */
+  try { const u = new URL(value || ""); return /^https?:$/.test(u.protocol) ? u.href : `${API}/learn`; }
+  catch { return `${API}/learn`; }
+})();
 
 /* A native shell is present when React Native injects its bridge. */
 const EMBEDDED = typeof window.ReactNativeWebView !== "undefined";
@@ -313,7 +320,7 @@ const $title = el("courseTitle"), $meta = el("courseMeta");
 const $chip = el("saveChip"), $chipText = el("saveText");
 const $banner = el("banner"), $bannerText = el("bannerText");
 
-let regId = null, session = null, cmi = {}, is2004 = false;
+let regId = null, session = null, cmi = {}, is2004 = false, isXapi = false;
 let initialized = false, terminated = false, lastError = "0";
 let pending = 0, failed = 0, sessionStart = null;
 
@@ -420,9 +427,10 @@ async function post(path, body){
   const reg = res.registration;
   regId = reg.id;
   session = res.session;
+  isXapi = res.content.scorm_version === "xAPI";
   is2004 = /2004/.test(res.content.scorm_version);
 
-  cmi = is2004 ? {
+  cmi = isXapi ? {} : is2004 ? {
     "cmi.completion_status": reg.completion_status, "cmi.success_status": reg.success_status,
     "cmi.entry": reg.entry, "cmi.location": reg.location, "cmi.suspend_data": reg.suspend_data,
     "cmi.score.raw": s(reg.score_raw), "cmi.score.min": s(reg.score_min),
@@ -444,7 +452,12 @@ async function post(path, body){
   $meta.innerHTML =
       `<span>Attempt ${reg.attempt}</span><span class="dot"></span>`
     + `<span>${reg.entry === "resume" ? "Resuming where you left off" : "New attempt"}</span>`
-    + `<span class="dot"></span><span>SCORM ${res.content.scorm_version}</span>`;
+    + `<span class="dot"></span><span>${isXapi ? "xAPI" : `SCORM ${res.content.scorm_version}`}</span>`;
+
+  // xAPI courses initialise their own runtime rather than discovering the
+  // SCORM adapter below. The outer Save & Exit button still owns closing the
+  // Waypoint registration, so its session begins when launch succeeds.
+  if (isXapi) { initialized = true; sessionStart = Date.now(); }
 
   setSaveState();
   el("frame").src = res.content.launch_url;
@@ -466,6 +479,13 @@ function secs(total, iso){
   if (iso) return `PT${Math.floor(total/3600)}H${Math.floor(total%3600/60)}M${(total%60).toFixed(2)}S`;
   const p = (n,w) => String(Math.floor(n)).padStart(w,"0");
   return `${p(total/3600,4)}:${p(total%3600/60,2)}:${p(total%60,2)}.00`;
+}
+function parseSecs(value){
+  const s = String(value || "").trim();
+  let m = s.match(/^(\d+):(\d{2}):(\d{2})(?:\.(\d+))?$/);
+  if (m) return (+m[1])*3600 + (+m[2])*60 + (+m[3]);
+  m = s.match(/^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
+  return m ? (+m[1]||0)*3600 + (+m[2]||0)*60 + (+m[3]||0) : NaN;
 }
 const humanTime = t => {
   t = Math.max(0, Math.round(+t||0));
@@ -492,19 +512,40 @@ function doSet(key, val){
   post(`/api/runtime/${regId}/set`, { key, value: String(val) });   // every write, immediately
   return "true";
 }
-function doTerminate(){
+function doTerminate(options = {}){
   if (!initialized || terminated){ lastError = "112"; return "false"; }
   terminated = true; lastError = "0";
+  let finalSessionSeconds = null;
 
   /* If the course never reported its own session_time, report it for them.
      Wall clock is a worse measure than the course's, but silence is worse
      than both. */
-  const key = is2004 ? "cmi.session_time" : "cmi.core.session_time";
-  if (!cmi[key] && sessionStart)
-    doSet(key, secs(Math.round((Date.now() - sessionStart)/1000), is2004));
+  if (isXapi) {
+    // Articulate exposes this on its launch window. Responses are committed as
+    // they are answered, but this also flushes the final bookmark on our exit.
+    try { el("frame").contentWindow?.CommitData?.(); } catch (e) {}
+    /* xAPI has no SCORM session_time field. The player still owns the runtime
+       session clock, so include it in the atomic close request. */
+    if (sessionStart) finalSessionSeconds = Math.round((Date.now() - sessionStart) / 1000);
+  } else {
+    const key = is2004 ? "cmi.session_time" : "cmi.core.session_time";
+    if (!cmi[key] && sessionStart) {
+      finalSessionSeconds = Math.round((Date.now() - sessionStart) / 1000);
+      doSet(key, secs(finalSessionSeconds, is2004));
+    } else {
+      finalSessionSeconds = parseSecs(cmi[key]);
+    }
+  }
 
   showEnding();
-  post(`/api/runtime/${regId}/terminate`, {}).then(r => {
+  /* The outer Save & Exit control is an intentional suspend.  Passing this
+     alongside termination makes the state change atomic at the server;
+     relying on a separate cmi.exit write races the close request on mobile
+     and was creating a fresh attempt on the next launch. */
+  const closeBody = options.suspend ? { exit_mode: "suspend" } : {};
+  if (finalSessionSeconds !== null && Number.isFinite(finalSessionSeconds))
+    closeBody.session_seconds = finalSessionSeconds;
+  post(`/api/runtime/${regId}/terminate`, closeBody).then(r => {
     notifyNative({ type: "session_ended", registration: r?.registration ?? null,
                    webhook: r?.webhook ?? null });
     // Native draws the results screen when there is a shell to draw it.
@@ -541,7 +582,7 @@ function overlay(html){
        of their courses are. "You can close this window" was a dead end
        dressed as a button: it looked clickable and did nothing. */
     if (EMBEDDED) return notifyNative({ type: "exit" });
-    location.href = API + "/learn";
+    location.href = returnTo;
   };
 }
 
@@ -578,7 +619,7 @@ function showResults(r){
       : "Your session ended, but we weren't able to read the final result back. "
         + "Your progress up to that point is saved. Open the course again from "
         + "your program list &mdash; if this keeps happening, tell your administrator."}</p>
-    <button class="btn btn-primary" onclick="location.href=API+'/learn'">
+    <button class="btn btn-primary" onclick="location.href=returnTo">
       Back to my courses</button></div>`);
 
   const passed = reg.success_status === "passed";
@@ -623,7 +664,7 @@ function showResults(r){
 /* Exit is OURS and must always work — including when the course is
    blank, broken or hung. */
 el("exitBtn").onclick = () => {
-  if (initialized && !terminated) return doTerminate();
+  if (initialized && !terminated) return doTerminate({ suspend: true });
   // Already finished. Previously this did nothing at all — the button
   // looked live and was dead.
   if (terminated) return EMBEDDED ? notifyNative({ type: "exit" })
@@ -654,13 +695,21 @@ window.__waypointSuspendAndExit = function(){
   if (!initialized || terminated) { notifyNative({ type: "exit" }); return false; }
   // Mark it resumable, then end the session properly so the server closes
   // the attempt and reports the state onward.
-  doSet(is2004 ? "cmi.exit" : "cmi.core.exit", "suspend");
-  doTerminate();
+  if (isXapi) {
+    try { el("frame").contentWindow?.CommitData?.(); } catch (e) {}
+  } else {
+    doSet(is2004 ? "cmi.exit" : "cmi.core.exit", "suspend");
+  }
+  doTerminate({ suspend: true });
   return true;
 };
 
 window.__waypointFlush = function(){
   if (!initialized || terminated || !sessionStart) return false;
+  if (isXapi) {
+    try { el("frame").contentWindow?.CommitData?.(); } catch (e) {}
+    return true;
+  }
   const key = is2004 ? "cmi.session_time" : "cmi.core.session_time";
   doSet(key, secs(Math.round((Date.now() - sessionStart)/1000), is2004));
   return true;
@@ -679,7 +728,9 @@ addEventListener("pagehide", () => {
     /* sendBeacon cannot set headers, so the session travels in the body.
        The server accepts either. */
     navigator.sendBeacon?.(`${API}/api/runtime/${regId}/terminate`,
-      new Blob([JSON.stringify({ session })], { type:"application/json" }));
+      new Blob([JSON.stringify({ session, exit_mode: "suspend",
+        session_seconds: sessionStart ? Math.round((Date.now() - sessionStart) / 1000) : 0 })],
+        { type:"application/json" }));
 });
 </script>
 </body>

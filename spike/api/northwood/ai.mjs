@@ -290,4 +290,60 @@ export async function summarise(text, context = {}) {
   };
 }
 
+const PROGRAM_ANALYSIS_TOOL = {
+  name: "program_completion_analysis",
+  description: "Analyze a course response evidence bundle for an officer review draft.",
+  input_schema: { type: "object", properties: {
+    headline: { type: "string" },
+    findings: { type: "array", items: { type: "object", properties: {
+      text: { type: "string" }, section: { type: "string" }, lesson: { type: "string" },
+      evidence: { type: "string" }, confidence: { type: "string", enum: ["low", "medium", "high"] },
+      uncertainty: { type: "string" }
+    }, required: ["text", "evidence", "confidence", "uncertainty"] } },
+    response_quality_flags: { type: "array", items: { type: "object", properties: {
+      category: { type: "string" }, evidence: { type: "string" }, response_index: { type: "integer" }
+    }, required: ["category", "evidence", "response_index"] } },
+    danger_signs: { type: "array", items: { type: "object", properties: {
+      category: { type: "string" }, severity: { type: "string", enum: ["informational", "concern", "urgent review"] },
+      evidence: { type: "string" }, section: { type: "string" }, lesson: { type: "string" },
+      confidence: { type: "string", enum: ["low", "medium", "high"] }, uncertainty: { type: "string" }
+    }, required: ["category", "severity", "evidence", "confidence", "uncertainty"] } },
+    follow_up_questions: { type: "array", items: { type: "string" } }
+  }, required: ["headline", "findings", "response_quality_flags", "danger_signs", "follow_up_questions"] }
+};
+
+/** Structured Phase 3 analysis. It shares the configured provider boundary but
+    deliberately returns review evidence, never a definitive risk decision. */
+export async function analyzeProgram(text, context = {}) {
+  if (!LLM_KEY) fail("Program analysis is not configured. Set WAYPOINT_LLM_KEY.");
+  const system = "Analyze only the supplied course evidence. Return the requested tool. "
+    + "Use exact evidence excerpts and lesson context. Treat quality flags and danger signs as review prompts, not facts. "
+    + "Never declare a subject high-risk, deceptive, safe, or suitable for release. "
+    + "If evidence is insufficient, say so in uncertainty and use low confidence.";
+  const prompt = `Subject: ${context.subject_name || "unknown"}\nProgram: ${context.program || "unknown"}\nStatus: ${context.status || "unknown"}\n\n${text}`;
+  const anthropic = LLM_API === "anthropic";
+  const body = anthropic ? {
+    model: LLM_MODEL, max_tokens: 3000, system, tools: [PROGRAM_ANALYSIS_TOOL],
+    tool_choice: { type: "tool", name: PROGRAM_ANALYSIS_TOOL.name }, messages: [{ role: "user", content: prompt }]
+  } : {
+    model: LLM_MODEL, tools: [{ type: "function", function: { name: PROGRAM_ANALYSIS_TOOL.name,
+      description: PROGRAM_ANALYSIS_TOOL.description, parameters: PROGRAM_ANALYSIS_TOOL.input_schema } }],
+    tool_choice: { type: "function", function: { name: PROGRAM_ANALYSIS_TOOL.name } },
+    messages: [{ role: "system", content: system }, { role: "user", content: prompt }]
+  };
+  const r = await withTimeout("Program analysis", signal => fetch(LLM_URL, {
+    method: "POST", signal, headers: anthropic
+      ? { "Content-Type": "application/json", "x-api-key": LLM_KEY, "anthropic-version": "2023-06-01" }
+      : { "Content-Type": "application/json", Authorization: `Bearer ${LLM_KEY}` }, body: JSON.stringify(body)
+  }));
+  const outBody = await r.json().catch(() => ({}));
+  if (!r.ok) fail(`Program analysis failed — ${messageFrom(outBody, r.status)}`);
+  let out;
+  if (anthropic) out = (outBody.content || []).find(c => c.type === "tool_use")?.input;
+  else { try { out = JSON.parse(outBody.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments || "null"); } catch {} }
+  if (!out || !Array.isArray(out.findings) || !Array.isArray(out.danger_signs))
+    fail("The model did not return structured program analysis.");
+  return { ...out, model: outBody.model || LLM_MODEL, phase: "phase3" };
+}
+
 export { AIError };

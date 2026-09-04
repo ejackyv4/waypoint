@@ -19,7 +19,8 @@
 import { db, ensureColumn } from "./connect.mjs";
 
 /* ------------------------------------------------------------------
-   Schema. Six tables. Resist a seventh.
+   Schema. Core LMS tables plus append-only xAPI statements and mutable xAPI
+   state. Resist adding another projection of either.
 
    The shape here is load-bearing, not incidental — see CLAUDE.md:
      · completion_status and success_status are SEPARATE columns
@@ -121,6 +122,33 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   http_status     INTEGER,
   error           TEXT,
   created_at      TEXT NOT NULL
+);
+
+-- The immutable evidence received from an xAPI course. Statements are kept
+-- whole instead of projecting selected fields into columns: authoring tools
+-- add extensions over time, and dropping an unfamiliar field here would make
+-- it impossible to reconstruct what the learner actually submitted.
+CREATE TABLE IF NOT EXISTS xapi_statements (
+  id              TEXT PRIMARY KEY,
+  registration_id INTEGER NOT NULL REFERENCES registrations(id),
+  statement       TEXT NOT NULL,
+  stored_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_xapi_statements_registration
+  ON xapi_statements(registration_id, stored_at, id);
+
+-- xAPI State documents are mutable resume state, not learner answers. Keeping
+-- them separate preserves the append-only statement record while allowing a
+-- course to replace its bookmark/session document as the xAPI spec expects.
+CREATE TABLE IF NOT EXISTS xapi_state (
+  registration_id INTEGER NOT NULL REFERENCES registrations(id),
+  activity_id     TEXT NOT NULL,
+  state_id        TEXT NOT NULL,
+  document        BLOB NOT NULL,
+  content_type    TEXT,
+  etag            TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  PRIMARY KEY (registration_id, activity_id, state_id)
 );
 
 -- Credentials are ROWS, not columns on people. A person may have none (a
@@ -1141,6 +1169,46 @@ CREATE TABLE IF NOT EXISTS visit_summary_actions (
 );
 CREATE INDEX IF NOT EXISTS ix_visit_summary_actions
   ON visit_summary_actions(summary_id, position);
+
+-- Lesson-aware program analysis. The evidence snapshot is immutable; the
+-- generated result is a separate derived value and may be superseded.
+CREATE TABLE IF NOT EXISTS program_analysis_jobs (
+  id                  INTEGER PRIMARY KEY,
+  registration_id     INTEGER NOT NULL REFERENCES registrations(id),
+  status              TEXT NOT NULL DEFAULT 'queued', -- queued|running|draft|failed|rejected
+  evidence_json       TEXT NOT NULL,
+  result_json         TEXT,
+  model               TEXT,
+  prompt_version      TEXT,
+  error               TEXT,
+  requested_by        TEXT,
+  created_at          TEXT NOT NULL,
+  started_at          TEXT,
+  completed_at        TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_program_analysis_registration
+  ON program_analysis_jobs(registration_id, id);
+CREATE TABLE IF NOT EXISTS program_analysis_reviews (
+  id             INTEGER PRIMARY KEY,
+  analysis_id    INTEGER NOT NULL REFERENCES program_analysis_jobs(id),
+  disposition    TEXT NOT NULL, -- approved|edited|dismissed|escalated
+  notes          TEXT,
+  reviewed_by    TEXT NOT NULL,
+  reviewed_at    TEXT NOT NULL,
+  document_id    INTEGER,
+  UNIQUE (analysis_id)
+);
+CREATE TABLE IF NOT EXISTS program_analysis_comparisons (
+  id                 INTEGER PRIMARY KEY,
+  current_analysis_id INTEGER NOT NULL REFERENCES program_analysis_jobs(id),
+  previous_analysis_id INTEGER NOT NULL REFERENCES program_analysis_jobs(id),
+  status             TEXT NOT NULL DEFAULT 'draft', -- draft|reviewed
+  evidence_json      TEXT NOT NULL,
+  result_json        TEXT,
+  created_at         TEXT NOT NULL,
+  reviewed_by        TEXT,
+  reviewed_at        TEXT
+);
 `);
 
 /* What the MODEL said the owner was, kept beside what a person decided it is.

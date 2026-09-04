@@ -52,7 +52,7 @@ const APP_PORT = 8090;
 const SAAS_PORT = 8092;
 
 /** Whatever `./spike/demo start` last detected. Used only if Expo cannot say. */
-const WRITTEN_HOST = "192.168.50.212";
+const WRITTEN_HOST = "localhost";
 
 /**
  * The machine serving this bundle.

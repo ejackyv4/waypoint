@@ -40,7 +40,7 @@ const GIVEN = process.argv[2] || null;
    defaults, 8090-8092 is `./spike/demo`, 8081 is Metro. */
 const PORTS = { app: 8781, content: 8782, saas: 8783 };
 
-let child = null, tmp = null;
+let child = null, tmp = null, serverLog = "";
 
 /** Tear down whatever we started, once, on every exit path. */
 function cleanup() {
@@ -61,7 +61,8 @@ async function startPrivateServer() {
     SAAS_PORT: String(PORTS.saas),
     WAYPOINT_APP_ORIGIN: `http://localhost:${PORTS.app}`,
     WAYPOINT_CONTENT_ORIGIN: `http://localhost:${PORTS.content}`,
-    WAYPOINT_SAAS_ORIGIN: `http://localhost:${PORTS.saas}`
+    WAYPOINT_SAAS_ORIGIN: `http://localhost:${PORTS.saas}`,
+    WAYPOINT_SCORM_DIAGNOSTICS: "anger-management"
   };
 
   /* Started from the repo root, not from wherever the caller happened to be.
@@ -75,13 +76,13 @@ async function startPrivateServer() {
   child = spawn(process.execPath, [new URL("./server.mjs", import.meta.url).pathname],
                 { env, cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
 
-  let log = "";
-  child.stdout.on("data", d => { log += d; });
-  child.stderr.on("data", d => { log += d; });
+  serverLog = "";
+  child.stdout.on("data", d => { serverLog += d; });
+  child.stderr.on("data", d => { serverLog += d; });
   child.on("exit", code => {
     if (child) {   // exited on its own, before we killed it
       console.error(`\n  the private server exited (${code}). Its output:\n`);
-      console.error(log.split("\n").map(l => "    " + l).join("\n"));
+      console.error(serverLog.split("\n").map(l => "    " + l).join("\n"));
       process.exit(1);
     }
   });
@@ -92,7 +93,7 @@ async function startPrivateServer() {
     catch { await new Promise(r => setTimeout(r, 150)); }
   }
   console.error("\n  the private server never came up. Its output:\n");
-  console.error(log.split("\n").map(l => "    " + l).join("\n"));
+  console.error(serverLog.split("\n").map(l => "    " + l).join("\n"));
   process.exit(1);
 }
 
@@ -218,9 +219,174 @@ let r = await post("/api/ingest", { zip: "spike/corpus/RuntimeBasicCalls_SCORM12
                                     program_id: "golf-101", title: "Golf Explained" });
 ok(r.status === 200 && r.body.ok, "ingest accepts a valid SCORM 1.2 package");
 ok(r.body?.manifest?.scorm_version === "1.2", "detects SCORM version 1.2");
+const v1 = r.body.content_version.version;
+
+/* A proprietary fixture used by the demo must remain ingestible and appear as
+   an assignable program in the catalog of every fresh checkout. */
+r = await post("/api/ingest", {
+  zip: "spike/corpus/Rise360_AngerManagement_SCORM12.zip",
+  program_id: "anger-management",
+  title: "Anger Management"
+});
+ok(r.status === 200 && r.body?.manifest?.title === "Anger Management",
+   "ingest accepts the Anger Management Rise 360 package");
+r = await fetch(API + "/api/content",
+                { headers: { Authorization: `Bearer ${KEY}` } });
+const angerProgram = (await r.json()).content?.find(p => p.program_id === "anger-management");
+ok(r.status === 200 && angerProgram?.title === "Anger Management",
+   "Anger Management appears as an assignable catalog program");
+
+/* The controlled Survey Block investigation needs to see whether Rise writes
+   standard interactions without putting a subject's actual answer in a log.
+   Prove both halves against the private throwaway server. */
+if (!GIVEN) {
+  const diagSubject = `${SUBJECT}-anger-diagnostic`;
+  await post("/api/assign", { subject_id: diagSubject,
+                              program_id: "anger-management",
+                              name: "Diagnostic Learner" });
+  const launched = await post("/api/launch", {
+    subject_id: diagSubject, program_id: "anger-management"
+  });
+  const opened = await call("/api/runtime/redeem", { token: launched.body.token });
+  const diagId = opened.body.registration.id, diagSession = opened.body.session;
+  const privateAnswer = "PRIVATE-SURVEY-ANSWER-MUST-NOT-LOG";
+
+  await runtime(`/api/runtime/${diagId}/set`,
+    { key: "cmi.interactions.0.id", value: "survey-question-1" }, diagSession);
+  await runtime(`/api/runtime/${diagId}/set`,
+    { key: "cmi.interactions.0.type", value: "long-fill-in" }, diagSession);
+  await runtime(`/api/runtime/${diagId}/set`,
+    { key: "cmi.interactions.0.student_response", value: privateAnswer }, diagSession);
+
+  for (let i = 0; i < 20 && !serverLog.includes("student_response"); i++)
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+  ok(serverLog.includes('program=anger-management key="cmi.interactions.0.id" value="survey-question-1"')
+     && serverLog.includes('key="cmi.interactions.0.type" value="long-fill-in"'),
+     "SCORM diagnostics retain interaction identifiers and types");
+  ok(serverLog.includes('key="cmi.interactions.0.student_response" value=[redacted:')
+     && !serverLog.includes(privateAnswer),
+     "SCORM diagnostics record the response field but redact the learner answer");
+}
+
+/* Articulate's xAPI export includes the Survey Block bridge that its SCORM
+   package omits. Prove launch parameters, append-only answers, identity
+   scoping, and mutable resume state against a throwaway database. */
+if (!GIVEN) {
+  r = await post("/api/ingest", {
+    zip: "spike/corpus/Rise360_AngerManagement_xAPI.zip",
+    program_id: "anger-management",
+    title: "Anger Management"
+  });
+  ok(r.status === 200 && r.body?.manifest?.family === "xapi",
+     "ingest accepts the Anger Management xAPI package");
+  ok(r.body?.manifest?.activity_id && /scormdriver\/indexAPI\.html/.test(r.body?.manifest?.launch_href || ""),
+     "xAPI ingest records its course activity and launch file");
+
+  const xSubject = `${SUBJECT}-xapi`;
+  await post("/api/assign", { subject_id: xSubject, program_id: "anger-management",
+                              name: "xAPI Learner" });
+  const launch = await post("/api/launch", { subject_id: xSubject,
+                                             program_id: "anger-management" });
+  const opened = await call("/api/runtime/redeem", { token: launch.body.token });
+  const xReg = opened.body.registration.id, xSession = opened.body.session;
+  const courseUrl = new URL(opened.body.content.launch_url);
+  ok(opened.body.content.scorm_version === "xAPI"
+     && courseUrl.searchParams.get("endpoint")?.endsWith(`/api/xapi/${xReg}/`)
+     && courseUrl.searchParams.get("auth") === `Bearer ${xSession}`,
+     "xAPI launch carries a registration-scoped endpoint and credential");
+  ok(!!courseUrl.searchParams.get("actor") && !!courseUrl.searchParams.get("registration")
+     && !!courseUrl.searchParams.get("activity_id"),
+     "xAPI launch carries actor, registration, and activity identifiers");
+
+  const xfetch = async (path, options = {}) => {
+    const response = await fetch(API + path, {
+      ...options, headers: { Authorization: `Bearer ${xSession}`, ...(options.headers || {}) }
+    });
+    const text = await response.text();
+    let body = text;
+    try { body = text ? JSON.parse(text) : null; } catch {}
+    return { status: response.status, body, headers: response.headers };
+  };
+  const answerId = crypto.randomUUID();
+  const privateAnswer = "I pause, breathe, and step away.";
+  const answered = {
+    id: answerId,
+    actor: { mbox: "mailto:spoofed@example.com" },
+    verb: { id: "http://adlnet.gov/expapi/verbs/answered" },
+    object: { id: "http://OnhqwcaLiV6oZ5e_VkScqEQ_VxUxkQw4_rise/8e8302af-7869-4fe6-ad83-b08a6962c099/38116c01-f815-4c2b-bbf3-43ad2325674b",
+      definition: { interactionType: "long-fill-in",
+        description: { "en-US": "What can you do when anger starts building?" } } },
+    result: { response: privateAnswer },
+    context: { registration: crypto.randomUUID() }
+  };
+  let xr = await xfetch(`/api/xapi/${xReg}/statements`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(answered)
+  });
+  ok(xr.status === 200 && xr.body?.[0] === answerId,
+     "xAPI accepts an answered Survey Block statement");
+  const lowQualityId = crypto.randomUUID();
+  await xfetch(`/api/xapi/${xReg}/statements`, { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: lowQualityId, verb: answered.verb, object: answered.object,
+      result: { response: "zzzzzzzzzz" } }) });
+  xr = await xfetch(`/api/xapi/${xReg}/statements?statementId=${answerId}`);
+  ok(xr.status === 200
+     && xr.body.actor?.account?.name === String(opened.body.registration.person_id)
+     && xr.body.context?.registration === courseUrl.searchParams.get("registration"),
+     "server-authenticated registration replaces spoofed xAPI identity fields");
+
+  const wrongScope = await fetch(API + `/api/xapi/${xReg + 9999}/statements`, {
+    headers: { Authorization: `Bearer ${xSession}` }
+  });
+  ok(wrongScope.status === 403,
+     "an xAPI session cannot read another learner's registration");
+
+  const review = await fetch(API + `/api/registrations/${xReg}/responses`, {
+    headers: { Authorization: `Bearer ${KEY}` }
+  }).then(async response => ({ status: response.status, body: await response.json() }));
+  ok(review.status === 200 && review.body.responses?.[0]?.response === privateAnswer
+     && /anger starts building/i.test(review.body.responses?.[0]?.question || "")
+     && review.body.responses?.[0]?.section === "Overview of Anger Management"
+     && review.body.responses?.[0]?.lesson === "Myths About Anger"
+     && review.body.responses?.[0]?.quality_status === "ok"
+     && Array.isArray(review.body.responses?.[0]?.quality_flags),
+     "authorized staff can review context, response and deterministic quality fields");
+  const low = review.body.responses.find(r => r.statement_id === lowQualityId);
+  ok(low?.quality_status === "review" && low.quality_flags?.includes("possible_gibberish"),
+     "the evidence view flags an obvious deterministic gibberish response");
+
+  const activity = encodeURIComponent(courseUrl.searchParams.get("activity_id"));
+  const statePath = `/api/xapi/${xReg}/activities/state?activityId=${activity}&stateId=bookmark`;
+  xr = await xfetch(statePath, { method: "PUT", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify({ lesson: 4, block: 2 }) });
+  ok(xr.status === 204, "xAPI stores a course resume-state document");
+  xr = await xfetch(statePath);
+  ok(xr.status === 200 && xr.body.lesson === 4 && !!xr.headers.get("etag"),
+     "xAPI returns resume state intact with an ETag");
+  xr = await xfetch(statePath, { method: "DELETE" });
+  ok(xr.status === 204 && (await xfetch(statePath)).status === 404,
+     "xAPI can remove mutable resume state without deleting statements");
+
+  const completion = {
+    verb: { id: "http://adlnet.gov/expapi/verbs/completed" },
+    object: { id: courseUrl.searchParams.get("activity_id") },
+    result: { completion: true, duration: "PT2M5S" }
+  };
+  await xfetch(`/api/xapi/${xReg}/statements`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(completion)
+  });
+  const status = await fetch(API + "/api/status", {
+    headers: { Authorization: `Bearer ${KEY}` }
+  }).then(response => response.json());
+  const xEnrollment = status.enrollments.find(e => e.registration_id === xReg);
+  ok(xEnrollment?.completion_status === "completed" && xEnrollment?.total_seconds === 125,
+     "xAPI completion and duration update the existing registration record");
+}
 
 /* re-ingest creates a NEW immutable version, never overwriting */
-const v1 = r.body.content_version.version;
 r = await post("/api/ingest", { zip: "spike/corpus/RuntimeBasicCalls_SCORM12.zip", program_id: "golf-101" });
 ok(r.body.content_version.version === v1 + 1, "re-upload creates version N+1, never overwrites");
 
@@ -342,9 +508,9 @@ ok(r2.body.registration.entry === "ab-initio",
                 { key: "cmi.core.lesson_location", value: "page-3" }, sess2);
   await runtime(`/api/runtime/${rid}/set`,
                 { key: "cmi.suspend_data", value: "state-here" }, sess2);
-  await runtime(`/api/runtime/${rid}/set`,
-                { key: "cmi.core.exit", value: "suspend" }, sess2);
-  await runtime(`/api/runtime/${rid}/terminate`, {}, sess2);
+  /* The web Save & Exit path sends the suspend marker with termination. This
+     must resume even when no separate cmi.exit write made it to the server. */
+  await runtime(`/api/runtime/${rid}/terminate`, { exit_mode: "suspend" }, sess2);
 
   const again = await post("/api/launch", { subject_id: SUBJECT, program_id: "golf-101" });
   const back = await call("/api/runtime/redeem", { token: again.body.token });

@@ -29,12 +29,18 @@ SAAS_PORT=8092
 METRO_PORT=${METRO_PORT:-8081}
 API_KEY=wp_demo_key_123
 DATA_DIR=spike/data
-# Two packages, deliberately different in kind:
+DOCS_DIR=spike/documents
+BASELINE_DB=spike/backups/baseline.db
+BASELINE_CONTENT=spike/backups/baseline-content
+# Four package versions, deliberately different in kind:
 #   golf       Rustici's reference sample — clean, minimal, spec-authored
 #   diversity  a real Rise 360 export — 11MB, commits as it goes, writes
 #              suspend_data. It found two bugs golf structurally could not.
+#   anger      a second real Rise 360 program available for assignment
 SEED_ZIP=spike/corpus/RuntimeBasicCalls_SCORM12.zip
 SEED_ZIP2=spike/corpus/Rise360_DiversityBasics_SCORM12.zip
+SEED_ZIP3=spike/corpus/Rise360_AngerManagement_SCORM12.zip
+SEED_ZIP4=spike/corpus/Rise360_AngerManagement_xAPI.zip
 LOG=/tmp/waypoint-demo.log
 METRO_LOG=/tmp/waypoint-metro.log
 # The app is a DEVELOPMENT BUILD, not Expo Go. Expo Go only ever supports the
@@ -101,7 +107,8 @@ start_servers() {
   [ -f spike/.env ] && envfile="--env-file=spike/.env"
 
   HOST=$HOST APP_PORT=$APP_PORT CONTENT_PORT=$CONTENT_PORT SAAS_PORT=$SAAS_PORT \
-    WAYPOINT_API_KEY=$API_KEY nohup node $envfile spike/api/server.mjs >"$LOG" 2>&1 &
+    WAYPOINT_API_KEY=$API_KEY WAYPOINT_SCORM_DIAGNOSTICS=anger-management \
+    nohup node $envfile spike/api/server.mjs >"$LOG" 2>&1 &
   for _ in $(seq 1 20); do servers_up && break; sleep 0.4; done
   if ! servers_up; then
     no "servers failed to start — last lines of $LOG:"
@@ -124,6 +131,10 @@ seed_content() {
   ingest_one "$SEED_ZIP"  golf-101      "Golf Explained (Rustici sample)"
   [ -f "$SEED_ZIP2" ] && ingest_one "$SEED_ZIP2" diversity-101 "Diversity Basics: Foundations (Rise 360)" \
                       || dim "no Rise export present — skipping diversity-101"
+  [ -f "$SEED_ZIP3" ] && ingest_one "$SEED_ZIP3" anger-management "Anger Management" \
+                      || dim "no Anger Management export present — skipping anger-management"
+  [ -f "$SEED_ZIP4" ] && ingest_one "$SEED_ZIP4" anger-management "Anger Management (xAPI)" \
+                      || dim "no Anger Management xAPI export present — keeping SCORM version"
 
   # Assigning happens HERE and not in the JS seed, because the JS seed runs the
   # moment the server is listening and the content is not ingested until the
@@ -138,6 +149,41 @@ seed_content() {
     -d '{"subject_id":"cust-2298","name":"Marcus Oyelaran","program_id":"golf-101"}')
   [ "$code" = "200" ] && ok "golf-101 assigned to Marcus Oyelaran" \
                       || dim "could not assign golf-101 (HTTP $code)"
+}
+
+# Ingest responses only prove that each request was accepted. A stale process
+# on the same port, a wrong database path, or a server that dies immediately
+# afterwards can still leave the operator with an empty Assign Program list.
+# Verify the state the browser will actually read before calling reset done.
+verify_seed() {
+  local catalog status
+  catalog=$(curl -fsS "http://$HOST:$APP_PORT/api/content" \
+    -H "Authorization: Bearer $API_KEY") || { no "could not read the seeded catalog"; return 1; }
+  printf '%s' "$catalog" | python3 -c '
+import json, sys
+want = {"golf-101", "diversity-101", "anger-management"}
+got = {x.get("program_id") for x in json.load(sys.stdin).get("content", [])}
+missing = sorted(want - got)
+if missing:
+    print("  missing catalog programs: " + ", ".join(missing))
+    raise SystemExit(1)
+' || { no "seed verification failed — the catalog is incomplete"; return 1; }
+
+  status=$(curl -fsS "http://$HOST:$APP_PORT/api/status" \
+    -H "Authorization: Bearer $API_KEY") || { no "could not read seeded assignments"; return 1; }
+  printf '%s' "$status" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin).get("enrollments", [])
+dana = [x for x in rows if x.get("subject_id") == "cust-1041"]
+marcus = [x for x in rows if x.get("subject_id") == "cust-2298"]
+if dana:
+    print("  Dana still has an assignment")
+    raise SystemExit(1)
+if not any(x.get("program_id") == "golf-101" for x in marcus):
+    print("  Marcus baseline golf assignment is missing")
+    raise SystemExit(1)
+' || { no "seed verification failed — baseline assignments are wrong"; return 1; }
+  ok "verified catalog and baseline assignments"
 }
 
 sync_mobile_config() {
@@ -188,7 +234,7 @@ script() {
   dim "Dana Whitfield  on the same caseload, deliberately bare — so every empty"
   dim "                state and Create flow can be demonstrated"
   echo
-  dim "Dana has nothing at all, and a second course is unassigned: those are"
+  dim "Dana has nothing at all, and the other courses are unassigned: those are"
   dim "the live parts."
   echo
   b "Demo script"
@@ -225,7 +271,10 @@ case "${1:-start}" in
   start)
     b "Starting Waypoint demo"
     start_servers || exit 1
-    [ -f "$DATA_DIR/waypoint.db" ] || seed_content
+    if [ ! -f "$DATA_DIR/waypoint.db" ]; then
+      seed_content
+      verify_seed || exit 1
+    fi
     sync_mobile_config
     urls; script
     dim "Mobile app:  ./spike/demo mobile"
@@ -251,9 +300,33 @@ case "${1:-start}" in
       ls -1t "$DATA_DIR/../backups"/waypoint-*.db 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
     fi
     rm -rf "$DATA_DIR"
-    ok "all learners, registrations and completions deleted"
+    if [ -f "$BASELINE_DB" ]; then
+      mkdir -p "$DATA_DIR"
+      cp "$BASELINE_DB" "$DATA_DIR/waypoint.db"
+      if [ -d "$BASELINE_CONTENT" ]; then
+        cp -R "$BASELINE_CONTENT" "$DATA_DIR/content"
+      else
+        no "baseline content is missing — refusing to start an unusable baseline"
+        exit 1
+      fi
+      ok "restored local baseline — $(basename "$BASELINE_DB")"
+    else
+      ok "all learners, registrations and completions deleted"
+    fi
+    # Generated PDFs live outside the SQLite database, so deleting the DB alone
+    # leaves stale documents visible after reseed. Demo reset owns this
+    # directory; profile records are recreated by Northwood's seed.
+    if [ -d "$DOCS_DIR" ]; then
+      find "$DOCS_DIR" -type f -maxdepth 1 -delete
+      ok "generated documents deleted"
+    fi
     start_servers || exit 1
-    seed_content
+    if [ -f "$BASELINE_DB" ]; then
+      dim "baseline restored; skipping seed data"
+    else
+      seed_content
+      verify_seed || exit 1
+    fi
     sync_mobile_config
     urls; script
     ;;

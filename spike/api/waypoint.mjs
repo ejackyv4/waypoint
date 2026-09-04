@@ -10,6 +10,7 @@
  */
 
 import { createServer } from "node:http";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -18,22 +19,89 @@ import {
   issueTicket, redeemTicket, recordDelivery, deliveries, allRegistrations,
   assignmentsFor, setPassword, passwordFor, subjectsWithLogin, personBySubjectId,
   credentialByIdentifier, markCredentialUsed, personById, catalog,
-  assignmentState, unassign, enrollments, now
+  assignmentState, unassign, enrollments, now, storeXapiStatement,
+  xapiStatement, xapiStatements, xapiResponsesForRegistration,
+  xapiState, xapiStateIds, putXapiState, deleteXapiState
 } from "./db/waypoint.mjs";
 import { audit, callerIp } from "./db/audit.mjs";
 import { API_KEY, WEBHOOK_SECRET, requireApiKey, requireSession, mintSession,
-         signWebhook, hashPassword, verifyPassword } from "./auth.mjs";
+         signWebhook, hashPassword, verifyPassword, xapiRegistrationId } from "./auth.mjs";
 import { mintLearnerSession, requireLearner, endLearnerSession,
          endAllLearnerSessions, verifyLearnerSession } from "./learner-session.mjs";
-import { ingestPackage, CONTENT_DIR } from "./ingest.mjs";
+import { ingestPackage, CONTENT_DIR, readManifest } from "./ingest.mjs";
 import { applyStatus, toSeconds, fromSeconds, suspendCap,
          registrationDone, effectiveCompletionStatus } from "./scorm.mjs";
 import { APP_ORIGIN, CONTENT_ORIGIN, SAAS_ORIGIN, DEMO_ROUTES } from "./config.mjs";
-import { jsonTo, readJson, guard } from "./http.mjs";
+import { jsonTo, readJson, readBody, guard } from "./http.mjs";
 
 /* Only the content origin may read this API — that is the player calling home.
    Never "*". */
 const json = jsonTo(CONTENT_ORIGIN);
+
+const XAPI_VERSION = "1.0.3";
+function xapiHeaders(extra = {}) {
+  return {
+    "Access-Control-Allow-Origin": CONTENT_ORIGIN,
+    "Access-Control-Expose-Headers": "ETag, X-Experience-API-Version",
+    "X-Experience-API-Version": XAPI_VERSION,
+    "Cache-Control": "no-store",
+    ...extra
+  };
+}
+function xapiJson(res, code, body) {
+  const data = JSON.stringify(body);
+  res.writeHead(code, xapiHeaders({ "Content-Type": "application/json",
+                                   "Content-Length": Buffer.byteLength(data) }));
+  res.end(data);
+}
+function xapiEmpty(res, code = 204) { res.writeHead(code, xapiHeaders()); res.end(); }
+
+const xapiActor = reg => ({
+  objectType: "Agent",
+  name: "Learner",
+  account: { homePage: APP_ORIGIN, name: String(reg.person_id) }
+});
+
+/** Accept both normal xAPI HTTP and the form/method tunnelling used by older
+ * Articulate TinCanJS builds. The latter places the real body in `content`. */
+async function xapiRequest(req, url) {
+  let method = (url.searchParams.get("method") || req.method).toUpperCase();
+  let body = Buffer.alloc(0);
+  if (!["GET", "DELETE"].includes(req.method)) {
+    body = await readBody(req);
+    if (body?.__tooBig) return { error: "body too large", status: 413 };
+    if (String(req.headers["content-type"] || "").includes("application/x-www-form-urlencoded")) {
+      const form = new URLSearchParams(body.toString());
+      method = (url.searchParams.get("method") || form.get("method") || method).toUpperCase();
+      body = Buffer.from(form.get("content") || "");
+      const auth = form.get("Authorization") || form.get("authorization");
+      if (auth && !req.headers.authorization) req.headers.authorization = auth;
+      if (form.get("Content-Type")) req.headers["content-type"] = form.get("Content-Type");
+    }
+  }
+  return { method, body };
+}
+
+function applyXapiOutcome(reg, statement) {
+  const verb = String(statement?.verb?.id || "").split(/[\/#]/).pop();
+  const patch = {};
+  if (["attempted", "experienced", "answered", "progressed"].includes(verb)
+      && reg.completion_status === "not attempted") patch.completion_status = "incomplete";
+  if (["completed", "passed", "failed"].includes(verb)) {
+    patch.completion_status = "completed";
+    patch.completed_at = reg.completed_at || now();
+  }
+  if (verb === "passed" || verb === "failed") patch.success_status = verb;
+  if (statement?.result?.score) {
+    const score = statement.result.score;
+    if (Number.isFinite(score.raw)) patch.score_raw = score.raw;
+    if (Number.isFinite(score.min)) patch.score_min = score.min;
+    if (Number.isFinite(score.max)) patch.score_max = score.max;
+    if (Number.isFinite(score.scaled)) patch.score_scaled = score.scaled;
+  }
+  if (statement?.result?.duration) patch.session_seconds = toSeconds(statement.result.duration);
+  if (Object.keys(patch).length) updateRegistration(reg.id, patch);
+}
 
 /**
  * Throttle repeated failed sign-ins, per identifier.
@@ -50,6 +118,34 @@ const json = jsonTo(CONTENT_ORIGIN);
 const LOGIN_FAILS = new Map();
 const LOGIN_LOCK_AFTER = 5;
 const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+/* Optional, program-scoped SCORM field tracing for controlled diagnostics.
+ *
+ * Learner answers are sensitive case data, so this deliberately logs the
+ * field NAME but never the response value. Interaction ids and types are the
+ * only values retained: they tell us whether an authoring tool is using the
+ * standard interaction channel without copying a subject's answer into a
+ * terminal log. Enable with a comma-separated list of program ids, e.g.
+ * WAYPOINT_SCORM_DIAGNOSTICS=anger-management. */
+const SCORM_DIAGNOSTIC_PROGRAMS = new Set(
+  String(process.env.WAYPOINT_SCORM_DIAGNOSTICS || "")
+    .split(",").map(v => v.trim()).filter(Boolean));
+
+function traceScormWrite(reg, key, value) {
+  if (!SCORM_DIAGNOSTIC_PROGRAMS.size) return;
+  const ctx = contextFor(reg.id);
+  if (!ctx || !SCORM_DIAGNOSTIC_PROGRAMS.has(ctx.program_id)) return;
+
+  const interactionMeta = /^cmi\.interactions\.\d+\.(id|type)$/i.test(key);
+  const responseBearing = /(?:learner_response|student_response|correct_responses|suspend_data|comments)/i
+    .test(key);
+  const detail = interactionMeta
+    ? ` value=${JSON.stringify(value)}`
+    : responseBearing ? ` value=[redacted:${value.length} chars]` : "";
+
+  console.log(`[SCORM diagnostic] registration=${reg.id} `
+    + `program=${ctx.program_id} key=${JSON.stringify(key)}${detail}`);
+}
 
 function loginLocked(who) {
   const f = LOGIN_FAILS.get(who);
@@ -70,15 +166,17 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": CONTENT_ORIGIN,
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
       // Authorization is NOT a CORS-safelisted header, so it must be named
       // here or every authenticated call fails at preflight.
-      "Access-Control-Allow-Headers": "Content-Type, Authorization"
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, If-Match, If-None-Match, X-Experience-API-Version",
+      "Access-Control-Expose-Headers": "ETag, X-Experience-API-Version"
     });
     return res.end();
   }
 
   try {
+    let m;
     /* --- health --- */
     if (p === "/api/health")
       return json(res, 200, { ok: true, app: APP_ORIGIN, content: CONTENT_ORIGIN });
@@ -435,19 +533,141 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
            data. That is a total, silent loss of resume for that package. */
         entry: stale.exit_mode === "suspend" ? "resume" : "ab-initio"
       });
+      const session = mintSession(reg.id);
+      let launchUrl = `${CONTENT_ORIGIN}/content/${cv.id}/${cv.launch_href}`;
+      let activityId = null;
+      if (cv.scorm_version === "xAPI") {
+        const manifest = readManifest(cv.storage_path);
+        if (manifest.error) return json(res, 500, { error: "xAPI package metadata is unavailable" });
+        activityId = manifest.activity_id;
+        const q = new URLSearchParams({
+          endpoint: `${APP_ORIGIN}/api/xapi/${reg.id}/`,
+          auth: `Bearer ${session}`,
+          actor: JSON.stringify(xapiActor(reg)),
+          registration: xapiRegistrationId(reg.id),
+          activity_id: activityId
+        });
+        launchUrl += `${launchUrl.includes("?") ? "&" : "?"}${q}`;
+      }
       return json(res, 200, {
         // Scoped to THIS registration only. Without it the runtime endpoints
         // would accept a bare id from anyone — the same bug as an id in a URL.
-        session: mintSession(reg.id),
+        session,
         registration: reg,
         content: {
           scorm_version: cv.scorm_version,
           // Prefer the program's title over the package's internal one —
           // the learner was assigned a program, not a manifest.
           title: contextFor(reg.id)?.title || cv.title || "Course",
-          launch_url: `${CONTENT_ORIGIN}/content/${cv.id}/${cv.launch_href}`
+          launch_url: launchUrl,
+          activity_id: activityId
         }
       });
+    }
+
+    /* --- xAPI -----------------------------------------------------------
+       A session minted by the launch ticket scopes every call to exactly one
+       registration. Actor and registration inside a statement are replaced
+       with their server-derived values so course code cannot attribute an
+       answer to another learner. */
+    if ((m = p.match(/^\/api\/xapi\/(\d+)\/about$/))) {
+      const gate = requireSession(req, +m[1]);
+      if (gate.error) return xapiJson(res, gate.status, { error: gate.error });
+      return xapiJson(res, 200, { version: [XAPI_VERSION] });
+    }
+
+    if ((m = p.match(/^\/api\/xapi\/(\d+)\/statements$/))) {
+      const xr = await xapiRequest(req, url);
+      if (xr.error) return xapiJson(res, xr.status, { error: xr.error });
+      const gate = requireSession(req, +m[1]);
+      if (gate.error) return xapiJson(res, gate.status, { error: gate.error });
+      const reg = registration(+m[1]);
+      if (!reg) return xapiJson(res, 404, { error: "no such registration" });
+
+      if (xr.method === "GET") {
+        const id = url.searchParams.get("statementId");
+        if (id) {
+          const row = xapiStatement(reg.id, id);
+          return row ? xapiJson(res, 200, JSON.parse(row.statement))
+                     : xapiJson(res, 404, { error: "statement not found" });
+        }
+        return xapiJson(res, 200, {
+          statements: xapiStatements(reg.id).map(r => JSON.parse(r.statement)), more: ""
+        });
+      }
+
+      if (!["POST", "PUT"].includes(xr.method))
+        return xapiJson(res, 405, { error: "method not allowed" });
+      let submitted;
+      try { submitted = JSON.parse(xr.body.toString()); }
+      catch { return xapiJson(res, 400, { error: "invalid statement JSON" }); }
+      const many = Array.isArray(submitted) ? submitted : [submitted];
+      const ids = [];
+      for (const raw of many) {
+        if (!raw || typeof raw !== "object" || !raw.verb?.id || !raw.object?.id)
+          return xapiJson(res, 400, { error: "statement requires verb and object" });
+        const requestedId = xr.method === "PUT" ? url.searchParams.get("statementId") : null;
+        const id = requestedId || raw.id || randomUUID();
+        const statement = {
+          ...raw, id, actor: xapiActor(reg),
+          context: { ...(raw.context || {}), registration: xapiRegistrationId(reg.id) },
+          timestamp: raw.timestamp || now()
+        };
+        const saved = storeXapiStatement(reg.id, statement);
+        if (!saved.inserted && !xapiStatement(reg.id, id))
+          return xapiJson(res, 409, { error: "statement id belongs to another registration" });
+        if (saved.inserted) applyXapiOutcome(registration(reg.id), statement);
+        ids.push(id);
+      }
+      return xr.method === "PUT" ? xapiEmpty(res) : xapiJson(res, 200, ids);
+    }
+
+    if ((m = p.match(/^\/api\/xapi\/(\d+)\/activities\/state$/))) {
+      const xr = await xapiRequest(req, url);
+      if (xr.error) return xapiJson(res, xr.status, { error: xr.error });
+      const gate = requireSession(req, +m[1]);
+      if (gate.error) return xapiJson(res, gate.status, { error: gate.error });
+      if (!registration(+m[1])) return xapiJson(res, 404, { error: "no such registration" });
+      const activityId = url.searchParams.get("activityId");
+      const stateId = url.searchParams.get("stateId");
+      if (!activityId) return xapiJson(res, 400, { error: "activityId is required" });
+
+      if (xr.method === "GET" && !stateId)
+        return xapiJson(res, 200, xapiStateIds(+m[1], activityId));
+      if (xr.method === "GET") {
+        const state = xapiState(+m[1], activityId, stateId);
+        if (!state) return xapiEmpty(res, 404);
+        const body = Buffer.from(state.document);
+        res.writeHead(200, xapiHeaders({
+          "Content-Type": state.content_type || "application/octet-stream",
+          "Content-Length": body.length, ETag: state.etag
+        }));
+        return res.end(body);
+      }
+      if (xr.method === "DELETE") {
+        deleteXapiState(+m[1], activityId, stateId);
+        return xapiEmpty(res);
+      }
+      if (!["PUT", "POST"].includes(xr.method) || !stateId)
+        return xapiJson(res, 405, { error: "method not allowed" });
+
+      let document = xr.body;
+      const contentType = String(req.headers["content-type"] || "application/octet-stream").split(";")[0];
+      if (xr.method === "POST") {
+        const prior = xapiState(+m[1], activityId, stateId);
+        if (prior && contentType === "application/json") {
+          try {
+            document = Buffer.from(JSON.stringify({
+              ...JSON.parse(Buffer.from(prior.document).toString()),
+              ...JSON.parse(document.toString())
+            }));
+          } catch { return xapiJson(res, 400, { error: "invalid JSON state document" }); }
+        }
+      }
+      const etag = `\"${createHash("sha256").update(document).digest("hex")}\"`;
+      putXapiState({ registration_id: +m[1], activity_id: activityId, state_id: stateId,
+                     document, content_type: contentType, etag });
+      return xapiEmpty(res);
     }
 
     /* --- runtime writes ---------------------------------------------------
@@ -456,7 +676,6 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
        Persisted IMMEDIATELY. Courses do not call Commit — observed: five
        bookmarks and zero commits in 244 seconds — so durability cannot be
        delegated to the content.                                          */
-    let m;
     if ((m = p.match(/^\/api\/runtime\/(\d+)\/set$/)) && req.method === "POST") {
       const gate = requireSession(req, +m[1]);
       if (gate.error) return json(res, gate.status, { error: gate.error });
@@ -472,8 +691,10 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
         return json(res, 409, { error: "session already terminated" });
 
       const { key, value } = await readJson(req);
+      const field = String(key), written = String(value ?? "");
+      traceScormWrite(reg, field, written);
       const cv = contentVersion(reg.content_version_id);
-      const patch = mapWrite(reg, String(key), String(value ?? ""),
+      const patch = mapWrite(reg, field, written,
                              /2004/.test(cv?.scorm_version || ""));
       const updated = updateRegistration(reg.id, patch);
       return json(res, 200, { ok: true, applied: patch,
@@ -492,7 +713,16 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
       if (gate.error) return json(res, gate.status, { error: gate.error });
       const reg = registration(+m[1]);
       if (!reg) return json(res, 404, { error: "no such registration" });
-      const { registration: updated, delivery } = await closeSession(reg);
+      /* Save & Exit (and pagehide) carries the suspend marker in the same
+         request as termination. Applying it before closeSession makes the
+         operation atomic; a racing cmi.exit SetValue could otherwise be
+         rejected after the session was already closed. */
+      if (tb.exit_mode === "suspend")
+        updateRegistration(reg.id, { exit_mode: "suspend" });
+      if (Number.isFinite(Number(tb.session_seconds)) && Number(tb.session_seconds) >= 0)
+        updateRegistration(reg.id, { session_seconds: Math.round(Number(tb.session_seconds)) });
+      const current = registration(reg.id);
+      const { registration: updated, delivery } = await closeSession(current);
       return json(res, 200, { ok: true, registration: asRegistration(updated),
                               webhook: delivery });
     }
@@ -503,6 +733,25 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
 
     if ((m = p.match(/^\/api\/registrations\/([^/]+)$/)))
       return json(res, 200, { registrations: registrationsFor(decodeURIComponent(m[1])) });
+
+    if ((m = p.match(/^\/api\/registrations\/(\d+)\/responses$/))) {
+      const auth = requireApiKey(req);
+      if (auth.error) return json(res, auth.status, { error: auth.error });
+      const reg = registration(+m[1]);
+      if (!reg) return json(res, 404, { error: "no such registration" });
+      const ctx = contextFor(reg.id);
+      return json(res, 200, { registration_id: reg.id,
+                              subject_id: ctx?.subject_id || null,
+                              program_id: ctx?.program_id || null,
+                              title: ctx?.title || null,
+                              attempt: reg.attempt,
+                              completion_status: reg.completion_status,
+                              success_status: reg.success_status,
+                              started_at: reg.started_at,
+                              completed_at: reg.completed_at,
+                              last_write_at: reg.last_write_at,
+                              responses: xapiResponsesForRegistration(reg.id) });
+    }
 
     /* --- console data ---
        Every registration in the system: who is enrolled on what, their scores,

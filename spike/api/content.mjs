@@ -51,7 +51,9 @@ const CONTENT_CSP = [
   "img-src 'self' data: blob:",
   "media-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  // xAPI packages send statements and state directly to the app origin. The
+  // existing SCORM packages still talk only to their parent player.
+  `connect-src 'self' ${APP_ORIGIN}`,
   "form-action 'none'",
   "base-uri 'none'",
   `frame-ancestors 'self' ${CONTENT_ORIGIN}`
