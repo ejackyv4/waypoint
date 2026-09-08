@@ -18,7 +18,13 @@ const doc = readFileSync(join(HERE, "..", "..", "docs", "API.md"), "utf8");
 
 const routes = new Set();
 
-/* Waypoint and the content origin still dispatch with string comparisons. */
+/* Waypoint's migrated routes come from its table; legacy branches are still
+   scanned until each domain is extracted. */
+const { routeList: waypointRouteList } = await import("./waypoint.mjs");
+for (const spec of waypointRouteList()) routes.add(spec.split(" ")[1]);
+
+/* Content and remaining legacy Waypoint routes still dispatch with string
+   comparisons. */
 for (const f of ["waypoint.mjs", "content.mjs"])
   for (const m of readFileSync(join(HERE, f), "utf8").matchAll(/p === "(\/[^"]*)"/g))
     routes.add(m[1]);

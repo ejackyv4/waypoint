@@ -1,7 +1,6 @@
 # Moving off SQLite
 
-What it would take to put Waypoint on a server database — Postgres assumed
-throughout, though almost none of this is Postgres-specific.
+What it would take to put Waypoint on Microsoft SQL Server.
 
 **This is a plan, not a recommendation.** Whether to do it at all is the last
 section, and the honest answer for today is no.
@@ -54,15 +53,15 @@ and uses `INTEGER PRIMARY KEY`. What has to change is small:
 |---|---|---|
 | `PRAGMA table_info` | 4 | `information_schema.columns` |
 | `CHAR(34)` | 2 | `'"'` or `chr(34)` |
-| `CREATE TABLE IF NOT EXISTS` | 76 | works unchanged in Postgres |
-| `INTEGER PRIMARY KEY` | 41 | `GENERATED ALWAYS AS IDENTITY` |
-| `GROUP_CONCAT` | few | `string_agg` |
+| `CREATE TABLE IF NOT EXISTS` | 76 | replace with SQL Server migration guards |
+| `INTEGER PRIMARY KEY` | 41 | `INT IDENTITY(1,1)` |
+| `GROUP_CONCAT` | few | `STRING_AGG` |
 
 ---
 
 ## The hard part: synchronous to asynchronous
 
-`node:sqlite` is **synchronous**. Every Postgres driver is asynchronous. That
+`node:sqlite` is **synchronous**. The SQL Server driver is asynchronous. That
 one difference is most of the work.
 
 ```js
@@ -136,7 +135,7 @@ the list is short.
 
 ## Types
 
-SQLite is dynamically typed and let things through that Postgres will reject.
+SQLite is dynamically typed and lets things through that SQL Server will reject.
 **This is a feature of the migration, not a cost** — every rejection is a bug
 that already exists.
 
@@ -157,9 +156,9 @@ Every `_at` and `_date` column is an ISO string. Two options:
 
 **Keep them TEXT.** Migration stays trivial, everything keeps working,
 ordering and comparison still behave because ISO-8601 sorts lexicographically.
-Loses timezone correctness and date arithmetic in SQL.
+Loses timezone correctness and date arithmetic in SQL Server.
 
-**Convert to `timestamptz` / `date`.** The right end state. Costs a data
+**Convert to `datetime2` / `date`.** The right end state. Costs a data
 migration and a careful pass over every comparison — several places do
 `a.due_date < today` on strings, which becomes a real date comparison and will
 behave differently at midnight boundaries.
@@ -169,8 +168,8 @@ change.** Two risky things at once is how a migration turns into a fortnight.
 
 ### Booleans: 6 INTEGER columns
 
-`active`, `must_change`, `time_fixed`, and friends are `0`/`1`. Postgres has a
-real `BOOLEAN`. Straightforward, but every truthiness check that relied on `0`
+`active`, `must_change`, `time_fixed`, and friends are `0`/`1`. SQL Server has a
+`BIT` type. Straightforward, but every truthiness check that relied on `0`
 being falsy needs looking at — `if (row.active)` behaves the same, but
 `row.active === 1` does not.
 
@@ -231,7 +230,7 @@ here — pointing at the wrong environment — is considerably more expensive.
 5. **Schema snapshot as migration 0001**, plus migration tooling.
 6. **Wrap the multi-statement writes in transactions.**
 7. **Swap the driver.** One file.
-8. **Then, separately:** dates to `timestamptz`, integers to `boolean`.
+8. **Then, separately:** dates to `datetime2`, integer flags to `bit`.
 
 Steps 1–4 are the bulk. Step 7 is an afternoon if 1–6 were done properly.
 
@@ -239,27 +238,21 @@ Steps 1–4 are the bulk. Step 7 is an afternoon if 1–6 were done properly.
 
 ## Should we?
 
-**Not for the proof of concept.** SQLite is the right call for what this
-currently is, and `CLAUDE.md` is explicit that the PoC is disposable — if it
-succeeds, plan to rewrite rather than evolve.
+**SQL Server is the required target for the shared/deployed application.** SQLite
+remains useful for isolated local development and disposable tests, but the
+deployment path must be validated against SQL Server before a pilot.
 
 The reasons that would change the answer:
 
 | reason | applies today? |
 |---|---|
-| More than one app server | no |
-| Concurrent writers | no — one process, one officer at a time |
-| Real backup and point-in-time recovery | not yet, but the first real pilot needs it |
-| Row-level security, if tenancy ever arrives | no — single tenant by decision |
-| **`node:sqlite` is experimental** | **yes** |
+| More than one app server | expected in shared deployment |
+| Concurrent writers | expected with officers, subjects, and background workers |
+| Real backup and point-in-time recovery | required for a pilot |
+| Row-level security, if tenancy ever arrives | not yet — single tenant by decision |
+| Centralized monitoring and reporting | required outside local development |
 
-That last one is the only argument with force today. Node prints the warning on
-every start for a reason, and the API may change under us.
-
-**A cheaper answer to that specific risk:** move to `better-sqlite3`, which is
-stable, synchronous, and a near drop-in for the three seam functions. It buys
-the stability without any of the async conversion. If the reason for moving is
-"experimental API" rather than "we need a server database", that is the change
-to make instead — an afternoon rather than four days.
+The migration should therefore be treated as a real deployment track, not as an
+optional replacement of the local PoC database.
 
 Decide which problem is actually being solved before starting.

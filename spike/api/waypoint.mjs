@@ -14,12 +14,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  upsertPerson, upsertProgram, assign, latestVersion, contentVersion,
+  upsertPerson, upsertProgram, latestVersion, contentVersion,
   openRegistration, registration, updateRegistration, contextFor,
   issueTicket, redeemTicket, recordDelivery, deliveries, allRegistrations,
   assignmentsFor, setPassword, passwordFor, subjectsWithLogin, personBySubjectId,
   credentialByIdentifier, markCredentialUsed, personById, catalog,
-  assignmentState, unassign, enrollments, now, storeXapiStatement,
+  now, storeXapiStatement,
   xapiStatement, xapiStatements, xapiResponsesForRegistration,
   xapiState, xapiStateIds, putXapiState, deleteXapiState
 } from "./db/waypoint.mjs";
@@ -32,11 +32,18 @@ import { ingestPackage, CONTENT_DIR, readManifest } from "./ingest.mjs";
 import { applyStatus, toSeconds, fromSeconds, suspendCap,
          registrationDone, effectiveCompletionStatus } from "./scorm.mjs";
 import { APP_ORIGIN, CONTENT_ORIGIN, SAAS_ORIGIN, DEMO_ROUTES } from "./config.mjs";
-import { jsonTo, readJson, readBody, guard } from "./http.mjs";
+import { jsonTo, readJson, readBody, guard, createRouter } from "./http.mjs";
+import { routes as healthRoutes } from "./waypoint/health.mjs";
+import { routes as contentRoutes } from "./waypoint/content.mjs";
+import { routes as assignmentRoutes } from "./waypoint/assignments.mjs";
+import { routes as learnerRoutes } from "./waypoint/learner.mjs";
+import { routes as accessRoutes } from "./waypoint/access.mjs";
+import { routes as runtimeRoutes } from "./waypoint/runtime.mjs";
 
 /* Only the content origin may read this API — that is the player calling home.
    Never "*". */
 const json = jsonTo(CONTENT_ORIGIN);
+const router = createRouter("waypoint").mount(healthRoutes).mount(contentRoutes).mount(assignmentRoutes).mount(learnerRoutes).mount(accessRoutes).mount(runtimeRoutes);
 
 const XAPI_VERSION = "1.0.3";
 function xapiHeaders(extra = {}) {
@@ -175,66 +182,14 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
     return res.end();
   }
 
+  if (await router.handle(req, res, {
+    url, json, readJson, appOrigin: APP_ORIGIN, contentOrigin: CONTENT_ORIGIN,
+    loginLocked, recordLoginFailure, clearLoginFailures, now, contextFor,
+    xapiActor, traceScormWrite, mapWrite, asRegistration, closeSession
+  })) return;
+
   try {
     let m;
-    /* --- health --- */
-    if (p === "/api/health")
-      return json(res, 200, { ok: true, app: APP_ORIGIN, content: CONTENT_ORIGIN });
-
-    /* --- ingest a package ------------------------------------------------
-       POST { zip, program_id?, title? }                                  */
-    if (p === "/api/ingest" && req.method === "POST") {
-      const auth = requireApiKey(req);
-      if (auth.error) return json(res, auth.status, { error: auth.error });
-      const b = await readJson(req);
-      if (!b.zip) return json(res, 400, { error: "zip path required" });
-      const r = ingestPackage(b.zip, { program_id: b.program_id, title: b.title });
-      return json(res, r.error ? 422 : 200, r);
-    }
-
-    /* --- the SaaS assigns a program to a subject -------------------------
-       POST { subject_id, program_id, name?, email? }                     */
-    if (p === "/api/assign" && req.method === "POST") {
-      const auth = requireApiKey(req);
-      if (auth.error) return json(res, auth.status, { error: auth.error });
-      const b = await readJson(req);
-      if (!b.subject_id || !b.program_id)
-        return json(res, 400, { error: "subject_id and program_id required" });
-
-      const person = upsertPerson(b);
-      const program = upsertProgram({ program_id: b.program_id, title: b.title || b.program_id });
-      const cv = latestVersion(program.id);
-      if (!cv) return json(res, 422, { error: `no content ingested for program "${b.program_id}"` });
-
-      assign({ person_id: person.id, program_pk: program.id });
-      const reg = openRegistration({ person_id: person.id, content_version_id: cv.id });
-      return json(res, 200, { person, program, content_version: cv, registration: reg });
-    }
-
-    /* --- cancel an assignment ---------------------------------------------
-       POST { subject_id, program_id }
-
-       Refused once the learner has touched it. The UI hides the button in
-       that case, but the rule is enforced here — a hidden button is not a
-       constraint. */
-    if (p === "/api/unassign" && req.method === "POST") {
-      const auth = requireApiKey(req);
-      if (auth.error) return json(res, auth.status, { error: auth.error });
-      const b = await readJson(req);
-      const st = assignmentState(b.subject_id, b.program_id);
-      if (!st) return json(res, 404, { error: "no such assignment" });
-
-      const touched = st.last_write_at !== null
-                   || (st.completion_status && st.completion_status !== "not attempted");
-      if (touched)
-        return json(res, 409, {
-          error: "This program has already been started and can no longer be cancelled.",
-          completion_status: st.completion_status });
-
-      unassign({ person_id: st.person_id, program_pk: st.program_pk });
-      return json(res, 200, { cancelled: true });
-    }
-
     /* --- issue a launch ticket -------------------------------------------
        POST { subject_id, program_id }
        Short-lived, single-use, bound to one registration. This is what
@@ -289,24 +244,9 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
       return res.end();
     }
 
-    /* --- the catalog the SaaS pulls ------------------------------------
-       GET /api/content — what this platform can offer. The SaaS ingests
-       this to build its own assignable list. */
-    if (p === "/api/content") {
-      const auth = requireApiKey(req);
-      if (auth.error) return json(res, auth.status, { error: auth.error });
-      return json(res, 200, { content: catalog() });
-    }
-
     /* --- live status, for the SaaS to poll -------------------------------
        GET /api/status — every assignment and where it stands right now.
        The completion webhook is the push; this is the pull. */
-    if (p === "/api/status") {
-      const auth = requireApiKey(req);
-      if (auth.error) return json(res, auth.status, { error: auth.error });
-      return json(res, 200, { enrollments: enrollments() });
-    }
-
     /* --- the SaaS provisions a learner and their credentials --------------
        POST { subject_id, name?, email?, identifier?, password? }
        Called by the SaaS when a person is created or given LMS access. */
@@ -450,7 +390,7 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
        A learner session gets you YOUR list and YOUR launch tickets. It does
        not let you write to a registration — that still needs a redeemed
        ticket, so the two cannot be conflated. */
-    if (p === "/api/me") {
+    if (false && p === "/api/me") {
       const who = requireLearner(req);
       if (who.error) return json(res, who.status, { error: who.error });
       const person = personById(who.person_id);
@@ -458,7 +398,7 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
                                         email: person.email } });
     }
 
-    if (p === "/api/me/assignments") {
+    if (false && p === "/api/me/assignments") {
       const who = requireLearner(req);
       if (who.error) return json(res, who.status, { error: who.error });
       const person = personById(who.person_id);
@@ -466,7 +406,7 @@ export const app = createServer(guard("waypoint", json, async (req, res) => {
                               programs: assignmentsFor(person.subject_id) });
     }
 
-    if (p === "/api/me/launch" && req.method === "POST") {
+    if (false && p === "/api/me/launch" && req.method === "POST") {
       const who = requireLearner(req);
       if (who.error) return json(res, who.status, { error: who.error });
       const b = await readJson(req);
@@ -970,3 +910,6 @@ async function deliverCompletion(reg) {
     return { delivered: false, error: String(e), payload };
   }
 }
+
+/** Inventory of routes already migrated to the table-based dispatcher. */
+export const routeList = () => router.list();

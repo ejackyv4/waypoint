@@ -322,7 +322,8 @@ case "${1:-start}" in
     fi
     start_servers || exit 1
     if [ -f "$BASELINE_DB" ]; then
-      dim "baseline restored; skipping seed data"
+      dim "baseline restored; verifying catalog and assignments"
+      verify_seed || exit 1
     else
       seed_content
       verify_seed || exit 1

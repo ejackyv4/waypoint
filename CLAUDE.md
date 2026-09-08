@@ -198,7 +198,29 @@ This matters here specifically: **Waypoint is single-tenant by decision, and if 
 changes, the chokepoint is what makes adding scoping survivable.** The insurance is the
 layer, not a speculative `tenant_id` column — the column was never the expensive part.
 
-### 10. If it is multi-tenant, scoping is enforced, never remembered
+### 10. Route refactors use a composition root and domain modules
+
+The Waypoint API once grew into a single `waypoint.mjs` file containing hundreds of
+ordered `if` branches. Northwood demonstrates the safer pattern: the root owns server
+setup and mounts one route table per domain; each domain module owns its handlers; the
+router rejects duplicate registrations at startup.
+
+When adding or refactoring an HTTP API:
+
+- Keep the root limited to imports, middleware/context wiring, router composition, and
+  the server export.
+- Put handlers in one domain module per concern and register them through `createRouter`;
+  do not add another string-comparison branch to a monolith.
+- Name modules after their HTTP domain (`runtime.mjs` for `/api/runtime/*`,
+  `experience-api.mjs` for `/api/xapi/*`, `console.mjs` for `/api/console/*`). Do not
+  collide with an existing library name such as `scorm.mjs`.
+- Preserve URLs and response contracts while extracting one bounded domain at a time.
+  Run route/docs checks and the full smoke suite after each extraction, then delete the
+  old branch; never leave two live implementations.
+- Keep shared lifecycle functions in the owning domain module and update every caller,
+  including background sweepers, to use that single implementation.
+
+### 11. If it is multi-tenant, scoping is enforced, never remembered
 
 Not currently applicable — recorded because it is the single most expensive lesson from
 the previous project, and because the moment tenancy arrives it applies in full:
