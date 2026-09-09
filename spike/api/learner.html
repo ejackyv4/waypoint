@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Waypoint — My Learning</title>
+<title>Meridian — My Learning</title>
 <style>
 :root{
   --brand:#2563eb; --brand-dark:#1d4ed8; --brand-soft:#eff6ff;
@@ -62,8 +62,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
 /* ---- sign in ---- */
 .signin{max-width:390px;margin:8vh auto;padding:0 20px;text-align:center}
 .signin .mark{width:56px;height:56px;border-radius:16px;margin:0 auto 16px}
-.signin h1{font-size:26px;margin:0;letter-spacing:-.5px}
-.signin p.sub{color:var(--muted);margin:4px 0 26px}
+.signin h1{font-size:26px;margin:0 0 26px;letter-spacing:-.5px}
 .field{text-align:left;margin-bottom:14px}
 label{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
 input{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:11px;
@@ -266,8 +265,7 @@ function signInView(error) {
       <div class="mark"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 11l19-9-9 19-2-8-8-2z"/></svg></div>
-      <h1>Waypoint</h1>
-      <p class="sub">Sign in to your learning</p>
+      <h1>Meridian</h1>
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
       <form id="f">
         <div class="field"><label for="u">Email</label>
@@ -305,7 +303,7 @@ async function listView() {
       { headers: { Authorization: `Bearer ${auth.token}` } });
     if (r.status === 401) { save(null); return signInView("Your session expired. Please sign in again."); }
     d = await r.json();
-  } catch { return signInView("Couldn't reach Waypoint."); }
+  } catch { return signInView("Couldn't reach Meridian."); }
 
   await loadCase(false);
   if (caseData) caseData.programs = d.programs || [];
@@ -347,7 +345,7 @@ function paint() {
       <span class="mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 11l19-9-9 19-2-8-8-2z"/></svg></span>
-      <span class="wordmark">Waypoint</span>
+      <span class="wordmark">Meridian</span>
       <span class="who">${esc(who)}<button class="link" id="out">Sign out</button></span>
     </header>
     ${subject ? `
