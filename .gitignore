@@ -46,6 +46,8 @@ docs/session/transcript-raw.jsonl
 # macOS
 .DS_Store
 
+.cursor/
+
 # Client requirements document — handled outside the repo
 mytrackRequirementsAnalysis.pdf
 *.pdf
