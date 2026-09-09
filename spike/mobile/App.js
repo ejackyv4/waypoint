@@ -141,8 +141,8 @@ function SignIn({ onSignedIn, notice }) {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}
                            style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={s.signInWrap} keyboardShouldPersistTaps="handled">
-          <View style={s.signInMark}><Text style={s.signInMarkText}>W</Text></View>
-          <Text style={s.signInTitle}>Waypoint</Text>
+          <View style={s.signInMark}><Text style={s.signInMarkText}>M</Text></View>
+          <Text style={s.signInTitle}>Meridian</Text>
           <Text style={s.signInSub}>Sign in</Text>
 
           {/* An expired session is not a failed sign-in — it explains why the
