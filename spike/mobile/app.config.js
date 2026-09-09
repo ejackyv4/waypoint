@@ -38,8 +38,8 @@
  */
 
 const DEMO = {
-  appOrigin:  "https://app.137-184-30-181.sslip.io",
-  saasOrigin: "https://nw.137-184-30-181.sslip.io",
+  appOrigin:  "https://meridian.banyanlabs.io",
+  saasOrigin: "https://northwood.meridian.banyanlabs.io",
   doorUrl:    "https://access.137-184-30-181.sslip.io"
 };
 

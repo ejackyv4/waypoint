@@ -29,8 +29,8 @@ import Constants from "expo-constants";
 /** The deployed server. Overridable from app.json without touching this file. */
 const extra = Constants.expoConfig?.extra || {};
 
-const PROD_APP  = extra.appOrigin  || "https://app.137-184-30-181.sslip.io";
-const PROD_SAAS = extra.saasOrigin || "https://nw.137-184-30-181.sslip.io";
+const PROD_APP  = extra.appOrigin  || "https://meridian.banyanlabs.io";
+const PROD_SAAS = extra.saasOrigin || "https://northwood.meridian.banyanlabs.io";
 
 /**
  * The front door.
