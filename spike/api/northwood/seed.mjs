@@ -12,6 +12,7 @@
 import { seedRoster, seedOffices, officerByEmail, setOfficerPassword,
          subjectByKey, activeOffices, setOfficerOffice } from "../db/northwood.mjs";
 import { hashPassword } from "../auth.mjs";
+import { run } from "../db/connect.mjs";
 import { waypoint } from "./shared.mjs";
 import { seedCaseFile } from "./seed-case.mjs";
 import { seedAgreement } from "./seed-agreement.mjs";
@@ -62,6 +63,21 @@ if (seeded) {
   }
   console.log(`  Staff login       r.alvarez@northwood.gov / ${DEMO_PASSWORD}`);
 }
+
+// Dedicated demo controls account. The password is supplied by deployment
+// configuration and must be changed on first login; never commit a production
+// password to the repository.
+const DEMO_OPS_EMAIL = process.env.DEMO_OPS_EMAIL || "demo@northwood.gov";
+const DEMO_OPS_PASSWORD = process.env.DEMO_OPS_PASSWORD || "MeridianDemo!8472";
+let demoOps = officerByEmail(DEMO_OPS_EMAIL);
+if (!demoOps) {
+  run(`INSERT INTO officers (name, email, role, password_hash, must_change, created_at)
+       VALUES (?,?,?,?,1,?)`, "Demo Operator", DEMO_OPS_EMAIL, "admin",
+      hashPassword(DEMO_OPS_PASSWORD), new Date().toISOString());
+  demoOps = officerByEmail(DEMO_OPS_EMAIL);
+}
+if (demoOps && demoOps.role !== "admin")
+  run(`UPDATE officers SET role = 'admin' WHERE id = ?`, demoOps.id);
 
 /**
  * Give the seeded subjects a Waypoint login, over the API.

@@ -39,6 +39,7 @@ import { routes as meRoutes }        from "./northwood/me.mjs";
 import { routes as lmsRoutes }       from "./northwood/lms.mjs";
 import { routes as insightRoutes, failStaleJobs, fillMissingDueDates }
   from "./northwood/insights.mjs";
+import { routes as demoOpsRoutes } from "./northwood/demo-ops.mjs";
 
 import "./northwood/seed.mjs";
 export { seedSubjectLogins } from "./northwood/seed.mjs";
@@ -65,7 +66,8 @@ const router = createRouter("northwood")
   .mount(officerRoutes)     // an officer's own schedule and caseload
   .mount(meRoutes)          // the subject's own view — Waypoint token, not a session
   .mount(insightRoutes)     // transcribing a recording, summarising a visit
-  .mount(lmsRoutes);        // everything Northwood does WITH the LMS
+  .mount(lmsRoutes)         // everything Northwood does WITH the LMS
+  .mount(demoOpsRoutes);    // protected demo reset/clean controls
 
 /* A job the process was running when it stopped is failed rather than left
    turning a spinner on somebody's screen forever. */
