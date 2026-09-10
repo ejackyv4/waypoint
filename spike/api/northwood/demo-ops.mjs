@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { allow } from "../auth.mjs";
@@ -6,7 +7,12 @@ import { readJson } from "../http.mjs";
 import { saasJson } from "./shared.mjs";
 
 const run = promisify(execFile);
-const command = process.env.DEMO_CONTROL_CMD || "/usr/local/bin/waypoint-demo";
+// Production uses the installed control wrapper; local development uses the
+// repository helper and its own WAYPOINT_DATA_DIR. Both paths keep the browser
+// away from the API key and the shell details.
+const command = process.env.DEMO_CONTROL_CMD
+  || (existsSync("/usr/local/bin/waypoint-demo")
+      ? "/usr/local/bin/waypoint-demo" : "./spike/demo");
 const page = async (req, res) => {
   const html = await readFile(new URL("../demo-ops.html", import.meta.url), "utf8");
   res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
