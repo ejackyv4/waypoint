@@ -235,7 +235,10 @@ case "${1:-status}" in
       node /opt/waypoint/spike/ops/clean-subject.mjs "$DB" "$subject_id"
       chown "$OWNER" "$DB" "$snap"
     }
-    with_service_stopped clean_now
+    case " $* " in
+      *" --online "*) clean_now ;;
+      *) with_service_stopped clean_now ;;
+    esac
     ok "subject cleaned"
     ;;
 

@@ -331,13 +331,18 @@ case "${1:-start}" in
   clean)
     b "Cleaning a subject (profile and login preserved)"
     subject_id=${2:-cust-1041}
-    stop_servers || exit 1
+    online=0; case " $* " in *" --online "*) online=1 ;; esac
+    [ "$online" -eq 1 ] || stop_servers || exit 1
     [ -f "$DATA_DIR/waypoint.db" ] || { no "database is missing: $DATA_DIR/waypoint.db"; exit 1; }
     mkdir -p "$DATA_DIR/../backups"
     snap="$DATA_DIR/../backups/waypoint-before-clean-$(date +%Y%m%d-%H%M%S).db"
     cp "$DATA_DIR/waypoint.db" "$snap" || { no "could not save safety snapshot"; exit 1; }
     ok "safety snapshot saved — $(basename "$snap")"
     node spike/ops/clean-subject.mjs "$DATA_DIR/waypoint.db" "$subject_id" || exit 1
+    if [ "$online" -eq 1 ]; then
+      ok "clean completed without restarting the active server"
+      exit 0
+    fi
     if [ -d "$DOCS_DIR" ]; then
       dim "document files are retained on disk; subject document rows were removed"
     fi
