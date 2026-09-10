@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { allow } from "../auth.mjs";
 import { readJson } from "../http.mjs";
@@ -35,7 +36,16 @@ export const routes = {
   "GET /demo-ops": page,
   "GET /demo-ops/": page,
   "GET /api/demo-ops/status": (req, res, ctx) => execute(["status"], req, res, ctx),
-  "POST /api/demo-ops/reset": (req, res, ctx) => execute(["reset", "--yes"], req, res, ctx),
+  "POST /api/demo-ops/reset": async (req, res, ctx) => {
+    const g = gate(ctx); if (g.error) return saasJson(res, g.status, { error: g.error });
+    // Reset must stop/restart this same service. Detach it so systemd can
+    // restart cleanly without killing the HTTP response halfway through.
+    const child = spawn(command, [...commandPrefix, "reset", "--yes"], {
+      detached: true, stdio: "ignore", env: process.env
+    });
+    child.unref();
+    return saasJson(res, 202, { ok: true, output: "Reset started. The demo will be available again shortly." });
+  },
   "POST /api/demo-ops/clean": async (req, res, ctx) => {
     const b = await readJson(req); const subject = String(b.subject_id || "cust-1041");
     if (!/^cust-\d{4,}$/.test(subject)) return saasJson(res, 400, { error: "invalid subject" });
