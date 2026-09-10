@@ -4,15 +4,15 @@
 # application service user unrestricted sudo access.
 set -euo pipefail
 case "${1:-}" in
-  status|clean)
+  status)
     exec /usr/local/bin/waypoint-demo "$@"
     ;;
-  reset)
+  reset|clean)
     # A reset stops this application service. Run it in a transient systemd
     # unit outside waypoint.service, otherwise systemd kills the reset child
     # together with the web request's parent before it can restart the app.
-    exec systemd-run --quiet --collect --unit=waypoint-demo-reset \
-      /usr/local/bin/waypoint-demo reset --yes
+    exec systemd-run --quiet --collect --unit=waypoint-demo-ops \
+      /usr/local/bin/waypoint-demo "$1" "${2:-}" --yes
     ;;
   *)
     echo "unsupported demo operation" >&2

@@ -49,9 +49,9 @@ export const routes = {
   "POST /api/demo-ops/clean": async (req, res, ctx) => {
     const b = await readJson(req); const subject = String(b.subject_id || "cust-1041");
     if (!/^cust-\d{4,}$/.test(subject)) return saasJson(res, 400, { error: "invalid subject" });
-    // The web request is handled by the same service that the terminal
-    // wrapper would stop. Run the subject transaction online so the response
-    // is not killed halfway through by systemd restarting its own process.
-    return execute(["clean", subject, "--yes", "--online"], req, res, ctx);
+    // Run cleanup in a detached maintenance unit. It must stop the service
+    // before replacing the SQLite file; writing it while this process has an
+    // open connection risks a malformed database.
+    return execute(["clean", subject, "--yes"], req, res, ctx);
   }
 };
