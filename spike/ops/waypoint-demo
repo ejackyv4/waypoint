@@ -5,6 +5,7 @@
 #   waypoint-demo status              what is here now
 #   waypoint-demo baseline            declare the current state THE demo state
 #   waypoint-demo reset               go back to the baseline
+#   waypoint-demo clean [subject_id]  keep profile/login; remove subject data
 #   waypoint-demo snapshot [name]     keep a copy of right now
 #   waypoint-demo restore <name>      go back to a specific copy
 #   waypoint-demo list                every copy held
@@ -221,6 +222,23 @@ case "${1:-status}" in
     counts
     ;;
 
+  clean)
+    subject_id=${2:-cust-1041}
+    b "Cleaning subject $subject_id (profile and login preserved)"
+    where
+    confirm "subject $subject_id's modules, documents, assignments, and course activity"
+    clean_now() {
+      local snap="$SNAP_DIR/before-clean-$(date +%Y%m%d-%H%M%S).db"
+      [ -f /opt/waypoint/spike/ops/clean-subject.mjs ] || { no "clean helper missing — deploy spike/ops/clean-subject.mjs first"; return 1; }
+      cp "$DB" "$snap"
+      ok "safety snapshot saved — $(basename "$snap")"
+      node /opt/waypoint/spike/ops/clean-subject.mjs "$DB" "$subject_id"
+      chown "$OWNER" "$DB" "$snap"
+    }
+    with_service_stopped clean_now
+    ok "subject cleaned"
+    ;;
+
   snapshot)
     b "Snapshotting the demo"
     where
@@ -258,6 +276,7 @@ case "${1:-status}" in
   status                     what is here now
   baseline                   declare the current state THE demo state
   reset                      back to the baseline, AI layer cleared
+  clean [subject_id]         keep profile/login; remove that subject's data
   reset --keep-recordings    back to the baseline, recordings kept
   scrub                      clear the AI layer without resetting
   snapshot [name]            keep a copy of right now

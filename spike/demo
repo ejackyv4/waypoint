@@ -6,6 +6,7 @@
 #   ./spike/demo restart   pick up a change under spike/api, keeping Metro up
 #   ./spike/demo mobile    start Metro and open the iOS simulator
 #   ./spike/demo reset     wipe and re-seed (snapshots the old db first)
+#   ./spike/demo clean     keep Dana's profile/login, remove her case data
 #   ./spike/demo restore   put the most recent snapshot back
 #   ./spike/demo stop      stop the servers AND Metro
 #   ./spike/demo status    what is running, and the URLs
@@ -13,8 +14,9 @@
 # A change to the app's JavaScript needs none of these — Metro reloads it.
 # Use `restart` only for a change under spike/api.
 #
-# The LAN address is detected each time and written into the mobile config,
-# because a device cannot reach "localhost" and the IP changes with the network.
+# Local browser work defaults to localhost. A phone cannot reach localhost, so
+# phone testing must opt in explicitly with WAYPOINT_HOST=<LAN-IP>; the host
+# should never change silently just because the network changed.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."          # repo root — ingest uses paths relative to it
@@ -28,7 +30,7 @@ SAAS_PORT=8092
 # Override METRO_PORT if another Expo project is already holding 8081.
 METRO_PORT=${METRO_PORT:-8081}
 API_KEY=wp_demo_key_123
-DATA_DIR=spike/data
+DATA_DIR=${WAYPOINT_DATA_DIR:-spike/data}
 DOCS_DIR=spike/documents
 BASELINE_DB=spike/backups/baseline.db
 BASELINE_CONTENT=spike/backups/baseline-content
@@ -53,13 +55,7 @@ ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 no() { printf '  \033[31m✕\033[0m %s\n' "$1"; }
 dim(){ printf '  \033[2m%s\033[0m\n' "$1"; }
 
-lan_ip() {
-  for i in en0 en1 en2; do
-    ip=$(ipconfig getifaddr "$i" 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return; }
-  done
-  echo "localhost"
-}
-HOST=$(lan_ip)
+HOST=${WAYPOINT_HOST:-localhost}
 
 metro_up() { curl -fs -o /dev/null --max-time 2 "http://localhost:$METRO_PORT/status" 2>/dev/null; }
 
@@ -106,7 +102,7 @@ start_servers() {
   local envfile=""
   [ -f spike/.env ] && envfile="--env-file=spike/.env"
 
-  HOST=$HOST APP_PORT=$APP_PORT CONTENT_PORT=$CONTENT_PORT SAAS_PORT=$SAAS_PORT \
+  HOST=$HOST WAYPOINT_DATA_DIR=$DATA_DIR APP_PORT=$APP_PORT CONTENT_PORT=$CONTENT_PORT SAAS_PORT=$SAAS_PORT \
     WAYPOINT_API_KEY=$API_KEY WAYPOINT_SCORM_DIAGNOSTICS=anger-management \
     nohup node $envfile spike/api/server.mjs >"$LOG" 2>&1 &
   for _ in $(seq 1 20); do servers_up && break; sleep 0.4; done
@@ -332,6 +328,23 @@ case "${1:-start}" in
     urls; script
     ;;
 
+  clean)
+    b "Cleaning a subject (profile and login preserved)"
+    subject_id=${2:-cust-1041}
+    stop_servers || exit 1
+    [ -f "$DATA_DIR/waypoint.db" ] || { no "database is missing: $DATA_DIR/waypoint.db"; exit 1; }
+    mkdir -p "$DATA_DIR/../backups"
+    snap="$DATA_DIR/../backups/waypoint-before-clean-$(date +%Y%m%d-%H%M%S).db"
+    cp "$DATA_DIR/waypoint.db" "$snap" || { no "could not save safety snapshot"; exit 1; }
+    ok "safety snapshot saved — $(basename "$snap")"
+    node spike/ops/clean-subject.mjs "$DATA_DIR/waypoint.db" "$subject_id" || exit 1
+    if [ -d "$DOCS_DIR" ]; then
+      dim "document files are retained on disk; subject document rows were removed"
+    fi
+    start_servers || exit 1
+    urls
+    ;;
+
   restore)
     b "Restoring a snapshot"
     ls -1t "$DATA_DIR/../backups"/waypoint-*.db 2>/dev/null | head -5 | nl -w2 -s'  ' | sed 's/^/  /'
@@ -492,7 +505,8 @@ PY
     dim "./spike/demo start    start the servers"
     dim "./spike/demo phone    Metro for your iPhone (the dev build)"
     dim "./spike/demo sim      Metro + the iOS simulator (no microphone)"
-    dim "./spike/demo reset    wipe and re-seed for a fresh demo"
+    dim "./spike/demo reset    restore the populated baseline"
+    dim "./spike/demo clean    keep a profile/login, remove its modules and activity"
   dim "./spike/demo script   print the walkthrough"
     dim "./spike/demo stop     stop the servers"
     dim "./spike/demo status   what's running"

@@ -4017,14 +4017,15 @@ const MODULE = {
   "/api/important-dates/close":  { tile: "dates", saved: "Outcome recorded" }
 };
 
-/* `close` for single-record editors — curfew, travel permit, employment —
-   where a re-render looks identical to not having saved. List editors stay
-   open so another row can be added.
+/* Successful saves close every module editor. Leaving a form open after the
+   server accepted the change looks like a failed save and forces the operator
+   to dismiss a modal manually. The caller can explicitly opt out only for a
+   workflow that genuinely needs an open editor.
 
    Either way the save is confirmed out loud. "It re-rendered and looked the
    same" is indistinguishable from "nothing happened", and that has been
    mistaken for a bug three times on this project. */
-async function saveAndRefresh(url, payload, s, body, render, { close = false } = {}) {
+async function saveAndRefresh(url, payload, s, body, render, { close = true } = {}) {
   const mod = MODULE[url] || {};
   const btns = body.querySelectorAll("button");
   const saveBtn = body.querySelector('[id$="_save"]');
@@ -4448,7 +4449,7 @@ function renderContacts(body, s, editing = null) {
     saveAndRefresh("/api/contacts", {
       id: e.id || undefined, subject_id: s.subject_id,
       name, relationship: rel, phone, notes: el("k_notes").value.trim()
-    }, s, body, renderContacts);
+    }, s, body, renderContacts, { close: true });
   };
 }
 
@@ -4551,7 +4552,7 @@ function renderVehicles(body, s, editing = null) {
       year: el("v_year").value.trim(), make,
       model: el("v_model").value.trim(), color: el("v_color").value.trim(),
       plate: el("v_plate").value.trim().toUpperCase(), state: el("v_state").value
-    }, s, body, renderVehicles);
+    }, s, body, renderVehicles, { close: true });
   };
 }
 
