@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Privileged bridge for the web Demo Operations page.
+# Install root-owned and allow only this file in sudoers; do not grant the
+# application service user unrestricted sudo access.
+set -euo pipefail
+case "${1:-}" in
+  status|reset|clean)
+    exec /usr/local/bin/waypoint-demo "$@"
+    ;;
+  *)
+    echo "unsupported demo operation" >&2
+    exit 2
+    ;;
+esac
