@@ -2973,7 +2973,7 @@ async function paintAi(v) {
     else
       slot.innerHTML = `<span class="aiStat">${t.word_count} words</span>
         <a class="btn small" href="/visit-transcripts/${t.id}">Download</a>
-        <button class="btn small" data-tx-show="${t.id}">Read</button>`;
+        <button type="button" class="btn small" data-tx-show="${t.id}">Read</button>`;
   });
 
   document.querySelectorAll("[data-tx]").forEach(b => b.onclick = async () => {
@@ -2986,8 +2986,10 @@ async function paintAi(v) {
     finally { b.disabled = false; b.textContent = label; }
   });
 
-  document.querySelectorAll("[data-tx-show]").forEach(b => b.onclick = () => {
-    const t = transcripts.find(x => x.id === +b.dataset.txShow);
+  document.querySelectorAll("[data-tx-show]").forEach(b => b.onclick = e => {
+    e.preventDefault();
+    const t = transcripts.find(x => Number(x.id) === Number(b.dataset.txShow));
+    if (!t) return;
     const open = el(`txText-${t.id}`);
     if (open) { open.remove(); return; }
     const d = document.createElement("div");
