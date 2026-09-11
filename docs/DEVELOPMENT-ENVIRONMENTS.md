@@ -103,5 +103,6 @@ Internal runbooks and agent instructions belong in Git for the development
 team, but they are not runtime assets and must not be copied to the public
 demo host. Use `./spike/ops/deploy-demo` to transfer only `spike/api/` and the
 operational helpers under `spike/ops/`. It never transfers `docs/`,
-`CLAUDE.md`, databases, or local configuration. Do not use a whole-repository
-`git pull` as the demo deployment mechanism.
+`CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, `DEMO.md`, databases, or local
+configuration. Do not use a whole-repository `git pull` as the demo deployment
+mechanism.
