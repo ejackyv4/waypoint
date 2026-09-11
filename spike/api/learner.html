@@ -426,17 +426,42 @@ function paintHome() {
   const programs = caseData?.programs || [];
   const visits = caseData?.visits || [];
   const actions = myActions();
+  const agreement = caseData?.agreement;
+  const reentry = caseData?.reentry;
+  const dates = caseData?.important_dates || [];
+  const financial = caseData?.financial?.totals || {};
+  const goals = caseData?.goals || [];
   const startedPrograms = programs.filter(p => p.registration_id && p.completion_status !== "not attempted");
   const untouchedPrograms = programs.filter(p => !p.registration_id || p.completion_status === "not attempted");
-  const cards = [
-    startedPrograms.length && { title: "Programs", line: `${startedPrograms.length} course${startedPrograms.length === 1 ? "" : "s"} in progress`, tab: "programs" },
-    !startedPrograms.length && untouchedPrograms.length && { title: "Programs", line: `${untouchedPrograms.length} course${untouchedPrograms.length === 1 ? "" : "s"} not started`, tab: "programs" },
-    actions.length && { title: "What I agreed to", line: `${actions.length} item${actions.length === 1 ? "" : "s"} outstanding`, tab: "actions" },
-    visits.some(v => v.status === "scheduled") && { title: "Visits", line: `${visits.filter(v => v.status === "scheduled").length} upcoming`, tab: "visits" },
-    needsAck() && { title: "Supervision agreement", line: "Acknowledgment needed", tab: "agreement" }
-  ].filter(Boolean);
+  const cards = [];
+  const add = (title, line, tab, tone = "go", meta = "", cta = "Open") =>
+    cards.push({ title, line, tab, tone, meta, cta });
+  if (agreement && needsAck())
+    add("Conditions of supervision", wasAmended() ? "Updated — read and acknowledge again" : "Read and acknowledge them", "agreement", "err", "", "Review");
+  const awaiting = reentry?.readiness?.awaiting_signature || 0;
+  if (reentry && awaiting)
+    add("Reentry plan", `${awaiting} checkpoint${awaiting === 1 ? "" : "s"} need${awaiting === 1 ? "s" : ""} your signature`, "me", "err", reentry.readiness?.percent != null ? `${reentry.readiness.percent}% ready` : "", "Sign");
+  if (actions.length)
+    add("What you agreed to", `${actions.length} thing${actions.length === 1 ? "" : "s"} to do`, "actions", actions.some(overdueAction) ? "err" : "go", "", "Open");
+  const scheduledVisits = visits.filter(v => v.status === "scheduled");
+  const unconfirmedVisits = scheduledVisits.filter(v => !v.subject_confirmed_at).length;
+  if (scheduledVisits.length)
+    add("Visits", unconfirmedVisits ? `${unconfirmedVisits} appointment${unconfirmedVisits === 1 ? "" : "s"} need${unconfirmedVisits === 1 ? "s" : ""} confirming` : `Next on ${fmtVisit(scheduledVisits[0].scheduled_at)}`, "visits", unconfirmedVisits ? "go" : "go", "", unconfirmedVisits ? "Confirm" : "See all");
+  const toConfirm = dates.filter(d => d.state === "assigned" || d.state === "viewed").length;
+  const toReport = dates.filter(d => d.awaiting_outcome).length;
+  if (toConfirm || toReport)
+    add("Appointments", toConfirm ? `${toConfirm} to confirm` : `${toReport} with no outcome reported`, "me", toReport ? "err" : "go", toConfirm && toReport ? `${toReport} need reporting` : "", "Open");
+  if (financial.balance_cents > 0)
+    add("What you owe", financial.overdue_cents > 0 ? `${money(financial.overdue_cents)} overdue` : `${money(financial.balance_cents)} outstanding`, "me", financial.overdue_cents > 0 ? "err" : "go", "", "Open");
+  const openGoals = goals.filter(g => g.status === "open").length;
+  if (openGoals)
+    add("Goals", `${openGoals} being worked on`, "actions", "go", "", "Open");
+  if (startedPrograms.length)
+    add("Programs", `${startedPrograms.length} course${startedPrograms.length === 1 ? "" : "s"} in progress`, "programs", "go", "", "Open");
+  else if (untouchedPrograms.length)
+    add("Programs", `${untouchedPrograms.length} course${untouchedPrograms.length === 1 ? "" : "s"} not started`, "programs", "err", "", "Open");
   document.getElementById("wrap").innerHTML = `<h2 class="pagetitle">Home</h2><p class="pagesub">What needs your attention.</p>`
-    + (cards.length ? cards.map(c => `<button class="card" data-home-tab="${c.tab}" style="text-align:left;width:100%;cursor:pointer"><div class="cardtop"><h3>${esc(c.title)}</h3><span class="pill go">Open</span></div><div class="meta">${esc(c.line)}</div></button>`).join("") : `<div class="card empty">Nothing outstanding.</div>`);
+    + (cards.length ? cards.map(c => `<button class="card" data-home-tab="${c.tab}" style="text-align:left;width:100%;cursor:pointer"><div class="cardtop"><h3>${esc(c.title)}</h3><span class="pill ${c.tone}">${esc(c.cta)}</span></div><div class="meta">${esc(c.line)}</div>${c.meta ? `<div class="meta">${esc(c.meta)}</div>` : ""}</button>`).join("") : `<div class="card empty">Nothing outstanding.</div>`);
   document.querySelectorAll("[data-home-tab]").forEach(b => b.onclick = () => { tab = b.dataset.homeTab; paint(); scrollTo(0, 0); });
 }
 
