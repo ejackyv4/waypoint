@@ -96,3 +96,12 @@ Before new work:
 Before a pull request, update the feature branch from the team's integration
 branch, resolve conflicts there, run the checks, and have another developer
 review it. The demo server should pull reviewed commits only.
+
+## Production/demo deployment boundary
+
+Internal runbooks and agent instructions belong in Git for the development
+team, but they are not runtime assets and must not be copied to the public
+demo host. Use `./spike/ops/deploy-demo` to transfer only `spike/api/` and the
+operational helpers under `spike/ops/`. It never transfers `docs/`,
+`CLAUDE.md`, databases, or local configuration. Do not use a whole-repository
+`git pull` as the demo deployment mechanism.

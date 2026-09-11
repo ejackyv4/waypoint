@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Deploy runtime files only. Internal docs, agent instructions, databases and
+# local development assets never cross this boundary.
+set -euo pipefail
+HOST=${DEMO_HOST:-root@167.172.153.231}
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+
+rsync -az --delete --exclude node_modules --exclude .DS_Store \
+  "$ROOT/spike/api/" "$HOST:/opt/waypoint/spike/api/"
+rsync -az --delete "$ROOT/spike/ops/clean-subject.mjs" \
+  "$ROOT/spike/ops/waypoint-demo" "$ROOT/spike/ops/waypoint-demo-web" \
+  "$HOST:/opt/waypoint/spike/ops/"
+ssh "$HOST" 'chown -R waypoint:waypoint /opt/waypoint/spike/api /opt/waypoint/spike/ops; systemctl restart waypoint; sleep 3; systemctl is-active waypoint'
