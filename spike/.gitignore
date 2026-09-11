@@ -7,6 +7,7 @@ corpus/*
 !corpus/Rise360_DiversityBasics_SCORM12.zip
 !corpus/Rise360_AngerManagement_SCORM12.zip
 !corpus/Rise360_AngerManagement_xAPI.zip
+!corpus/RuntimeBasicCalls_SCORM12.zip
 packages/
 packages.json
 mobile/node_modules/

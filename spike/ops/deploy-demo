@@ -7,6 +7,13 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
 rsync -az --delete --exclude node_modules --exclude .DS_Store \
   "$ROOT/spike/api/" "$HOST:/opt/waypoint/spike/api/"
+ssh "$HOST" 'mkdir -p /opt/waypoint/spike/corpus'
+rsync -az \
+  "$ROOT/spike/corpus/RuntimeBasicCalls_SCORM12.zip" \
+  "$ROOT/spike/corpus/Rise360_DiversityBasics_SCORM12.zip" \
+  "$ROOT/spike/corpus/Rise360_AngerManagement_SCORM12.zip" \
+  "$ROOT/spike/corpus/Rise360_AngerManagement_xAPI.zip" \
+  "$HOST:/opt/waypoint/spike/corpus/"
 rsync -az --delete "$ROOT/spike/ops/clean-subject.mjs" \
   "$ROOT/spike/ops/waypoint-demo" "$ROOT/spike/ops/waypoint-demo-web" \
   "$HOST:/opt/waypoint/spike/ops/"

@@ -28,6 +28,7 @@ spike/corpus/
 !spike/corpus/Rise360_DiversityBasics_SCORM12.zip
 !spike/corpus/Rise360_AngerManagement_SCORM12.zip
 !spike/corpus/Rise360_AngerManagement_xAPI.zip
+!spike/corpus/RuntimeBasicCalls_SCORM12.zip
 
 # The full session transcript as raw JSONL is 12MB of machine output.
 # The readable version, docs/session/TRANSCRIPT.md, IS committed.
