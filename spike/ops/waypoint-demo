@@ -88,6 +88,9 @@ scrub_ai_layer() {
   node --input-type=module -e '
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(process.argv[1]);
+    // Repair stale index entries left by an interrupted cleanup before the
+    // DELETE statements touch the affected tables.
+    db.exec("REINDEX");
     const tables = ["visit_summary_actions", "visit_summaries",
                     "visit_transcripts", "visit_recordings"];
     db.exec("BEGIN");
@@ -99,6 +102,7 @@ scrub_ai_layer() {
         db.prepare(`DELETE FROM ${t}`).run();
         console.log(`    ${String(before).padStart(5)} deleted from ${t}`);
       }
+      db.exec("REINDEX");
       db.exec("COMMIT");
     } catch (e) { db.exec("ROLLBACK"); throw e }
   ' "$DB"
