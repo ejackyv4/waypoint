@@ -2573,7 +2573,16 @@ async function loadVisits(s) {
       const okd = await writeVisit("/api/visits/start",
         { id: Number(b.dataset.start), officer: s.officer }, "Visit started");
       if (!okd) { b.disabled = false; return; }
-      loadVisits(s);
+      /* Starting a visit owns the screen, just as it does in the mobile app.
+         Open the full record immediately so the officer sees the agenda and
+         recording controls before beginning the conversation. */
+      try {
+        const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(s.subject_id)}`)
+                    .then(r => r.json());
+        const fresh = (d.visits || []).find(x => x.id === Number(b.dataset.start));
+        if (fresh) showVisit(fresh, s);
+        else loadVisits(s);
+      } catch { loadVisits(s); }
     });
 
     body.querySelectorAll("[data-end]").forEach(b => b.onclick = () => {
