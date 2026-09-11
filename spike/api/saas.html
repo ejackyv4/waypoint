@@ -2778,6 +2778,68 @@ function agRow(i) {
  * into the table and one set of rules on it, rather than a second, laxer door
  * that exists because a demo needed one.
  */
+function wireBrowserRecording(v) {
+  const start = el("recStart"), clock = el("recClock");
+  if (!start || v.status === "cancelled") return;
+  let recorder = null, stream = null, chunks = [], started = 0, timer = null;
+  const stopTracks = () => { stream?.getTracks().forEach(t => t.stop()); stream = null; };
+  const elapsed = () => {
+    const sec = Math.max(0, Math.floor((Date.now() - started) / 1000));
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  };
+  const reset = () => {
+    clearInterval(timer); timer = null; stopTracks(); recorder = null; chunks = [];
+    start.disabled = false; start.textContent = "Record in browser";
+    if (clock) clock.textContent = "";
+  };
+  start.onclick = async () => {
+    if (recorder) {
+      recorder.stop();
+      start.disabled = true; start.textContent = "Saving recording…";
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)
+      return toast("This browser cannot record audio. Attach a Voice Memo instead.", "err");
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferred = ["audio/webm;codecs=opus", "audio/mp4", "audio/aac"]
+        .find(t => MediaRecorder.isTypeSupported?.(t));
+      recorder = new MediaRecorder(stream, preferred ? { mimeType: preferred } : undefined);
+      chunks = []; started = Date.now();
+      recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
+      recorder.onerror = () => { reset(); toast("The browser could not record audio.", "err"); };
+      recorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const duration_ms = Date.now() - started;
+        reset();
+        if (blob.size > 25 * 1024 * 1024)
+          return toast("That recording exceeds the 25 MB limit. Keep it shorter or attach a compressed file.", "err");
+        try {
+          const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error("That recording could not be read."));
+            reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+            reader.readAsDataURL(blob);
+          });
+          await api("/api/visits/recording", { id: v.id, data,
+            mime_type: blob.type.split(";")[0] || "audio/webm", duration_ms,
+            note: "Recorded in Northwood web" });
+          toast("Recording saved — transcription started");
+          const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(v.subject_id)}`).then(r => r.json());
+          const fresh = (d.visits || []).find(x => x.id === v.id);
+          if (fresh) showVisit(fresh, subjectOf(fresh.subject_id) || null);
+        } catch (e) { toast(e.message || "Could not save that recording", "err"); }
+      };
+      recorder.start(1000);
+      start.textContent = "Stop and save recording";
+      if (clock) { clock.textContent = "0:00"; timer = setInterval(() => { clock.textContent = elapsed(); }, 1000); }
+    } catch (e) {
+      reset();
+      toast(e.name === "NotAllowedError" ? "Microphone permission was denied." : "Could not access the microphone.", "err");
+    }
+  };
+}
+
 function wireRecordingUpload(v) {
   const btn = el("recUpload"), file = el("recFile"), stat = el("recStat");
   if (!btn || !file) return;
@@ -3232,16 +3294,17 @@ function showVisit(v, s) {
         audio can be filed against it.</p>`
     : `
       <div class="vrecAdd">
+        <button class="btn small" id="recStart">Record in browser</button>
+        <span class="aiStat" id="recClock"></span>
         <input type="file" id="recFile" accept="audio/*,.m4a,.mp3,.aac">
         <button class="btn small" id="recUpload">Attach recording</button>
         <span class="aiStat" id="recStat"></span>
       </div>
-      <p class="mnote">For a recording made on a phone rather than in the app
-        &mdash; a Voice Memo, or audio pulled off a handset. It is filed against
-        this visit exactly as an in-app recording is, and transcribes the same
-        way. A completed visit still accepts audio &mdash; the recording was made
-        at the door, and uploading it later from a desk is only transfer time.
-        Limit 25&nbsp;MB.</p>`}
+      <p class="mnote">Record directly in this browser, or attach a Voice Memo
+        made on a phone. The recording is filed against this visit and
+        transcribed the same way. Your browser will ask for microphone permission.
+        A completed visit still accepts audio &mdash; uploading it later from a
+        desk is only transfer time. Limit 25&nbsp;MB.</p>`}
 
     ${(v.recordings || []).length ? `
       ${(v.recordings || []).map((r, i) => `
@@ -3271,6 +3334,7 @@ function showVisit(v, s) {
   /* Re-read the visit rather than patching the copy this modal was opened
      with: an agenda change alters the whole record, and a half-refreshed
      screen is how two views of one visit start disagreeing. */
+  wireBrowserRecording(v);
   wireRecordingUpload(v);
   paintAi(v);
   paintAgenda(v, s, async () => {
