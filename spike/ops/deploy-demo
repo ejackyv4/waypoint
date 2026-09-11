@@ -4,17 +4,21 @@
 set -euo pipefail
 HOST=${DEMO_HOST:-root@167.172.153.231}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+SOCKET_DIR=$(mktemp -d "${TMPDIR:-/tmp}/waypoint-deploy.XXXXXX")
+SOCKET="$SOCKET_DIR/control"
+SSH_OPTS="-o ControlMaster=auto -o ControlPersist=60 -o ControlPath=$SOCKET"
+trap 'rm -rf "$SOCKET_DIR"' EXIT
 
 rsync -az --delete --exclude node_modules --exclude .DS_Store \
-  "$ROOT/spike/api/" "$HOST:/opt/waypoint/spike/api/"
-ssh "$HOST" 'mkdir -p /opt/waypoint/spike/corpus'
-rsync -az \
+  -e "ssh $SSH_OPTS" "$ROOT/spike/api/" "$HOST:/opt/waypoint/spike/api/"
+ssh $SSH_OPTS "$HOST" 'mkdir -p /opt/waypoint/spike/corpus'
+rsync -az -e "ssh $SSH_OPTS" \
   "$ROOT/spike/corpus/RuntimeBasicCalls_SCORM12.zip" \
   "$ROOT/spike/corpus/Rise360_DiversityBasics_SCORM12.zip" \
   "$ROOT/spike/corpus/Rise360_AngerManagement_SCORM12.zip" \
   "$ROOT/spike/corpus/Rise360_AngerManagement_xAPI.zip" \
   "$HOST:/opt/waypoint/spike/corpus/"
-rsync -az --delete "$ROOT/spike/ops/clean-subject.mjs" \
+rsync -az --delete -e "ssh $SSH_OPTS" "$ROOT/spike/ops/clean-subject.mjs" \
   "$ROOT/spike/ops/waypoint-demo" "$ROOT/spike/ops/waypoint-demo-web" \
   "$HOST:/opt/waypoint/spike/ops/"
-ssh "$HOST" 'chown -R waypoint:waypoint /opt/waypoint/spike/api /opt/waypoint/spike/ops; systemctl restart waypoint; sleep 3; systemctl is-active waypoint'
+ssh $SSH_OPTS "$HOST" 'chown -R waypoint:waypoint /opt/waypoint/spike/api /opt/waypoint/spike/ops /opt/waypoint/spike/corpus; systemctl restart waypoint; sleep 3; systemctl is-active waypoint'
