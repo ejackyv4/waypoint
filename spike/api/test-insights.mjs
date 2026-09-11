@@ -323,6 +323,12 @@ ok(resolveDueHint("this week", TUE) === "2026-09-04",
    "\"this week\" is the end of the working week");
 ok(resolveDueHint("next week", TUE) === "2026-09-08", "\"next week\" is a week on");
 ok(resolveDueHint("in 3 days", TUE) === "2026-09-04", "a plain count of days works");
+ok(resolveDueHint("by November 10th", TUE) === "2026-11-10",
+   "month/day deadlines use the visit year");
+ok(resolveDueHint("due on May 5th of 2027", TUE) === "2027-05-05",
+   "month/day deadlines accept an explicit year");
+ok(resolveDueHint("by February 30th", TUE) === null,
+   "invalid calendar dates are not invented");
 ok(resolveDueHint("before the shift", TUE) === null,
    "\x1b[1mand a phrase with no date in it returns nothing rather than a guess\x1b[0m");
 ok(resolveDueHint("", TUE) === null && resolveDueHint("Friday", null) === null,

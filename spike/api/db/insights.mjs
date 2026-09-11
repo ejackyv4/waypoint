@@ -220,6 +220,8 @@ export const actionsForSubject = subject_id => all(
  */
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday",
               "friday", "saturday"];
+const MONTHS = ["january", "february", "march", "april", "may", "june",
+                "july", "august", "september", "october", "november", "december"];
 
 export function resolveDueHint(hint, fromISO) {
   const h = String(hint || "").toLowerCase();
@@ -228,6 +230,27 @@ export function resolveDueHint(hint, fromISO) {
   if (isNaN(base)) return null;
   const iso = d => d.toISOString().slice(0, 10);
   const plus = n => { const d = new Date(base); d.setDate(d.getDate() + n); return iso(d); };
+
+  /* Absolute calendar dates are common in spoken instructions: "by November
+     10th" or "due on May 5th of 2027". Keep this deterministic too. When the
+     year is omitted, use the visit year unless that date has already passed,
+     in which case the next occurrence is the least surprising deadline. */
+  const month = MONTHS.findIndex(m => new RegExp(`\\b${m}\\b`).test(h));
+  const md = month >= 0 && h.match(new RegExp(
+    `\\b${MONTHS[month]}\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+(?:of\\s+)?(\\d{4}))?\\b`));
+  if (md) {
+    const day = Number(md[1]);
+    const explicitYear = md[2] ? Number(md[2]) : null;
+    if (day >= 1 && day <= 31) {
+      let year = explicitYear || base.getFullYear();
+      /* Build at UTC midnight so a developer's local timezone cannot shift the
+         ISO calendar date backward when it is stored. */
+      let d = new Date(Date.UTC(year, month, day));
+      if (d.getUTCMonth() !== month || d.getUTCDate() !== day) return null;
+      if (!explicitYear && d < base) d = new Date(Date.UTC(year + 1, month, day));
+      return iso(d);
+    }
+  }
 
   if (/\btoday\b|\bnow\b/.test(h)) return iso(base);
   if (/\btomorrow\b/.test(h)) return plus(1);
@@ -453,4 +476,3 @@ export const staleRunning = () => ({
   summaries: all(`SELECT id FROM visit_summaries
                    WHERE status IN ('queued','running')`).map(r => r.id)
 });
-
