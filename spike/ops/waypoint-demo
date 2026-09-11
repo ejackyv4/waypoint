@@ -111,13 +111,18 @@ scrub_ai_layer() {
 # Stop, act, start. Kept in one place so no path can leave the service down.
 with_service_stopped() {
   systemctl stop "$SERVICE"
-  "$@"
+  local rc=0
+  # Capture the action failure so cleanup and service restart still run. With
+  # `set -e`, allowing this command to abort the function left the public demo
+  # stopped after an otherwise recoverable reset error.
+  "$@" || rc=$?
   rm -f "$DB-wal" "$DB-shm"          # they describe the file being replaced
   chown -R "$OWNER" "$DATA_DIR"
   systemctl start "$SERVICE"
   sleep 3
   if systemctl is-active --quiet "$SERVICE"; then ok "$SERVICE is running"
   else no "$SERVICE did not come back — journalctl -u $SERVICE -n 40"; exit 1; fi
+  return "$rc"
 }
 
 # A consistent single file, WAL folded in — never a plain cp of a live database.
