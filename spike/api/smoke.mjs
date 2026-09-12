@@ -61,8 +61,7 @@ async function startPrivateServer() {
     SAAS_PORT: String(PORTS.saas),
     WAYPOINT_APP_ORIGIN: `http://localhost:${PORTS.app}`,
     WAYPOINT_CONTENT_ORIGIN: `http://localhost:${PORTS.content}`,
-    WAYPOINT_SAAS_ORIGIN: `http://localhost:${PORTS.saas}`,
-    WAYPOINT_SCORM_DIAGNOSTICS: "anger-management"
+    WAYPOINT_SAAS_ORIGIN: `http://localhost:${PORTS.saas}`
   };
 
   /* Started from the repo root, not from wherever the caller happened to be.
@@ -221,54 +220,6 @@ ok(r.status === 200 && r.body.ok, "ingest accepts a valid SCORM 1.2 package");
 ok(r.body?.manifest?.scorm_version === "1.2", "detects SCORM version 1.2");
 const v1 = r.body.content_version.version;
 
-/* A proprietary fixture used by the demo must remain ingestible and appear as
-   an assignable program in the catalog of every fresh checkout. */
-r = await post("/api/ingest", {
-  zip: "spike/corpus/Rise360_AngerManagement_SCORM12.zip",
-  program_id: "anger-management",
-  title: "Anger Management"
-});
-ok(r.status === 200 && r.body?.manifest?.title === "Anger Management",
-   "ingest accepts the Anger Management Rise 360 package");
-r = await fetch(API + "/api/content",
-                { headers: { Authorization: `Bearer ${KEY}` } });
-const angerProgram = (await r.json()).content?.find(p => p.program_id === "anger-management");
-ok(r.status === 200 && angerProgram?.title === "Anger Management",
-   "Anger Management appears as an assignable catalog program");
-
-/* The controlled Survey Block investigation needs to see whether Rise writes
-   standard interactions without putting a subject's actual answer in a log.
-   Prove both halves against the private throwaway server. */
-if (!GIVEN) {
-  const diagSubject = `${SUBJECT}-anger-diagnostic`;
-  await post("/api/assign", { subject_id: diagSubject,
-                              program_id: "anger-management",
-                              name: "Diagnostic Learner" });
-  const launched = await post("/api/launch", {
-    subject_id: diagSubject, program_id: "anger-management"
-  });
-  const opened = await call("/api/runtime/redeem", { token: launched.body.token });
-  const diagId = opened.body.registration.id, diagSession = opened.body.session;
-  const privateAnswer = "PRIVATE-SURVEY-ANSWER-MUST-NOT-LOG";
-
-  await runtime(`/api/runtime/${diagId}/set`,
-    { key: "cmi.interactions.0.id", value: "survey-question-1" }, diagSession);
-  await runtime(`/api/runtime/${diagId}/set`,
-    { key: "cmi.interactions.0.type", value: "long-fill-in" }, diagSession);
-  await runtime(`/api/runtime/${diagId}/set`,
-    { key: "cmi.interactions.0.student_response", value: privateAnswer }, diagSession);
-
-  for (let i = 0; i < 20 && !serverLog.includes("student_response"); i++)
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-  ok(serverLog.includes('program=anger-management key="cmi.interactions.0.id" value="survey-question-1"')
-     && serverLog.includes('key="cmi.interactions.0.type" value="long-fill-in"'),
-     "SCORM diagnostics retain interaction identifiers and types");
-  ok(serverLog.includes('key="cmi.interactions.0.student_response" value=[redacted:')
-     && !serverLog.includes(privateAnswer),
-     "SCORM diagnostics record the response field but redact the learner answer");
-}
-
 /* Articulate's xAPI export includes the Survey Block bridge that its SCORM
    package omits. Prove launch parameters, append-only answers, identity
    scoping, and mutable resume state against a throwaway database. */
@@ -282,6 +233,11 @@ if (!GIVEN) {
      "ingest accepts the Anger Management xAPI package");
   ok(r.body?.manifest?.activity_id && /scormdriver\/indexAPI\.html/.test(r.body?.manifest?.launch_href || ""),
      "xAPI ingest records its course activity and launch file");
+  r = await fetch(API + "/api/content",
+                  { headers: { Authorization: `Bearer ${KEY}` } });
+  const angerProgram = (await r.json()).content?.find(p => p.program_id === "anger-management");
+  ok(r.status === 200 && angerProgram?.title === "Anger Management",
+     "Anger Management appears as an assignable catalog program");
 
   const xSubject = `${SUBJECT}-xapi`;
   await post("/api/assign", { subject_id: xSubject, program_id: "anger-management",

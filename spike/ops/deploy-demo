@@ -15,7 +15,6 @@ ssh $SSH_OPTS "$HOST" 'mkdir -p /opt/waypoint/spike/corpus'
 rsync -az -e "ssh $SSH_OPTS" \
   "$ROOT/spike/corpus/RuntimeBasicCalls_SCORM12.zip" \
   "$ROOT/spike/corpus/Rise360_DiversityBasics_SCORM12.zip" \
-  "$ROOT/spike/corpus/Rise360_AngerManagement_SCORM12.zip" \
   "$ROOT/spike/corpus/Rise360_AngerManagement_xAPI.zip" \
   "$HOST:/opt/waypoint/spike/corpus/"
 rsync -az --delete -e "ssh $SSH_OPTS" "$ROOT/spike/ops/clean-subject.mjs" \

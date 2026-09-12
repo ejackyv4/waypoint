@@ -526,9 +526,9 @@ available fields rather than inventing a section or lesson.
 Waypoint supports both SCORM and xAPI as standards, but the guarantees differ:
 
 - **SCORM:** completion, success, scores, bookmarks, suspend data and time use
-  the existing SCORM runtime adapter. The original Anger Management SCORM 1.2
-  export does not expose Rise Survey Blocks through that adapter, so its survey
-  answers are not available through the SCORM path.
+  the existing SCORM runtime adapter. The demo catalog uses the Anger
+  Management xAPI export for Survey Block responses; its SCORM export is not
+  offered as a selectable demo program.
 - **xAPI:** any conformant package that sends an `answered` statement with its
   response in `result.response` and question metadata in the activity
   definition can use the same statement/state endpoints without custom code.
