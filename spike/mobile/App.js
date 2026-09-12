@@ -4464,26 +4464,6 @@ function Player({ auth, program, onExit }) {
 
   const contentOrigin = url ? url.split("/player")[0] : "";
 
-  useEffect(() => {
-    if (!url) return undefined;
-    const timer = setInterval(() => {
-      webRef.current?.injectJavaScript(`
-        (function () {
-          try {
-            var outer = document.getElementById("frame");
-            var inner = outer && outer.contentDocument && outer.contentDocument.getElementById("content-frame");
-            if (outer && inner && /\\/blank\\.html(?:$|[?#])/.test(inner.src)
-                && outer.contentWindow && outer.contentWindow.LoadContent) {
-              outer.contentWindow.LoadContent();
-            }
-          } catch (e) {}
-        })(); true;
-      `);
-    }, 1000);
-    const stop = setTimeout(() => clearInterval(timer), 12000);
-    return () => { clearInterval(timer); clearTimeout(stop); };
-  }, [url]);
-
   return (
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
@@ -4565,33 +4545,6 @@ function Player({ auth, program, onExit }) {
               const path = (() => { try { return new URL(nav.url).pathname; } catch { return nav.url; } })();
               if (__DEV__) console.log("[Waypoint WebView]", nav.url, nav.loading ? "loading" : "loaded");
               setWebStatus(`${nav.loading ? "Loading" : "Loaded"}: ${path}`);
-            }}
-            onLoadEnd={() => {
-              // Rise's SCORM wrapper waits for hidden helper iframes before
-              // calling LoadContent(). WKWebView can leave that counter
-              // incomplete, marooning the real course at blank.html.
-              webRef.current?.injectJavaScript(`
-                (function () {
-                  var outer = document.getElementById("frame");
-                  if (!outer) return;
-                  try {
-                    var inner = outer.contentDocument && outer.contentDocument.getElementById("content-frame");
-                    if (inner && /\\/blank\\.html(?:$|[?#])/.test(inner.src) && outer.contentWindow.LoadContent) {
-                      var tries = 0;
-                      var nudge = setInterval(function () {
-                        try {
-                          var current = outer.contentDocument && outer.contentDocument.getElementById("content-frame");
-                          if (!current || !/\\/blank\\.html(?:$|[?#])/.test(current.src) || ++tries > 10) return clearInterval(nudge);
-                          if (!outer.contentWindow.__waypointLoadContentNudged) {
-                            outer.contentWindow.__waypointLoadContentNudged = true;
-                            outer.contentWindow.LoadContent();
-                          }
-                        } catch (e) { clearInterval(nudge); }
-                      }, 500);
-                    }
-                  } catch (e) {}
-                })(); true;
-              `);
             }}
             injectedJavaScriptBeforeContentLoaded={WEBVIEW_DIAGNOSTICS}
 
