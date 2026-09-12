@@ -4461,6 +4461,7 @@ function Player({ auth, program, onExit }) {
             ref={webRef}
             source={{ uri: url }}
             style={s.web}
+            userAgent="Mozilla/5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
             startInLoadingState
             renderLoading={() => (
               <View style={[s.center, s.loadingOverlay]}><ActivityIndicator color={C.brand} /></View>
