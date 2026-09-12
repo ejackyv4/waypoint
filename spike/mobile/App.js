@@ -4345,7 +4345,12 @@ function Player({ auth, program, onExit }) {
         const d = await r.json();
         if (!r.ok || !d.launch_url) throw new Error(d.error || `HTTP ${r.status}`);
         setUrl(d.launch_url);
-      } catch (e) { setError(String(e.message || e)); }
+      } catch (e) {
+        /* A release build has no developer console. Include the exact origin
+           and operation in the launch error so a production-device failure
+           cannot be mistaken for a course/WebView failure. */
+        setError(`Could not reach ${API_BASE}/api/me/launch: ${String(e.message || e)}`);
+      }
     })();
   }, [program, auth]);
 
