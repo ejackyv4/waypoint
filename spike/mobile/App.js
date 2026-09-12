@@ -4386,6 +4386,24 @@ const WEBVIEW_DIAGNOSTICS = `
 })(); true;
 `;
 
+const WEBVIEW_START_NUDGE = `
+(function () {
+  var outer = document.getElementById("frame");
+  if (!outer) return;
+  var tries = 0;
+  var timer = setInterval(function () {
+    try {
+      var inner = outer.contentDocument && outer.contentDocument.getElementById("content-frame");
+      var api = outer.contentWindow && outer.contentWindow.RiseLMSInterface;
+      if (inner && /\\/blank\\.html(?:$|[?#])/.test(inner.src) && api && api.start) {
+        api.start();
+        clearInterval(timer);
+      } else if (++tries > 20) clearInterval(timer);
+    } catch (e) { if (++tries > 20) clearInterval(timer); }
+  }, 500);
+})(); true;
+`;
+
 function Player({ auth, program, onExit }) {
   const webRef = useRef(null);
   const [url, setUrl] = useState(null);
@@ -4539,6 +4557,7 @@ function Player({ auth, program, onExit }) {
             // native loading overlay enabled can mask that UI indefinitely
             // when an iframe resource does not emit a final load event.
             startInLoadingState={false}
+            injectedJavaScript={WEBVIEW_START_NUDGE}
             onError={e => setError(`Course WebView error: ${e.nativeEvent?.description || "unknown error"}`)}
             onHttpError={e => setError(`Course returned HTTP ${e.nativeEvent?.statusCode || "error"}`)}
             onNavigationStateChange={nav => {
