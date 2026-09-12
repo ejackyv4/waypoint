@@ -4326,6 +4326,66 @@ function ProgramList({ programs, error, onReload, onLaunch, onSignOut }) {
 /* ================================================================
    Player
 ================================================================ */
+const WEBVIEW_DIAGNOSTICS = `
+(function () {
+  function report(kind, message) {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "web_error", kind: kind, message: String(message || "unknown")
+      }));
+    }
+  }
+  window.addEventListener("error", function (e) {
+    report("javascript", e.message || (e.error && e.error.message));
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    report("promise", e.reason && (e.reason.message || e.reason));
+  });
+  document.addEventListener("DOMContentLoaded", function () {
+    var frame = document.getElementById("frame");
+    if (frame) {
+      frame.addEventListener("load", function () {
+        report("frame_loaded", frame.src);
+        try {
+          frame.contentWindow.addEventListener("error", function (e) {
+            report("iframe_javascript", e.message || (e.error && e.error.message));
+          });
+          frame.contentWindow.addEventListener("unhandledrejection", function (e) {
+            report("iframe_promise", e.reason && (e.reason.message || e.reason));
+          });
+          var contentFrame = frame.contentDocument && frame.contentDocument.getElementById("content-frame");
+          if (contentFrame) {
+            contentFrame.addEventListener("load", function () {
+              report("content_frame_loaded", contentFrame.src);
+              try {
+                contentFrame.contentWindow.addEventListener("error", function (e) {
+                  report("content_javascript", e.message || (e.error && e.error.message));
+                });
+                contentFrame.contentWindow.addEventListener("unhandledrejection", function (e) {
+                  report("content_promise", e.reason && (e.reason.message || e.reason));
+                });
+              } catch (e) { report("content_access", e.message); }
+            });
+          } else report("content_frame_missing", "SCORM content iframe not found");
+        } catch (e) { report("iframe_access", e.message); }
+      });
+      frame.addEventListener("error", function () { report("frame_error", frame.src); });
+      var lastContentSrc = "";
+      setInterval(function () {
+        try {
+          var content = frame.contentDocument && frame.contentDocument.getElementById("content-frame");
+          var src = content && content.src;
+          if (src && !/\/blank\.html(?:$|[?#])/.test(src) && src !== lastContentSrc) {
+            lastContentSrc = src;
+            report("content_frame_navigated", src);
+          }
+        } catch (e) { report("content_poll", e.message); }
+      }, 500);
+    }
+  });
+})(); true;
+`;
+
 function Player({ auth, program, onExit }) {
   const webRef = useRef(null);
   const [url, setUrl] = useState(null);
@@ -4333,10 +4393,17 @@ function Player({ auth, program, onExit }) {
   const [ended, setEnded] = useState(false);
   const [result, setResult] = useState(null);   // native results screen
   const [leaving, setLeaving] = useState(false);
+  const [webStatus, setWebStatus] = useState("");
 
   /* Ask for a launch ticket, then open it. The ticket is short lived and
      single use — the app never holds a long-lived credential. */
   useEffect(() => {
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (!cancelled) {
+        setError(`The app could not reach ${API_BASE} within 15 seconds.`);
+      }
+    }, 15000);
     (async () => {
       try {
         const r = await authed(`${API_BASE}/api/me/launch`, auth.token, {
@@ -4344,9 +4411,14 @@ function Player({ auth, program, onExit }) {
         });
         const d = await r.json();
         if (!r.ok || !d.launch_url) throw new Error(d.error || `HTTP ${r.status}`);
-        setUrl(d.launch_url);
-      } catch (e) { setError(String(e.message || e)); }
+        if (!cancelled) setUrl(d.launch_url);
+      } catch (e) {
+        if (!cancelled) setError(String(e.message || e));
+      } finally {
+        clearTimeout(timeout);
+      }
     })();
+    return () => { cancelled = true; clearTimeout(timeout); };
   }, [program, auth]);
 
   const flush = useCallback(() => {
@@ -4392,6 +4464,26 @@ function Player({ auth, program, onExit }) {
 
   const contentOrigin = url ? url.split("/player")[0] : "";
 
+  useEffect(() => {
+    if (!url) return undefined;
+    const timer = setInterval(() => {
+      webRef.current?.injectJavaScript(`
+        (function () {
+          try {
+            var outer = document.getElementById("frame");
+            var inner = outer && outer.contentDocument && outer.contentDocument.getElementById("content-frame");
+            if (outer && inner && /\\/blank\\.html(?:$|[?#])/.test(inner.src)
+                && outer.contentWindow && outer.contentWindow.LoadContent) {
+              outer.contentWindow.LoadContent();
+            }
+          } catch (e) {}
+        })(); true;
+      `);
+    }, 1000);
+    const stop = setTimeout(() => clearInterval(timer), 12000);
+    return () => { clearInterval(timer); clearTimeout(stop); };
+  }, [url]);
+
   return (
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
@@ -4399,6 +4491,7 @@ function Player({ auth, program, onExit }) {
         <View style={{ flex: 1 }}>
           <Text style={s.headerTitle} numberOfLines={1}>{program.title}</Text>
           <Text style={s.headerSub}>{ended ? "Session complete" : "In progress · saved automatically"}</Text>
+          {IS_DEV && webStatus ? <Text style={s.headerSub}>{webStatus}</Text> : null}
         </View>
       </View>
 
@@ -4461,10 +4554,43 @@ function Player({ auth, program, onExit }) {
             ref={webRef}
             source={{ uri: url }}
             style={s.web}
-            startInLoadingState
-            renderLoading={() => (
-              <View style={[s.center, s.loadingOverlay]}><ActivityIndicator color={C.brand} /></View>
-            )}
+            webviewDebuggingEnabled={__DEV__}
+            // The player has its own loading/error UI. Keeping WebView's
+            // native loading overlay enabled can mask that UI indefinitely
+            // when an iframe resource does not emit a final load event.
+            startInLoadingState={false}
+            onError={e => setError(`Course WebView error: ${e.nativeEvent?.description || "unknown error"}`)}
+            onHttpError={e => setError(`Course returned HTTP ${e.nativeEvent?.statusCode || "error"}`)}
+            onNavigationStateChange={nav => {
+              const path = (() => { try { return new URL(nav.url).pathname; } catch { return nav.url; } })();
+              if (__DEV__) console.log("[Waypoint WebView]", nav.url, nav.loading ? "loading" : "loaded");
+              setWebStatus(`${nav.loading ? "Loading" : "Loaded"}: ${path}`);
+            }}
+            onLoadEnd={() => {
+              // Rise's SCORM wrapper waits for hidden helper iframes before
+              // calling LoadContent(). WKWebView can leave that counter
+              // incomplete, marooning the real course at blank.html.
+              webRef.current?.injectJavaScript(`
+                (function () {
+                  var outer = document.getElementById("frame");
+                  if (!outer) return;
+                  try {
+                    var inner = outer.contentDocument && outer.contentDocument.getElementById("content-frame");
+                    if (inner && /\\/blank\\.html(?:$|[?#])/.test(inner.src) && outer.contentWindow.LoadContent) {
+                      var tries = 0;
+                      var nudge = setInterval(function () {
+                        try {
+                          var current = outer.contentDocument && outer.contentDocument.getElementById("content-frame");
+                          if (!current || !/\\/blank\\.html(?:$|[?#])/.test(current.src) || ++tries > 10) return clearInterval(nudge);
+                          outer.contentWindow.LoadContent();
+                        } catch (e) { clearInterval(nudge); }
+                      }, 500);
+                    }
+                  } catch (e) {}
+                })(); true;
+              `);
+            }}
+            injectedJavaScriptBeforeContentLoaded={WEBVIEW_DIAGNOSTICS}
 
             /* --- containment -------------------------------------------
                Uploaded course code runs in here. It gets no filesystem
@@ -4480,7 +4606,11 @@ function Player({ auth, program, onExit }) {
             /* Matched against the ORIGIN only — a trailing path makes every
                URL fail the check, and react-native-webview then hands it to
                Linking, which opens the system browser. */
-            originWhitelist={[contentOrigin]}
+            // iOS WebView applies originWhitelist to nested frame navigations
+            // inconsistently when the URL includes query parameters. Permit
+            // HTTPS frames here; onShouldStartLoadWithRequest below still
+            // enforces the course-origin boundary.
+            originWhitelist={["https://*"]}
             onShouldStartLoadWithRequest={req => {
               // Keep the course inside its own package. Anything else is
               // a course trying to navigate away — refuse it.
@@ -4502,11 +4632,20 @@ function Player({ auth, program, onExit }) {
                 // Without this the "Done" button inside the WebView is dead —
                 // there is no tab for it to close.
                 if (msg.type === "exit") onExit();
+                if (msg.type === "web_error" && !["frame_loaded", "frame_error", "content_frame_loaded", "content_frame_navigated"].includes(msg.kind)) {
+                  setError(`Course ${msg.kind} error: ${msg.message}`);
+                }
+                if (msg.type === "web_error" && msg.kind === "frame_loaded") setWebStatus("Course frame loaded");
+                if (msg.type === "web_error" && msg.kind === "content_frame_loaded") setWebStatus("Rise content frame loaded");
+                if (msg.type === "web_error" && msg.kind === "content_frame_navigated") setWebStatus("Rise URL: " + msg.message);
+                if (msg.type === "web_error" && msg.kind === "frame_error") setError("The course frame could not load.");
               } catch {}
             }}
 
             javaScriptEnabled
-            domStorageEnabled={false}
+            // Rise/xAPI packages use localStorage during initialization and
+            // to retain their resume state inside the WebView.
+            domStorageEnabled
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
           />

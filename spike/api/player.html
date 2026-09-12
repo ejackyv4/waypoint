@@ -460,7 +460,14 @@ async function post(path, body){
   if (isXapi) { initialized = true; sessionStart = Date.now(); }
 
   setSaveState();
-  el("frame").src = res.content.launch_url;
+  const frame = el("frame");
+  frame.addEventListener("load", () => notifyNative({
+    type: "frame_loaded", url: frame.src
+  }), { once: true });
+  frame.addEventListener("error", () => notifyNative({
+    type: "frame_error", url: frame.src
+  }), { once: true });
+  frame.src = res.content.launch_url;
   el("loading").classList.remove("show");
 })();
 

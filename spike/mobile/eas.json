@@ -23,7 +23,8 @@
   "submit": {
     "production": {
       "ios": {
-        "bundleIdentifier": "com.waypoint.supervision"
+        "bundleIdentifier": "com.waypoint.supervision",
+        "ascAppId": "6806568554"
       }
     }
   }
