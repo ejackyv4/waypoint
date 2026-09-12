@@ -97,12 +97,7 @@ export const content = createServer(async (req, res) => {
   try {
     const s = await stat(file);
     if (!s.isFile()) throw new Error("not a file");
-    let buf = await readFile(file);
-    if (/\/scormdriver\/indexAPI\.html$/i.test(file)) {
-      const html = buf.toString("utf8");
-      const nudge = `<script>(function(){var n=0;function kick(){try{var f=document.getElementById("content-frame");if(f&&/\\/blank\\.html(?:$|[?#])/.test(f.src)&&window.Start&&!window.__waypointRiseStarted){window.__waypointRiseStarted=true;window.Start();return;}}catch(e){}if(++n<20)setTimeout(kick,500)}kick()})();</script>`;
-      buf = Buffer.from(html.replace(/<\/body>/i, `${nudge}</body>`));
-    }
+    const buf = await readFile(file);
     res.writeHead(200, {
       "Content-Type": MIME[extname(file).toLowerCase()] || "application/octet-stream",
       "Content-Length": buf.length,
