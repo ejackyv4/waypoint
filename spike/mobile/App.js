@@ -4472,7 +4472,10 @@ function Player({ auth, program, onExit }) {
                content origin. */
             sharedCookiesEnabled={false}
             thirdPartyCookiesEnabled={false}
-            incognito={true}
+            /* The course is already isolated on the content origin. Keep the
+               WebView session storage-capable: Rise/xAPI uses local/session
+               storage while bootstrapping and while restoring a bookmark. */
+            incognito={false}
             allowFileAccess={false}
             allowFileAccessFromFileURLs={false}
             allowUniversalAccessFromFileURLs={false}
@@ -4506,7 +4509,7 @@ function Player({ auth, program, onExit }) {
             }}
 
             javaScriptEnabled
-            domStorageEnabled={false}
+            domStorageEnabled={true}
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
           />
