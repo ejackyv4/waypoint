@@ -212,7 +212,9 @@ const dur = s => { s = Math.max(0, Math.round(+s || 0));
   return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
 const money = cents => `$${(Math.max(0, Number(cents) || 0) / 100).toFixed(2)}`;
 
-let auth = null, caseData = null, tab = "programs";
+/* The mobile app opens on its attention summary. Start here too; My Learning
+   remains a dedicated tab rather than a second place for alerts. */
+let auth = null, caseData = null, tab = "home";
 
 /* No browser dialogs — one notification, used everywhere. */
 function toast(msg, kind = "ok") {
@@ -394,31 +396,9 @@ function paint() {
   if (tab === "visits")    return paintVisits();
   if (tab === "me")        return paintMe();
 
-  document.getElementById("wrap").innerHTML = `
-    ${(caseData?.unseen_actions || 0) > 0 ? `
-      <div class="notice warn">
-        <span class="ico">&check;</span>
-        <div>${caseData.unseen_actions} new thing${
-          caseData.unseen_actions === 1 ? "" : "s"} you agreed to at a visit ${
-          caseData.unseen_actions === 1 ? "has" : "have"} been added.
-          <button class="link" id="toAct" style="margin-left:6px">Open</button></div>
-      </div>` : ""}
-    ${needsAck() ? `
-      <div class="notice warn">
-        <span class="ico">&#9888;</span>
-        <div>${wasAmended()
-          ? "Your conditions of supervision have been updated. Please review and acknowledge them again."
-          : "You have conditions of supervision to review and acknowledge."}
-          <button class="link" id="toAg" style="margin-left:6px">Review now</button></div>
-      </div>` : ""}
-    <h2 class="pagetitle">My Learning</h2>
+  document.getElementById("wrap").innerHTML = `<h2 class="pagetitle">My Learning</h2>
     <p class="pagesub">Programs assigned to you.</p>
     ${PROGRAM_CARDS || `<div class="card empty">Nothing assigned yet.</div>`}`;
-
-  const jump = document.getElementById("toAg");
-  if (jump) jump.onclick = () => { tab = "agreement"; paint(); scrollTo(0, 0); };
-  const jumpAct = document.getElementById("toAct");
-  if (jumpAct) jumpAct.onclick = () => { tab = "actions"; paint(); scrollTo(0, 0); };
   app.querySelectorAll("[data-program]").forEach(b => b.onclick = () => launch(b));
 }
 
