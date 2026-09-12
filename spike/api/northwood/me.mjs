@@ -16,7 +16,7 @@
  */
 
 import {
-  subjectByKey, markVisitsSeen, visitsFor, unseenVisitCount,
+  subjectByKey, saveSubject, markVisitsSeen, visitsFor, unseenVisitCount,
   unconfirmedVisitCount,
   vehiclesFor, saveVehicle, deleteVehicle, vehicleById,
   curfewFor, obligationsFor, travelPermitFor, documentsFor,
@@ -34,7 +34,7 @@ import { financialSummary, financialItemById } from "../db/financial.mjs";
 import { openActionsForSubject, completeAction, unseenActionCount,
          markActionsSeen } from "../db/insights.mjs";
 import { recordPayment } from "./financial.mjs";
-import { datesSummary, dateById, acknowledgeDate, closeDate,
+import { datesSummary, dateById, acknowledgeDate, closeDate, saveDate, DATE_KINDS,
          unseenDateCount, markDateSeen } from "../db/dates.mjs";
 import { goalsFor, goalById, setStepDone, stepById, unseenGoalCount,
          markGoalsSeen, goalSummary } from "../db/goals.mjs";
@@ -53,6 +53,36 @@ const subjectOnly = handler => async (req, res, ctx) => {
 };
 
 export const routes = {
+
+  /* A subject may report an appointment they were given elsewhere (for
+     example by a treatment provider). It is a new appointment, not a way to
+     move or edit one the officer has already recorded. */
+  "POST /api/me/important-dates": subjectOnly(async (req, res, ctx, person) => {
+    const b = await readJson(req);
+    if (!DATE_KINDS.some(([kind]) => kind === b.kind))
+      return saasJson(res, 400, { error: "Choose what kind of appointment this is." });
+    if (!b.scheduled_at || isNaN(new Date(b.scheduled_at)))
+      return saasJson(res, 400, { error: "An appointment needs a date and time." });
+    const date = saveDate({
+      subject_id: person.subject_id, kind: b.kind, title: b.title,
+      detail: b.detail, location: b.location, address: b.address,
+      scheduled_at: new Date(b.scheduled_at).toISOString()
+    }, person.name || "subject");
+    return saasJson(res, 200, { date, important_dates: datesSummary(person.subject_id).dates });
+  }),
+
+  /* Contact details are the subject's own report and can be corrected from
+     the learner site. Case number, status, and officer remain read-only. */
+  "POST /api/me/profile": subjectOnly(async (req, res, ctx, person) => {
+    const b = await readJson(req);
+    const patch = {};
+    for (const field of ["phone", "email", "address"]) {
+      if (b[field] !== undefined) patch[field] = String(b[field] || "").trim() || null;
+    }
+    if (patch.email && !/^\S+@\S+\.\S+$/.test(patch.email))
+      return saasJson(res, 400, { error: "That email address doesn't look right." });
+    return saasJson(res, 200, { subject: asProfile(saveSubject(person.subject_id, patch)) });
+  }),
 
   /* Everything the app shows, in one call. */
   /**
