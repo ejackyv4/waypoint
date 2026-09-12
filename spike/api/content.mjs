@@ -104,7 +104,7 @@ export const content = createServer(async (req, res) => {
        and only while its own content frame is still blank. */
     if (/\/scormdriver\/indexAPI\.html$/i.test(file)) {
       const html = buf.toString("utf8");
-      const nudge = `<script>(function(){var n=0;function kick(){try{var f=document.getElementById("content-frame");if(f&&/\\/blank\\.html(?:$|[?#])/.test(f.src)&&window.LoadContent)window.LoadContent();}catch(e){}if(++n<20)setTimeout(kick,500)}kick()})();</script>`;
+      const nudge = `<script>(function(){var n=0;function kick(){try{var f=document.getElementById("content-frame");if(f&&/\\/blank\\.html(?:$|[?#])/.test(f.src)&&window.LoadContent&&!window.__waypointLoadContentNudged){window.__waypointLoadContentNudged=true;window.LoadContent();return;}}catch(e){}if(++n<20)setTimeout(kick,500)}kick()})();</script>`;
       buf = Buffer.from(html.replace(/<\/body>/i, `${nudge}</body>`));
     }
     res.writeHead(200, {

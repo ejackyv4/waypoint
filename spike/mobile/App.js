@@ -4582,7 +4582,10 @@ function Player({ auth, program, onExit }) {
                         try {
                           var current = outer.contentDocument && outer.contentDocument.getElementById("content-frame");
                           if (!current || !/\\/blank\\.html(?:$|[?#])/.test(current.src) || ++tries > 10) return clearInterval(nudge);
-                          outer.contentWindow.LoadContent();
+                          if (!outer.contentWindow.__waypointLoadContentNudged) {
+                            outer.contentWindow.__waypointLoadContentNudged = true;
+                            outer.contentWindow.LoadContent();
+                          }
                         } catch (e) { clearInterval(nudge); }
                       }, 500);
                     }
