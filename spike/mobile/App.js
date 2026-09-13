@@ -4492,7 +4492,9 @@ function Player({ auth, program, onExit }) {
             onShouldStartLoadWithRequest={req => {
               // Keep the course inside its own package. Anything else is
               // a course trying to navigate away — refuse it.
-              const allowed = req.url.startsWith(contentOrigin) || req.url === "about:blank";
+              const allowed = req.url.startsWith(contentOrigin)
+                || req.url === "about:blank"
+                || req.url.startsWith("blob:");
               if (!allowed) console.warn("blocked navigation:", req.url);
               return allowed;
             }}
