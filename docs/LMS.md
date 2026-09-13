@@ -700,7 +700,7 @@ Against the PoC's success criteria, with real authoring-tool content:
 | Completion, pass/fail and time recorded accurately | ✅ 920s across four sessions |
 | Results reach the customer's system server-to-server | ✅ signature verified |
 | Launch cannot be spoofed | ✅ |
-| Plays in the mobile app, in a WebView | ⏳ **not yet tested with Rise** |
+| Plays in the mobile app, in a WebView | ✅ **validated on physical iOS device** |
 
 The final numbers from that run:
 

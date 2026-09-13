@@ -351,8 +351,10 @@ permanent fixture.
 ## 📱 MOBILE AND WEBVIEW PITFALLS
 
 - **No app session cookie in the WebView, ever.** The launch ticket is the only
-  credential. iOS and Android share cookie stores across WebViews by default — use a
-  non-persistent store and clear between sessions
+  credential. Keep the content origin isolated and do not share app cookies. The
+  course WebView must remain storage-capable: Rise/xAPI packages use
+  `localStorage`, `sessionStorage`, and service workers while bootstrapping and
+  restoring progress. Do not use an incognito/non-persistent store for playback.
 - **`allowUniversalAccessFromFileURLs`, `allowFileAccessFromFileURLs` and `allowFileAccess`
   off.** Content loads from the remote content origin over HTTPS; a course has no business
   touching the device filesystem
@@ -376,10 +378,11 @@ permanent fixture.
   **layout viewport** — after which `100vw`, `max-width:100%` and even `position:fixed`
   all resolve against ~800px, not the 430px screen. No CSS fix works; move the chrome
   to native
-- **`originWhitelist` matches the ORIGIN only** (`http://host:port`). Give it a path
-  glob and every URL fails the check — and `react-native-webview` then silently hands
-  the URL to `Linking`, opening the system browser. You get a blank frame and a warning
-  buried in Metro logs
+- **Navigation containment must preserve package internals.** Restrict top-level
+  navigation to the content origin, `about:blank`, and package-generated `blob:`
+  URLs. An exact `originWhitelist` is not portable across WKWebView versions and
+  can block nested Rise frames on physical devices; enforce the allowlist in the
+  request handler instead.
 - **No `borderRadius` + `overflow:"hidden"` on a WebView style.** On iOS that clips and
   mis-sizes the contents rather than just rounding corners
 - **Name `Authorization` in `Access-Control-Allow-Headers`.** It is not CORS-safelisted,
@@ -389,6 +392,32 @@ permanent fixture.
   the end, retry within the session, and **never show a learner a success that wasn't
   saved.** Losing twenty minutes of someone's work to a tunnel is preventable and
   unforgivable
+
+### Production incident: Rise/xAPI loaded in simulator but spun on devices
+
+On 2026-09-12, Anger Management opened in the web learner site and in the iOS
+simulator but remained on "Content is loading" in TestFlight and on physical
+iPhone/iPad devices. The API, launch ticket, xAPI endpoint, content files, and
+CORS all returned successfully from DigitalOcean. The failure was in the native
+WebView contract, not the database or package:
+
+1. The WebView had `domStorageEnabled={false}` and `incognito={true}`. Rise's
+   runtime requires browser storage and service-worker support during startup.
+2. The navigation policy used an exact origin whitelist and rejected the
+   package's internal `blob:` navigations on physical WKWebView versions.
+3. Expo development target configuration was also being read from the wrong
+   manifest shape, so a requested demo build silently displayed localhost.
+
+The durable rules are: keep playback storage-capable but cookie-isolated, allow
+the package's same-origin `blob:` internals, compile the selected environment
+target into the bundle, and expose the active server in device diagnostics. When
+web and simulator succeed but physical devices fail, compare the native WebView
+contract and device request path before changing course files or database state.
+
+The same incident exposed a performance rule: versioned package paths are
+immutable, so they must be cacheable. Keep the player document and launch
+tickets `no-store`, but serve `/content/:version/*` with a long immutable cache
+header. Otherwise every mobile launch redownloads the entire package.
 
 ---
 

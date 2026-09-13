@@ -376,7 +376,8 @@ Expo + React Native. Sign in, see programs, take the course in a `WebView`.
   `Terminate` usually never arrives
 - **Android hardware back** routed to the exit flow, never a raw unmount
 - **WebView locked down**: no shared cookies, no filesystem access, navigation confined to
-  the content origin
+  the content origin and package-safe `blob:` URLs; browser storage remains enabled because
+  Rise/xAPI packages require it
 - **Native results screen**
 
 ### Admin console — `:8090/console`

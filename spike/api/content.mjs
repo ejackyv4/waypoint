@@ -101,7 +101,10 @@ export const content = createServer(async (req, res) => {
     res.writeHead(200, {
       "Content-Type": MIME[extname(file).toLowerCase()] || "application/octet-stream",
       "Content-Length": buf.length,
-      "Cache-Control": "no-store",
+      /* Content version directories are immutable: a new upload receives a
+         new version id. Let device WebViews cache the package instead of
+         redownloading every Rise asset on every launch. */
+      "Cache-Control": "public, max-age=31536000, immutable",
       // Uploaded content is third-party code. Never sniffed, never framed
       // by anyone but us.
       "X-Content-Type-Options": "nosniff",
