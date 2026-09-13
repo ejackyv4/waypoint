@@ -12,12 +12,12 @@
     "preview": {
       "distribution": "internal",
       "ios": { "simulator": false },
-      "env": { "WAYPOINT_TARGET": "demo" }
+      "env": { "WAYPOINT_TARGET": "demo", "EXPO_PUBLIC_WAYPOINT_TARGET": "demo" }
     },
     "production": {
       "distribution": "store",
       "autoIncrement": true,
-      "env": { "WAYPOINT_TARGET": "demo" }
+      "env": { "WAYPOINT_TARGET": "demo", "EXPO_PUBLIC_WAYPOINT_TARGET": "demo" }
     }
   },
   "submit": {

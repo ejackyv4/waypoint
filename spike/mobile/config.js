@@ -36,8 +36,15 @@ const extra = Constants.expoConfig?.extra
   || Constants.manifest?.extra?.expoClient?.extra
   || {};
 
-const PROD_APP  = extra.appOrigin  || "https://meridian.banyanlabs.io";
-const PROD_SAAS = extra.saasOrigin || "https://northwood.meridian.banyanlabs.io";
+/* Expo inlines EXPO_PUBLIC_* values into the JS bundle. This is the reliable
+   escape hatch for development clients whose runtime manifest omits dynamic
+   app.config.js extras. */
+const COMPILED_TARGET = process.env.EXPO_PUBLIC_WAYPOINT_TARGET === "demo";
+
+const PROD_APP  = COMPILED_TARGET ? "https://meridian.banyanlabs.io"
+  : extra.appOrigin || "https://meridian.banyanlabs.io";
+const PROD_SAAS = COMPILED_TARGET ? "https://northwood.meridian.banyanlabs.io"
+  : extra.saasOrigin || "https://northwood.meridian.banyanlabs.io";
 
 /**
  * The front door.
@@ -99,7 +106,7 @@ export const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
    That is how a simulator build is pointed at the deployed server — which has
    to be provable BEFORE a release build goes anywhere near TestFlight, because
    a release build is the one place these URLs cannot be checked by hand. */
-const FORCED = !!(extra.appOrigin && extra.saasOrigin);
+const FORCED = COMPILED_TARGET || !!(extra.appOrigin && extra.saasOrigin);
 
 export const USING_SERVER = FORCED || !IS_DEV;
 

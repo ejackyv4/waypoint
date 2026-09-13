@@ -43,7 +43,8 @@ const DEMO = {
   doorUrl:    "https://access.137-184-30-181.sslip.io"
 };
 
-const target = process.env.WAYPOINT_TARGET || "local";
+const target = process.env.EXPO_PUBLIC_WAYPOINT_TARGET
+  || process.env.WAYPOINT_TARGET || "local";
 
 export default ({ config }) => {
   const origins = target === "demo" ? DEMO : {};
