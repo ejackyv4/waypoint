@@ -1090,11 +1090,28 @@ async function renderDashboard(from) {
   const week = from || new Date().toISOString().slice(0, 10);
   view.innerHTML = `<h1 class="page">Dashboard</h1><p class="pagesub">Loading&hellip;</p>`;
   try {
+    const json = async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Dashboard request failed (HTTP ${r.status})`);
+      return d;
+    };
     [DAY, DASH] = await Promise.all([
-      fetch(`/api/officer/week?from=${encodeURIComponent(week)}`).then(r => r.json()),
-      fetch(`/api/officer/dashboard`).then(r => r.json())
+      fetch(`/api/officer/week?from=${encodeURIComponent(week)}`, { cache: "no-store" }).then(json),
+      fetch(`/api/officer/dashboard`, { cache: "no-store" }).then(json)
     ]);
-  } catch { view.innerHTML += `<div class="err">Couldn't load the dashboard.</div>`; return; }
+    if (!DAY?.days || !DASH?.attention || !DASH?.upcoming)
+      throw new Error("The dashboard returned an incomplete response.");
+  } catch (e) {
+    view.innerHTML = `<div class="err">Couldn't load the dashboard: ${esc(e.message || e)}</div>`;
+    /* A login can complete just before the browser has applied its session
+       cookie. Give the first dashboard request one quiet retry; navigation
+       should never be required to make the home screen appear. */
+    if (!renderDashboard._retried) {
+      renderDashboard._retried = true;
+      setTimeout(() => { renderDashboard._retried = false; renderDashboard(from); }, 250);
+    }
+    return;
+  }
 
   /* Start with the next day that actually has visits selected. Opening on an
      empty selection means the route button does nothing and the officer has
@@ -2518,7 +2535,6 @@ async function loadVisits(s) {
         ? ibtn("view", v.id, "View this visit")
         : v.started_at
         ? ibtn("view", v.id, "View this visit")
-          + ibtn("end", v.id, "End visit and record what you saw", "go")
           + ibtn("cancel", v.id, "Cancel this visit", "danger")
         /* No Edit once a visit is under way: the officer is standing there,
            and moving a visit they have already arrived at is not a thing that
@@ -3210,7 +3226,12 @@ function paintAgenda(v, s, reload) {
     </div>`;
 
   const post = async (url, payload, okMsg) => {
-    try { await api(url, payload); toast(okMsg); await reload(); }
+    /* Re-rendering the visit modal after an agenda change used to move the
+       officer back to the top of a long agenda. Keep the modal's own scroll
+       position so checking several items in succession stays where the work
+       is happening. */
+    const scrollTop = el("modal")?.querySelector(".modal")?.scrollTop || 0;
+    try { await api(url, payload); toast(okMsg); await reload(scrollTop); }
     catch (e) { toast(e.message, "err"); }
   };
 
@@ -3340,19 +3361,30 @@ function showVisit(v, s) {
             <span>${esc(n.author || "")}${n.author ? " &middot; " : ""}${esc(whenFull(n.created_at))}</span>
           </div>`).join("")
       : `<p class="mempty">No notes recorded.</p>`}
-    <p class="mnote">Notes are append-only &mdash; a correction is a new note, never an edit.</p>`);
+    <p class="mnote">Notes are append-only &mdash; a correction is a new note, never an edit.</p>
+
+    ${(v.started_at || v.status === "in_progress") && !["completed", "cancelled"].includes(v.status) ? `
+      <div class="mactions visitCompleteActions">
+        <button class="btn small" id="visitComplete">Complete visit</button>
+      </div>` : ""}`);
 
   /* Re-read the visit rather than patching the copy this modal was opened
      with: an agenda change alters the whole record, and a half-refreshed
      screen is how two views of one visit start disagreeing. */
   wireBrowserRecording(v);
   wireRecordingUpload(v);
+  if (el("visitComplete"))
+    el("visitComplete").onclick = () => endVisitDialog(v, s);
   paintAi(v);
-  paintAgenda(v, s, async () => {
+  paintAgenda(v, s, async scrollTop => {
     const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(s.subject_id)}`)
                 .then(r => r.json());
     const fresh = (d.visits || []).find(x => x.id === v.id);
-    if (fresh) showVisit(fresh, s);
+    if (fresh) {
+      showVisit(fresh, s);
+      if (scrollTop != null)
+        requestAnimationFrame(() => el("modal")?.querySelector(".modal")?.scrollTo(0, scrollTop));
+    }
   });
 }
 
