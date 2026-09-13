@@ -14,7 +14,12 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "WKAppBoundDomains": [
+          "content.meridian.banyanlabs.io",
+          "meridian.banyanlabs.io",
+          "northwood.meridian.banyanlabs.io"
+        ]
       }
     },
     "android": {

@@ -31,7 +31,7 @@ import {
 } from "expo-audio";
 import { File } from "expo-file-system";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { API_BASE, SAAS_BASE, HOST, HOST_SOURCE, IS_DEV, DOOR_URL,
+import { API_BASE, SAAS_BASE, HOST, HOST_SOURCE, IS_DEV, USING_SERVER, DOOR_URL,
          SERVER_LABEL } from "./config";
 
 const fmtDur = t => {
@@ -4486,6 +4486,10 @@ function Player({ auth, program, onExit }) {
             allowFileAccessFromFileURLs={false}
             allowUniversalAccessFromFileURLs={false}
             allowsBackForwardNavigationGestures={false}
+            /* iPadOS 17 WKWebView requires app-bound HTTPS hosts for the
+               service worker used by Rise. Enable this only for production;
+               local development uses the laptop host and must remain open. */
+            limitsNavigationsToAppBoundDomains={USING_SERVER}
             /* The explicit navigation gate below is authoritative. An exact
                originWhitelist behaves differently across WKWebView versions
                and can block nested Rise frames on physical iOS devices. */
