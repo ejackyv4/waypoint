@@ -27,7 +27,14 @@ import Constants from "expo-constants";
  * ---------------------------------------------------------------- */
 
 /** The deployed server. Overridable from app.json without touching this file. */
-const extra = Constants.expoConfig?.extra || {};
+/* Expo has shipped the runtime manifest in several shapes. In particular,
+   development clients can expose app.config.js values under manifest2 rather
+   than expoConfig. If we read only one shape, a requested demo build silently
+   falls back to localhost—the most dangerous possible configuration failure. */
+const extra = Constants.expoConfig?.extra
+  || Constants.manifest2?.extra?.expoClient?.extra
+  || Constants.manifest?.extra?.expoClient?.extra
+  || {};
 
 const PROD_APP  = extra.appOrigin  || "https://meridian.banyanlabs.io";
 const PROD_SAAS = extra.saasOrigin || "https://northwood.meridian.banyanlabs.io";
