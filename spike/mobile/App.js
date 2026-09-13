@@ -144,6 +144,7 @@ function SignIn({ onSignedIn, notice }) {
           <View style={s.signInMark}><Text style={s.signInMarkText}>M</Text></View>
           <Text style={s.signInTitle}>Meridian</Text>
           <Text style={s.signInSub}>Sign in</Text>
+          <Text style={s.signInServer}>Server: {SERVER_LABEL}</Text>
 
           {/* An expired session is not a failed sign-in — it explains why the
               app returned here, and it clears the moment they type. */}
@@ -4783,6 +4784,7 @@ const s = StyleSheet.create({
   signInTitle: { fontSize: 26, fontWeight: "700", color: C.ink, textAlign: "center",
                  marginTop: 16, letterSpacing: -0.5 },
   signInSub: { fontSize: 15, color: C.muted, textAlign: "center", marginTop: 4, marginBottom: 28 },
+  signInServer: { fontSize: 12, color: C.faint, textAlign: "center", marginTop: -18, marginBottom: 24 },
   signInError: {
     backgroundColor: C.errSoft, borderRadius: 10, padding: 13, marginBottom: 18,
     borderWidth: 1, borderColor: "#fecaca"
