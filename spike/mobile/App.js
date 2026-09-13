@@ -4486,10 +4486,9 @@ function Player({ auth, program, onExit }) {
             allowFileAccessFromFileURLs={false}
             allowUniversalAccessFromFileURLs={false}
             allowsBackForwardNavigationGestures={false}
-            /* Matched against the ORIGIN only — a trailing path makes every
-               URL fail the check, and react-native-webview then hands it to
-               Linking, which opens the system browser. */
-            originWhitelist={[contentOrigin]}
+            /* The explicit navigation gate below is authoritative. An exact
+               originWhitelist behaves differently across WKWebView versions
+               and can block nested Rise frames on physical iOS devices. */
             onShouldStartLoadWithRequest={req => {
               // Keep the course inside its own package. Anything else is
               // a course trying to navigate away — refuse it.
