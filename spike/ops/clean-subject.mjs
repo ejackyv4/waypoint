@@ -65,7 +65,10 @@ try {
   del("saas_inbox", "subject_id = ?", subjectId);
 
   // Visit evidence and appointments.
-  for (const t of ["visit_agenda", "visit_notes", "visit_photos", "visit_recordings", "visit_transcripts", "visit_summaries", "visit_summary_actions"]) del(t, "visit_id IN (SELECT id FROM _clean_visits)");
+  /* Derived visit records must be removed child-first: summary actions point
+     at summaries, and transcripts point at recordings. SQLite correctly
+     rejects deleting either parent while those rows remain. */
+  for (const t of ["visit_agenda", "visit_notes", "visit_photos", "visit_summary_actions", "visit_transcripts", "visit_summaries", "visit_recordings"]) del(t, "visit_id IN (SELECT id FROM _clean_visits)");
   del("visits", "subject_id = ?", subjectId);
 
   // Agreements, plans, goals, obligations, and money.

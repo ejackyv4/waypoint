@@ -3225,14 +3225,22 @@ function paintAgenda(v, s, reload) {
       <button class="btn small ghost" id="ag_add">Add</button>
     </div>`;
 
-  const post = async (url, payload, okMsg) => {
+  const post = async (url, payload, okMsg, refresh = true) => {
     /* Re-rendering the visit modal after an agenda change used to move the
        officer back to the top of a long agenda. Keep the modal's own scroll
        position so checking several items in succession stays where the work
        is happening. */
-    const scrollTop = el("modal")?.querySelector(".modal")?.scrollTop || 0;
-    try { await api(url, payload); toast(okMsg); await reload(scrollTop); }
-    catch (e) { toast(e.message, "err"); }
+    const modal = el("modal")?.querySelector(".modal");
+    const scrollTop = modal?.scrollTop || 0;
+    const anchorId = payload?.id && modal?.querySelector(`[data-ag-cover="${payload.id}"]`)
+      ? payload.id : null;
+    if (localStorage.getItem("waypoint.debug") === "1")
+      console.debug("[Northwood visit] agenda refresh", { scrollTop, height: modal?.scrollHeight });
+    try {
+      await api(url, payload); toast(okMsg);
+      if (refresh) await reload({ scrollTop, anchorId });
+      return true;
+    } catch (e) { toast(e.message, "err"); return false; }
   };
 
   el("ag_refresh").onclick = async () => {
@@ -3252,10 +3260,22 @@ function paintAgenda(v, s, reload) {
   el("ag_add").onclick = add;
   el("ag_new").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); add(); } };
 
-  box.querySelectorAll("[data-ag-cover]").forEach(b => b.onclick = () =>
-    post("/api/visits/agenda/item/cover",
-         { id: Number(b.dataset.agCover), covered: b.dataset.covered === "1" },
-         b.dataset.covered === "1" ? "Marked discussed" : "Marked not discussed"));
+  box.querySelectorAll("[data-ag-cover]").forEach(b => b.onclick = async () => {
+    const covered = b.dataset.covered === "1";
+    const ok = await post("/api/visits/agenda/item/cover",
+      { id: Number(b.dataset.agCover), covered },
+      covered ? "Marked discussed" : "Marked not discussed", false);
+    if (!ok) return;
+    /* This is a small, local state change. Updating the clicked row in place
+       avoids rebuilding the modal (and any scroll movement) just to toggle a
+       check mark. The next full visit refresh still reads the server record. */
+    const row = b.closest(".agendaItem");
+    row?.classList.toggle("covered", covered);
+    b.dataset.covered = covered ? "0" : "1";
+    b.dataset.tip = covered ? "Mark not discussed" : "Mark discussed";
+    b.classList.toggle("on", covered);
+    b.innerHTML = covered ? "&#10003;" : "";
+  });
 
   box.querySelectorAll("[data-ag-note]").forEach(b => b.onclick = async () => {
     const item = ag.find(x => x.id === Number(b.dataset.agNote));
@@ -3275,10 +3295,26 @@ function paintAgenda(v, s, reload) {
          "Taken off the agenda"));
 }
 
+function restoreVisitModalScroll(scrollTop) {
+  const apply = () => {
+    const modal = el("modal")?.querySelector(".modal");
+    if (modal) modal.scrollTop = scrollTop;
+    if (modal && localStorage.getItem("waypoint.debug") === "1")
+      console.debug("[Northwood visit] restore scroll", { requested: scrollTop, actual: modal.scrollTop, height: modal.scrollHeight });
+  };
+  /* Rebuilding the modal can run focus restoration after the first paint.
+     Apply the position at paint, then once more after focus/layout settle. */
+  apply();
+  requestAnimationFrame(() => {
+    apply();
+    setTimeout(apply, 0);
+  });
+}
+
 function showVisitPreservingScroll(v, s) {
   const scrollTop = el("modal")?.querySelector(".modal")?.scrollTop || 0;
   showVisit(v, s);
-  requestAnimationFrame(() => el("modal")?.querySelector(".modal")?.scrollTo(0, scrollTop));
+  restoreVisitModalScroll(scrollTop);
 }
 
 function showVisit(v, s) {
@@ -3382,14 +3418,22 @@ function showVisit(v, s) {
   if (el("visitComplete"))
     el("visitComplete").onclick = () => endVisitDialog(v, s);
   paintAi(v);
-  paintAgenda(v, s, async scrollTop => {
+  paintAgenda(v, s, async state => {
     const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(s.subject_id)}`)
                 .then(r => r.json());
     const fresh = (d.visits || []).find(x => x.id === v.id);
     if (fresh) {
       showVisit(fresh, s);
-      if (scrollTop != null)
-        requestAnimationFrame(() => el("modal")?.querySelector(".modal")?.scrollTo(0, scrollTop));
+      if (state?.anchorId) {
+        const anchor = el("modal")?.querySelector(`[data-ag-cover="${state.anchorId}"]`);
+        if (localStorage.getItem("waypoint.debug") === "1")
+          console.debug("[Northwood visit] restore agenda anchor", {
+            anchorId: state.anchorId, found: !!anchor
+          });
+        anchor?.scrollIntoView({ block: "center", behavior: "auto" });
+      } else if (state?.scrollTop != null) {
+        restoreVisitModalScroll(state.scrollTop);
+      }
     }
   });
 }
