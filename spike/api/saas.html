@@ -2852,7 +2852,7 @@ function wireBrowserRecording(v) {
           toast("Recording saved — transcription started");
           const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(v.subject_id)}`).then(r => r.json());
           const fresh = (d.visits || []).find(x => x.id === v.id);
-          if (fresh) showVisit(fresh, subjectOf(fresh.subject_id) || null);
+          if (fresh) showVisitPreservingScroll(fresh, subjectOf(fresh.subject_id) || null);
         } catch (e) { toast(e.message || "Could not save that recording", "err"); }
       };
       recorder.start(1000);
@@ -2902,7 +2902,7 @@ function wireRecordingUpload(v) {
         const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(v.subject_id)}`)
                     .then(r => r.json());
         const fresh = (d.visits || []).find(x => x.id === v.id);
-        if (fresh) showVisit(fresh, subj || null);
+        if (fresh) showVisitPreservingScroll(fresh, subj || null);
       } catch { /* the modal simply stays closed */ }
     };
 
@@ -2933,7 +2933,7 @@ function wireRecordingUpload(v) {
       const d = await fetch(`/api/visits?subject_id=${encodeURIComponent(v.subject_id)}`)
                   .then(r => r.json());
       const fresh = (d.visits || []).find(x => x.id === v.id);
-      if (fresh) showVisit(fresh, subjectOf(fresh.subject_id) || null);
+      if (fresh) showVisitPreservingScroll(fresh, subjectOf(fresh.subject_id) || null);
     } catch (e) {
       toast(e.message || "Could not attach that recording", "err");
       await reopen();
@@ -3273,6 +3273,12 @@ function paintAgenda(v, s, reload) {
   box.querySelectorAll("[data-ag-del]").forEach(b => b.onclick = () =>
     post("/api/visits/agenda/item/delete", { id: Number(b.dataset.agDel) },
          "Taken off the agenda"));
+}
+
+function showVisitPreservingScroll(v, s) {
+  const scrollTop = el("modal")?.querySelector(".modal")?.scrollTop || 0;
+  showVisit(v, s);
+  requestAnimationFrame(() => el("modal")?.querySelector(".modal")?.scrollTo(0, scrollTop));
 }
 
 function showVisit(v, s) {
