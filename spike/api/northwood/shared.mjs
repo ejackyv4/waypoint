@@ -10,6 +10,7 @@ import { randomInt } from "node:crypto";
 import { API_KEY } from "../auth.mjs";
 import { APP_ORIGIN, APP_INTERNAL_ORIGIN } from "../config.mjs";
 import { jsonTo } from "../http.mjs";
+import { one } from "../db/connect.mjs";
 
 /** Only the Waypoint app origin may read Northwood's API. Never "*". */
 export const saasJson = jsonTo(APP_ORIGIN);
@@ -50,6 +51,10 @@ export const asProfile = r => r && ({
             [[r.city, r.state].filter(Boolean).join(", "), r.postal_code]
               .filter(Boolean).join(" ")]
              .filter(Boolean).join("\n")
+  , profile_photo_url: (() => {
+      const photo = one(`SELECT updated_at FROM subject_profile_photos WHERE subject_id = ?`, r.subject_id);
+      return photo ? `/subject-profile-photos/${encodeURIComponent(r.subject_id)}?v=${encodeURIComponent(photo.updated_at)}` : null;
+    })()
 });
 
 /**

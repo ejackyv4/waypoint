@@ -26,7 +26,7 @@ import {
   visitsFor, scheduleVisit, startVisit, completeVisit, cancelVisit,
   scheduleRequested, addVisitNote, notesForVisit, subjectByKey, visit, updateVisit,
   addVisitPhoto, photosForVisit, photoById,
-  addVisitRecording, recordingsFor, recordingById,
+  addVisitRecording, recordingsFor, recordingById, assignVisitOfficer, officerById, officerByName,
   VISIT_OBSERVATIONS
 } from "../db/northwood.mjs";
 import { buildAgenda, agendaFor, addAgendaItem, removeAgendaItem,
@@ -136,6 +136,16 @@ export const routes = {
 
   "POST /api/visits": async (req, res) => {
     const b = await readJson(req);
+    if (!b.officer_id && b.officer) {
+      const matched = officerByName(b.officer);
+      if (!matched) return saasJson(res, 400, { error: "Choose an officer from the list." });
+      b.officer_id = matched.id;
+    }
+    if (b.officer_id) {
+      const officer = officerById(Number(b.officer_id));
+      if (!officer || !officer.active) return saasJson(res, 400, { error: "That officer is not available." });
+      b.officer = officer.name;
+    }
 
     /* An id means "change this one". Same route as creating, because it is
        the same form and the same fields — a second endpoint would be a second
@@ -146,6 +156,11 @@ export const routes = {
       const r = updateVisit(Number(b.id), b);
       if (r.error)
         return saasJson(res, r.error === "no such visit" ? 404 : 409, r);
+      if (b.officer_id) {
+        const existing = visit(Number(b.id));
+        const assigned = assignVisitOfficer(Number(b.id), existing?.subject_id, Number(b.officer_id));
+        if (assigned.error) return saasJson(res, 400, assigned);
+      }
       return saasJson(res, 200, r);
     }
 
@@ -161,11 +176,16 @@ export const routes = {
          caller has to say otherwise. */
       time_fixed: b.time_fixed === true || b.time_fixed === 1
     });
+    if (b.officer_id) assignVisitOfficer(booked.id, subject.subject_id, Number(b.officer_id));
     /* Build the agenda now, from the case file as it stands. The officer sees
        what this visit is for the moment it is booked, rather than arriving and
        working it out. */
     buildAgenda(booked.id, subject.subject_id, b.officer || subject.officer,
                 { programs: await programsForSubject(subject.subject_id) });
+    for (const item of Array.isArray(b.custom_agenda) ? b.custom_agenda : []) {
+      const body = String(item?.body || item || "").trim();
+      if (body) addAgendaItem({ visit_id: booked.id, body }, b.officer || subject.officer);
+    }
     return saasJson(res, 200, { visit: visit(booked.id) });
   },
 
@@ -433,6 +453,21 @@ export const routes = {
   "POST /api/visits/schedule": async (req, res) => {
     const b = await readJson(req);
     if (!b.scheduled_at) return saasJson(res, 400, { error: "a date and time is required" });
+    if (!b.officer_id && b.officer) {
+      const matched = officerByName(b.officer);
+      if (!matched) return saasJson(res, 400, { error: "Choose an officer from the list." });
+      b.officer_id = matched.id;
+    }
+    if (b.officer_id) {
+      const requested = visit(Number(b.id));
+      const officer = officerById(Number(b.officer_id));
+      if (!officer || !officer.active) return saasJson(res, 400, { error: "That officer is not available." });
+      if (requested) {
+        const assigned = assignVisitOfficer(Number(b.id), requested.subject_id, officer.id);
+        if (assigned.error) return saasJson(res, 400, assigned);
+      }
+      b.officer = officer.name;
+    }
     const r = scheduleRequested(Number(b.id), {
       scheduled_at: b.scheduled_at, officer: b.officer, location: b.location,
       notes: b.notes });

@@ -20,8 +20,10 @@ const today = () => new Date().toISOString().slice(0, 10);
  * to 100 because "no steps are outstanding".
  */
 export const progressOf = steps => {
-  const done = steps.filter(x => x.done_at).length;
-  return { done, total: steps.length,
+  const done = steps.filter(x => ["done", "in_review"].includes(x.review_status || (x.done_at ? "done" : "open"))).length;
+  const final = steps.filter(x => (x.review_status || (x.done_at ? "done" : "open")) === "done").length;
+  const reported = steps.filter(x => (x.review_status || (x.done_at ? "done" : "open")) === "in_review").length;
+  return { done, final, reported, total: steps.length,
            percent: steps.length ? Math.round(done / steps.length * 100) : 0 };
 };
 
@@ -41,7 +43,7 @@ export function goalState(g) {
   if (g.status === "complete") return "complete";
   if (isOverdue(g)) return "overdue";
   const p = progressOf(g.steps || []);
-  if (p.total && p.done === p.total) return "awaiting_officer";
+  if (p.total && p.done === p.total && (p.reported > 0 || p.final === p.total)) return "awaiting_officer";
   return p.done ? "in_progress" : "not_started";
 }
 
@@ -129,6 +131,11 @@ export function saveGoal(g, author) {
 export function completeGoal(id, author, complete = true) {
   const g = one(`SELECT * FROM goals WHERE id = ?`, id);
   if (!g) return { error: "no such goal" };
+  if (complete) {
+    const unfinished = stepsFor(id).some(st =>
+      (st.review_status || (st.done_at ? "done" : "open")) !== "done");
+    if (unfinished) return { error: "Confirm every action step before closing this goal." };
+  }
   if (complete)
     run(`UPDATE goals SET status = 'complete', completed_at = ?, completed_by = ?,
                           updated_at = ? WHERE id = ?`, now(), author ?? null, now(), id);
@@ -170,8 +177,21 @@ export const deleteStep = id => run(`DELETE FROM goal_steps WHERE id = ?`, id);
 export function setStepDone(id, done, role) {
   const st = stepById(id);
   if (!st) return { error: "no such action step" };
-  if (done) run(`UPDATE goal_steps SET done_at = ?, done_by = ? WHERE id = ?`,
-                now(), role ?? null, id);
-  else      run(`UPDATE goal_steps SET done_at = NULL, done_by = NULL WHERE id = ?`, id);
+  if (role === "subject") {
+    if (done) run(`UPDATE goal_steps SET done_at = ?, done_by = ?, review_status = 'in_review',
+                   confirmed_at = NULL, confirmed_by = NULL WHERE id = ?`,
+                  now(), role, id);
+    else      run(`UPDATE goal_steps SET done_at = NULL, done_by = NULL, review_status = 'open',
+                   confirmed_at = NULL, confirmed_by = NULL WHERE id = ?`, id);
+  } else if (done) {
+    /* An officer may complete a step directly: they may be sitting with the
+       subject and personally verify it. A subject report remains in_review,
+       but officer authority is sufficient for this individual step. */
+    run(`UPDATE goal_steps SET done_at = COALESCE(done_at, ?), review_status = 'done',
+           confirmed_at = ?, confirmed_by = ? WHERE id = ?`, now(), now(), role ?? null, id);
+  } else {
+    run(`UPDATE goal_steps SET done_at = NULL, done_by = NULL, review_status = 'open',
+           confirmed_at = NULL, confirmed_by = NULL WHERE id = ?`, id);
+  }
   return { ok: true, step: stepById(id), goal: goalById(st.goal_id) };
 }

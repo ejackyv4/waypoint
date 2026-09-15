@@ -51,7 +51,7 @@ export const routes = {
   "POST /api/goals/complete": async (req, res, ctx) => {
     const b = await readJson(req);
     const r = completeGoal(Number(b.id), ctx.session?.name || null, b.complete !== false);
-    if (r.error) return saasJson(res, 404, r);
+    if (r.error) return saasJson(res, r.error === "no such goal" ? 404 : 409, r);
     return saasJson(res, 200, { ...r, goals: goalsFor(r.goal.subject_id) });
   },
 
@@ -87,7 +87,7 @@ export const routes = {
   "POST /api/goals/step/done": async (req, res) => {
     const b = await readJson(req);
     const r = setStepDone(Number(b.id), b.done !== false, "officer");
-    if (r.error) return saasJson(res, 404, r);
+    if (r.error) return saasJson(res, r.error === "no such action step" ? 404 : 409, r);
     return saasJson(res, 200, { ...r, goals: goalsFor(r.goal.subject_id) });
   }
 };

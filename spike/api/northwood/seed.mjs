@@ -65,17 +65,19 @@ if (seeded) {
 }
 
 // Dedicated demo controls account. The password is supplied by deployment
-// configuration and must be changed on first login; never commit a production
-// password to the repository.
+// configuration. Demo Ops is an operational credential, not a user profile:
+// every boot reasserts it so restoring a database baseline cannot accidentally
+// restore a one-off password change or a pending must-change flag.
 const DEMO_OPS_EMAIL = process.env.DEMO_OPS_EMAIL || "demo@northwood.gov";
-const DEMO_OPS_PASSWORD = process.env.DEMO_OPS_PASSWORD || "MeridianDemo!8472";
+const DEMO_OPS_PASSWORD = process.env.DEMO_OPS_PASSWORD || "BlueTurfRules2026!";
 let demoOps = officerByEmail(DEMO_OPS_EMAIL);
 if (!demoOps) {
   run(`INSERT INTO officers (name, email, role, password_hash, must_change, created_at)
-       VALUES (?,?,?,?,1,?)`, "Demo Operator", DEMO_OPS_EMAIL, "admin",
+       VALUES (?,?,?,?,0,?)`, "Demo Operator", DEMO_OPS_EMAIL, "admin",
       hashPassword(DEMO_OPS_PASSWORD), new Date().toISOString());
   demoOps = officerByEmail(DEMO_OPS_EMAIL);
 }
+if (demoOps) setOfficerPassword(demoOps.id, hashPassword(DEMO_OPS_PASSWORD), 0);
 if (demoOps && demoOps.role !== "admin")
   run(`UPDATE officers SET role = 'admin' WHERE id = ?`, demoOps.id);
 
@@ -134,8 +136,8 @@ seedOffices([
    acknowledgment, a reentry plan two of his signatures short, a visit
    tomorrow and appointments across the week.
 
-   Dana is left bare on purpose. Every module has an empty state and a Create
-   flow, and a demo that can only show populated screens cannot show either. */
+   Dana receives a small partial file so the demo can show both populated and
+   empty module states. */
 if (seeded) {
   seedCaseFile();
   seedAgreement();

@@ -105,7 +105,8 @@ const {
   failTranscript, claimSummary, finishSummary, hydrateSummary,
   summariesForVisit, decideAction, staleRunning, summaryInFlight,
   failSummary, setActionOwner, resolveDueHint, setActionDue,
-  completeAction, openActionsForSubject, unseenActionCount, markActionsSeen
+  completeAction, openActionsForSubject, unseenActionCount, markActionsSeen,
+  addStandaloneAction
 } = await import("./db/insights.mjs");
 const { transcribe, summarise } = await import("./northwood/ai.mjs");
 
@@ -123,6 +124,10 @@ console.log(`  \x1b[2mstub provider: ${BASE}\x1b[0m\n`);
    this file is testing the insight layer, not the visit layer. */
 run(`INSERT INTO visits (id, subject_id, status, created_at)
      VALUES (901, 'cust-test', 'completed', ?)`, new Date().toISOString());
+run(`INSERT INTO subjects
+       (subject_id, case_number, first_name, last_name, status, created_at)
+     VALUES ('cust-test', 'TEST-1', 'Test', 'Subject', 'Active supervision', ?)`,
+    new Date().toISOString());
 run(`INSERT INTO visit_recordings
        (id, visit_id, filename, mime_type, byte_size, duration_ms, created_at)
      VALUES (801, 901, 'visit-901-test.m4a', 'audio/m4a', 4096, 9000, ?)`,
@@ -227,6 +232,9 @@ ok(fixed.action.owner_set_by === "R. Alvarez" && fixed.action.owner_set_at,
    "and records who corrected it, and when");
 ok(setActionOwner(mis.id, "the dog", "R. Alvarez").error,
    "an owner outside the three is refused");
+const officerDone = decideAction(done.actions[1].id, "done", "R. Alvarez");
+ok(officerDone.action.status === "done",
+   "an officer can complete an accepted action item directly");
 
 const dropped = decideAction(done.actions[0].id, "dismissed", "R. Alvarez");
 ok(dropped.action.status === "dismissed" && dropped.action.decided_by === "R. Alvarez",
@@ -309,6 +317,15 @@ ok(unseenActionCount("cust-test") === 0, "opening the tab clears the banner");
 ok(openActionsForSubject("cust-test").length === beforeSeen
    && openActionsForSubject("cust-test").some(a => a.id === subjectItem.id),
    "\x1b[1mbut the items themselves stay — seeing a badge is not doing the thing\x1b[0m");
+
+/* Standalone actions must be attached to a real subject, even when the caller
+   bypasses the HTTP route and reaches the data layer directly. */
+ok(addStandaloneAction("", { body: "orphan" }).error === "subject_id is required",
+   "a standalone action requires a subject id");
+ok(addStandaloneAction("cust-missing", { body: "orphan" }).error === "no such subject",
+   "a standalone action rejects a nonexistent subject");
+ok(addStandaloneAction("cust-test", { body: "Call the office", due_date: "2026-10-01" }).ok,
+   "a standalone action accepts an existing subject");
 
 /* ---- spoken timing into a real date ----
    Arithmetic, not inference: the visit date is known, so these have one right

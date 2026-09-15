@@ -14,7 +14,7 @@
  *     filesystem, our cookies, or anywhere off the content origin
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator, Alert, Animated, AppState, BackHandler, Image,
   KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl,
@@ -47,6 +47,11 @@ const C = {
   ok: "#059669", okSoft: "#ecfdf5", err: "#dc2626", errSoft: "#fef2f2",
   amber: "#b45309", amberSoft: "#fffbeb", amberLine: "#fde68a"
 };
+
+/* Display terminology is organization-scoped; technical API names remain
+   visits. Northwood is the first configured organization. */
+const ORG_TERMS = { northwood: { visit: "Visit", visitPlural: "Visits" } };
+const orgTerms = ORG_TERMS.northwood;
 
 /* ================================================================
    Sign in
@@ -189,26 +194,33 @@ function SignIn({ onSignedIn, notice }) {
    so an officer reads one thing in both places. RN has no outer box-shadow,
    so the ring is a padded wrapper rather than a border on the circle: a border
    would eat into the size and shift the row. */
-function Avatar({ name, size = 46, hasLogin = false, onBrand = false }) {
+function Avatar({ name, size = 46, hasLogin = false, onBrand = false, photoUri = null, authToken = null, rounded = false }) {
   const initials = String(name || "?").split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  const [photoFailed, setPhotoFailed] = useState(false);
+  useEffect(() => { setPhotoFailed(false); }, [photoUri]);
   let h = 0; for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) % 360;
   const circle = (
-    <View style={{ width: size, height: size, borderRadius: size / 2,
+    <View style={{ width: size, height: size, borderRadius: rounded ? 14 : size / 2,
                    /* A name-derived hue lands on blue often enough to vanish
                       into a blue header, so on brand it gets a ring. */
                    backgroundColor: `hsl(${h}, 42%, 42%)`,
-                   borderWidth: onBrand ? 2 : 0, borderColor: "rgba(255,255,255,0.85)",
+                   borderWidth: rounded ? 1 : (onBrand ? 2 : 0),
+                   borderColor: rounded ? "#111827" : "rgba(255,255,255,0.85)",
                    alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ color: "#fff", fontWeight: "700", fontSize: size * 0.36 }}>{initials}</Text>
+      {photoUri && !photoFailed ? <Image source={{ uri: photoUri, cache: "reload", headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined }}
+        onLoad={() => __DEV__ && console.log("[profile photo] loaded", photoUri)}
+        onError={e => { setPhotoFailed(true); __DEV__ && console.log("[profile photo] failed", photoUri, e.nativeEvent?.error); }}
+        style={{ width: "100%", height: "100%", borderRadius: rounded ? 14 : size / 2 }} />
+        : <Text style={{ color: "#fff", fontWeight: "700", fontSize: size * 0.36 }}>{initials}</Text>}
     </View>
   );
   if (!hasLogin) return circle;
   const pad = Math.max(3, Math.round(size * 0.075));
   return (
     <View accessibilityLabel={`${name} — has a Waypoint login`}
-          style={{ padding: pad, borderRadius: (size + pad * 2) / 2,
+          style={{ padding: pad, borderRadius: rounded ? 18 : (size + pad * 2) / 2,
                    backgroundColor: C.brand }}>
-      <View style={{ padding: 2, borderRadius: (size + 4) / 2, backgroundColor: C.surface }}>
+      <View style={{ padding: 2, borderRadius: rounded ? 16 : (size + 4) / 2, backgroundColor: C.surface }}>
         {circle}
       </View>
     </View>
@@ -337,10 +349,13 @@ function usePullToRefresh(load) {
 /* The whole address, including line 2. Dropping the unit number sends an
    officer to a building rather than a door, and it is the half of an address
    that is easiest to omit and most expensive to be missing. */
-const addressOf = v => [v.address_line1, v.address_line2,
+const addressOf = v => {
+  if (v?.address && typeof v.address === "string") return v.address;
+  return [v?.address_line1, v?.address_line2,
                         [[v.city, v.state].filter(Boolean).join(", "), v.postal_code]
-                          .filter(Boolean).join(" ")]
+  .filter(Boolean).join(" ")]
   .filter(Boolean).join("\n");
+};
 
 /** One line, for somewhere there is no room for two. */
 const addressLine = v => addressOf(v).replace(/\n/g, ", ");
@@ -403,6 +418,7 @@ function OfficerHome({ auth, onSignOut }) {
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState(null);   // { mode, visit?, subject? }
   const [openVisitId, setOpenVisitId] = useState(null);   // a visit being conducted
+  const [previewVisit, setPreviewVisit] = useState(null);
   const [viewing, setViewing] = useState(null);   // a subject's file
 
   const load = useCallback(async () => {
@@ -418,7 +434,6 @@ function OfficerHome({ auth, onSignOut }) {
   }, [auth]);
 
   useEffect(() => { load(); }, [load]);
-
   /* A caseload changes at the desk, not only in this app: a subject is
      transferred, a visit is scheduled, a request comes in. Coming back to the
      foreground is when an officer looks — so that is when we re-read, rather
@@ -465,6 +480,9 @@ function OfficerHome({ auth, onSignOut }) {
 
   const addVisitNote = (id, body) =>
     write("/api/visits/note", { id, body, officer: auth.user?.name }, "Note added");
+
+  const addVisitAction = (id, body, due_date, owner = "subject") =>
+    write("/api/visits/action", { id, body, due_date, owner, officer: auth.user?.name }, "Action item added");
 
   const coverAgenda = (item, covered) =>
     write("/api/visits/agenda/item/cover", { id: item.id, covered },
@@ -530,15 +548,16 @@ function OfficerHome({ auth, onSignOut }) {
    * It also refuses a request that has already been given a date, which is the
    * guard against two officers answering the same one.
    */
-  const scheduleVisit = (subject_id, when, note, id) =>
+  const scheduleVisit = (subject_id, when, note, timeFixed, location, customAgenda, id, officer_id) =>
     id
       ? write("/api/visits/schedule",
               { id, scheduled_at: when.toISOString(), officer: auth.user?.name,
-                notes: note || undefined },
+                officer_id, location, notes: note || undefined },
               `Request answered — visit set for ${fmtVisit(when.toISOString())}`)
       : write("/api/visits",
               { subject_id, scheduled_at: when.toISOString(),
-                officer: auth.user?.name, notes: note || null },
+                officer: auth.user?.name, officer_id, location, time_fixed: timeFixed,
+                notes: note || null, custom_agenda: customAgenda || [] },
               `Visit scheduled for ${fmtVisit(when.toISOString())}`);
 
   const pending = data?.requests?.length || 0;
@@ -558,6 +577,7 @@ function OfficerHome({ auth, onSignOut }) {
         onAddNote={body => addVisitNote(openVisit.id, body)}
         onAddPhoto={photo => addVisitPhoto(openVisit.id, photo)}
         onAddRecording={rec => addVisitRecording(openVisit.id, rec)}
+        onAddAction={(body, due_date, owner) => addVisitAction(openVisit.id, body, due_date, owner)}
         onCoverAgenda={coverAgenda}
         onRefresh={load}
         onClose={() => setOpenVisitId(null)}
@@ -598,17 +618,18 @@ function OfficerHome({ auth, onSignOut }) {
       {tab === "schedule"
         ? <OfficerSchedule auth={auth} data={data} busy={busy} onRefresh={load}
             onStart={v => (v.started_at ? setOpenVisitId(v.id) : startVisit(v))}
+            onPreview={setPreviewVisit}
             onComplete={v => setSheet({ mode: "complete", visit: v })}
             onSchedule={v => setSheet({ mode: "schedule",
-              subject: { subject_id: v.subject_id, name: v.subject_name } })}
+              subject: { ...v, subject_id: v.subject_id, name: v.subject_name } })}
             /* A request carries its own visit id and the reason they gave. Both
                travel to the sheet: the id so the request is answered rather
                than duplicated, the reason so the officer picks a date knowing
                what it is for. */
             onScheduleRequest={r => setSheet({ mode: "schedule",
-              subject: { subject_id: r.subject_id, name: r.subject_name },
+              subject: { ...r, subject_id: r.subject_id, name: r.subject_name },
               visitId: r.id, askedFor: r.request_note || "" })} />
-        : <OfficerCaseload subjects={caseload} busy={busy} onRefresh={load}
+        : <OfficerCaseload auth={auth} subjects={caseload} busy={busy} onRefresh={load}
             onOpen={setViewing}
             onSchedule={sub => setSheet({ mode: "schedule", subject: sub })} />}
 
@@ -617,10 +638,14 @@ function OfficerHome({ auth, onSignOut }) {
                        onSave={(note, obs) => completeVisit(sheet.visit, note, obs)} />
       )}
       {sheet?.mode === "schedule" && (
-        <ScheduleSheet subject={sheet.subject} askedFor={sheet.askedFor}
+            <ScheduleSheet auth={auth} subject={sheet.subject} askedFor={sheet.askedFor}
                        onCancel={() => setSheet(null)}
-                       onSave={(when, note) =>
-                         scheduleVisit(sheet.subject.subject_id, when, note, sheet.visitId)} />
+                       onSave={(when, note, timeFixed, location, customAgenda, visitId, officerId) =>
+                         scheduleVisit(sheet.subject.subject_id, when, note, timeFixed, location, customAgenda, visitId || sheet.visitId, officerId)} />
+      )}
+      {previewVisit && (
+        <VisitPreview auth={auth} visit={previewVisit} onClose={() => setPreviewVisit(null)}
+                      onStart={v => { setPreviewVisit(null); v.started_at ? setOpenVisitId(v.id) : startVisit(v); }} />
       )}
     </SafeAreaView>
   );
@@ -635,7 +660,10 @@ function Sheet({ title, subtitle, children, onCancel, onSave, saveLabel, disable
       <View style={s.sheet}>
         <Text style={s.sheetTitle}>{title}</Text>
         {subtitle ? <Text style={s.sheetSub}>{subtitle}</Text> : null}
-        {children}
+        <ScrollView style={{ maxHeight: "76%" }} contentContainerStyle={{ paddingBottom: 4 }}
+                    keyboardShouldPersistTaps="handled">
+          {children}
+        </ScrollView>
         <View style={s.rowBtns}>
           <Pressable style={s.btnGhost} onPress={onCancel}>
             <Text style={s.btnGhostText}>Cancel</Text>
@@ -723,12 +751,30 @@ const clock = ms => {
 };
 
 function VisitInProgress({ auth, visit, onAddNote, onAddPhoto, onAddRecording,
-                          onEnd, onClose, onRefresh, onCoverAgenda, busy }) {
+                          onEnd, onClose, onRefresh, onCoverAgenda, onAddAction, busy }) {
   const pull = usePullToRefresh(onRefresh);
   const [note, setNote] = useState("");
+  const [actionBody, setActionBody] = useState("");
+  const [actionDue, setActionDue] = useState(null);
+  const [showActionDue, setShowActionDue] = useState(false);
+  const [actionOwner, setActionOwner] = useState("subject");
+  const [showActionOwner, setShowActionOwner] = useState(false);
+  const subjectName = visit.subject_name || visit.subject?.name || "Subject";
   const notes = visit.notes_log || [];
   const photos = visit.photos || [];
   const recordings = visit.recordings || [];
+  const actions = (visit.summaries || []).flatMap(s => s.actions || [])
+    .filter(a => a.status === "accepted");
+  const latestTranscript = (visit.transcripts || []).slice(-1)[0];
+  const latestSummary = (visit.summaries || []).slice(-1)[0];
+
+  /* Transcription and summarisation run asynchronously on SaaS. Keep this
+     visit screen live so the officer sees the result arrive without closing
+     the record or manually navigating away and back. */
+  useEffect(() => {
+    const timer = setInterval(() => onRefresh?.(), 5000);
+    return () => clearInterval(timer);
+  }, [onRefresh]);
 
   /* ---- audio ----
      Announced, not discreet. Whether a conversation may be recorded without
@@ -963,6 +1009,25 @@ function VisitInProgress({ auth, visit, onAddNote, onAddPhoto, onAddRecording,
           })}
         </View>
 
+        {(latestTranscript || latestSummary) ? (
+          <View style={s.card}>
+            <View style={s.cardTop}>
+              <Text style={s.cardTitle}>Visit insights</Text>
+              <View style={[s.pill, latestSummary?.status === "done" ? s.pillOk : s.pillMuted]}>
+                <Text style={[s.pillText, { color: latestSummary?.status === "done" ? C.ok : C.muted }]}>
+                  {latestSummary?.status === "done" ? "Ready" : latestTranscript?.status === "done" ? "Summarising…" : "Transcribing…"}
+                </Text>
+              </View>
+            </View>
+            {latestTranscript?.status === "done" && latestTranscript.text ? (
+              <Text style={s.cardMeta} numberOfLines={4}>{latestTranscript.text}</Text>
+            ) : null}
+            {latestSummary?.status === "done" && latestSummary.headline ? (
+              <Text style={[s.detailTitle, { marginTop: 8 }]}>{latestSummary.headline}</Text>
+            ) : null}
+          </View>
+        ) : null}
+
         {/* What this visit is for, first — an officer standing at a door has
             about ten seconds to remember why they came. */}
         {(visit.agenda || []).length ? (
@@ -996,6 +1061,72 @@ function VisitInProgress({ auth, visit, onAddNote, onAddPhoto, onAddRecording,
             </Text>
           </View>
         ) : null}
+
+        <View style={s.card}>
+          <View style={s.cardTop}>
+            <Text style={s.cardTitle}>Action items</Text>
+            <View style={[s.pill, s.pillMuted]}><Text style={[s.pillText, { color: C.muted }]}>{actions.length}</Text></View>
+          </View>
+          {actions.length ? actions.map(a => (
+            <View key={a.id} style={s.detailRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.detailTitle}>{a.body}</Text>
+                <Text style={s.cardMeta}>Assigned to {a.owner === "officer" ? "officer" : a.owner === "subject" ? "subject" : "decide later"}{a.due_date ? ` · due ${a.due_date}` : ""}</Text>
+              </View>
+            </View>
+          )) : <Text style={s.cardMeta}>No action items yet.</Text>}
+          <TextInput style={s.input} value={actionBody} onChangeText={setActionBody}
+                     placeholder="Add an action item" placeholderTextColor={C.faint} />
+          <View style={s.actionDueRow}>
+            <Text style={s.actionDueLabel}>Assign to</Text>
+            <Pressable style={s.actionDuePicker} onPress={() => setShowActionOwner(v => !v)}>
+              <Text style={{ fontSize: 15, color: C.ink }}>
+                {actionOwner === "subject" ? `${subjectName} (${visit.subject_id || "subject"})` : `${auth.user?.name || "Me"} (officer)`}
+              </Text>
+            </Pressable>
+          </View>
+          {showActionOwner ? <View style={s.officerMenu}>
+            {["subject", "officer"].map(owner => (
+              <Pressable key={owner} style={s.officerOption} onPress={() => { setActionOwner(owner); setShowActionOwner(false); }}>
+                <Text style={s.officerOptionName}>{owner === "subject" ? subjectName : (auth.user?.name || "Me")}</Text>
+                <Text style={s.officerOptionRole}>{owner === "subject" ? `Subject · ${visit.subject_id || ""}` : "Officer"}</Text>
+              </Pressable>
+            ))}
+          </View> : null}
+          <View style={s.actionDueRow}>
+            <Ionicons name="calendar-outline" size={20} color={C.muted} />
+            <Text style={s.actionDueLabel}>Due date</Text>
+            <Pressable style={s.actionDuePicker} onPress={() => setShowActionDue(true)}>
+              <Text style={{ fontSize: 15, color: actionDue ? C.ink : C.faint }}>
+                {actionDue ? actionDue.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "Optional"}
+              </Text>
+            </Pressable>
+          </View>
+          {showActionDue && Platform.OS !== "ios" && (
+            <DateTimePicker value={actionDue || new Date()} mode="date" minimumDate={new Date()}
+              onChange={(e, d) => { setShowActionDue(false); if (e.type === "set" && d) setActionDue(d); }} />
+          )}
+          {showActionDue && Platform.OS === "ios" && (
+            <Modal transparent animationType="fade" visible onRequestClose={() => setShowActionDue(false)}>
+              <View style={s.dateModalScrim}>
+                <View style={s.dateModal}>
+                  <Text style={s.cardTitle}>Choose due date</Text>
+                  <DateTimePicker value={actionDue || new Date()} mode="date" display="spinner"
+                    minimumDate={new Date()} onChange={(_, d) => d && setActionDue(d)} />
+                  <View style={s.rowBtns}>
+                    <Pressable style={s.btnGhost} onPress={() => setShowActionDue(false)}><Text style={s.btnGhostText}>Cancel</Text></Pressable>
+                    <Pressable style={s.btnSolid} onPress={() => setShowActionDue(false)}><Text style={s.btnSolidText}>Done</Text></Pressable>
+                  </View>
+                </View>
+              </View>
+            </Modal>
+          )}
+          <Pressable style={[s.btnSolid, (!actionBody.trim() || busy) && { opacity: .5 }]}
+                     disabled={!actionBody.trim() || busy}
+                     onPress={() => { const d = actionDue ? `${actionDue.getFullYear()}-${String(actionDue.getMonth() + 1).padStart(2, "0")}-${String(actionDue.getDate()).padStart(2, "0")}` : null; onAddAction(actionBody.trim(), d, actionOwner); setActionBody(""); setActionDue(null); setActionOwner("subject"); }}>
+            <Text style={s.btnSolidText}>{busy ? "Saving…" : "Add action item"}</Text>
+          </Pressable>
+        </View>
 
         <View style={s.card}>
           <Text style={s.label}>Add a note</Text>
@@ -1153,24 +1284,73 @@ function CompleteSheet({ visit, onCancel, onSave }) {
  *                  and quietly turning one into the other would put words in
  *                  somebody's mouth on a supervision record.
  */
-function ScheduleSheet({ subject, askedFor, onCancel, onSave }) {
+function ScheduleSheet({ auth, subject, askedFor, visitId, existing, onCancel, onSave }) {
   const initial = new Date(Date.now() + 7 * 864e5);
   initial.setHours(10, 0, 0, 0);
-  const [when, setWhen] = useState(initial);
-  const [note, setNote] = useState("");
+  const [when, setWhen] = useState(existing?.scheduled_at ? new Date(existing.scheduled_at) : initial);
+  const [note, setNote] = useState(existing?.notes || "");
+  const [location, setLocation] = useState(existing?.location || addressLine(subject));
   const [show, setShow] = useState(Platform.OS === "ios" ? "datetime" : null);
   const [saving, setSaving] = useState(false);
+  const [timeFixed, setTimeFixed] = useState(false);
+  const [agenda, setAgenda] = useState(null);
+  const [customAgenda, setCustomAgenda] = useState([]);
+  const [newTopic, setNewTopic] = useState("");
+  const [officers, setOfficers] = useState([]);
+  const [officerId, setOfficerId] = useState(existing?.officer_id || (existing?.officer ? null : auth?.user?.officer_id) || null);
+  const [officerQuery, setOfficerQuery] = useState(existing?.officer || auth?.user?.name || "");
+  const [officerMenu, setOfficerMenu] = useState(false);
+  useEffect(() => {
+    authed(`${SAAS_BASE}/api/reference`, auth.token).then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const list = d?.officers || [];
+        setOfficers(list);
+        if (!officerId) {
+          const current = list.find(o => o.name === (existing?.officer || auth?.user?.name));
+          if (current) { setOfficerId(current.id); setOfficerQuery(current.name); }
+        }
+      }).catch(() => {});
+  }, [auth?.token]);
+  useEffect(() => {
+    if (location || !subject?.subject_id || !auth?.token) return;
+    authed(`${SAAS_BASE}/api/subject/detail?subject_id=${encodeURIComponent(subject.subject_id)}`, auth.token)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { const a = addressLine(d?.subject || d || {}); if (a) setLocation(a); })
+      .catch(() => {});
+  }, [auth?.token, subject?.subject_id, location]);
+  useEffect(() => {
+    if (!auth?.token || !subject?.subject_id) return;
+    authed(`${SAAS_BASE}/api/visits/agenda/preview?subject_id=${encodeURIComponent(subject.subject_id)}`, auth.token)
+      .then(r => r.ok ? r.json() : null).then(d => setAgenda(d?.items || d?.agenda || []))
+      .catch(() => setAgenda([]));
+  }, [auth?.token, subject?.subject_id]);
 
   return (
-    <Sheet title={askedFor !== undefined ? "Schedule a requested visit" : "Schedule a visit"}
-           subtitle={[subject.name, addressLine(subject)].filter(Boolean).join(" · ")}
+    <Sheet title={askedFor !== undefined ? `Schedule a requested ${orgTerms.visit.toLowerCase()}` : `Schedule a ${orgTerms.visit.toLowerCase()}`}
+           subtitle={[subject.name, subject.case_number].filter(Boolean).join(" · ")}
            onCancel={onCancel} saveLabel={saving ? "Saving…" : "Schedule"}
            disabled={saving}
-           onSave={() => { setSaving(true); onSave(when, note.trim()); }}>
+           onSave={() => { setSaving(true); onSave(when, note.trim(), timeFixed, location, customAgenda, visitId, officerId); }}>
       {askedFor !== undefined && (
         <View style={s.askedFor}>
           <Text style={s.askedForLabel}>They asked to be seen</Text>
           <Text style={s.askedForBody}>{askedFor || "No reason given"}</Text>
+        </View>
+      )}
+
+      <Text style={s.label}>Officer</Text>
+      <TextInput style={s.input} value={officerQuery}
+                 onChangeText={v => { setOfficerQuery(v); setOfficerId(null); setOfficerMenu(true); }}
+                 onFocus={() => setOfficerMenu(true)}
+                 placeholder="Search officers…" placeholderTextColor={C.faint} />
+      {officerMenu && officerQuery.trim() && (
+        <View style={s.officerMenu}>
+          {officers.filter(o => o.name.toLowerCase().includes(officerQuery.trim().toLowerCase())).slice(0, 12).map(o => (
+            <Pressable key={o.id} style={s.officerOption} onPress={() => { setOfficerId(o.id); setOfficerQuery(o.name); setOfficerMenu(false); }}>
+              <Text style={s.officerOptionName}>{o.name}</Text>
+              {o.role ? <Text style={s.officerOptionRole}>{o.role}</Text> : null}
+            </Pressable>
+          ))}
         </View>
       )}
 
@@ -1200,6 +1380,35 @@ function ScheduleSheet({ subject, askedFor, onCancel, onSave }) {
         </>
       )}
 
+      <Text style={s.label}>Timing</Text>
+      <Choice options={[["flexible", "Flexible day"], ["firm", "This time is firm"]]}
+              value={timeFixed ? "firm" : "flexible"}
+              onChange={v => setTimeFixed(v === "firm")} />
+      <Text style={s.label}>Location</Text>
+      <TextInput style={s.input} value={location} onChangeText={setLocation}
+                 placeholder="Subject address or another location"
+                 placeholderTextColor={C.faint} />
+
+      <Text style={s.label}>Agenda</Text>
+      {agenda === null ? <ActivityIndicator color={C.brand} />
+        : agenda.length ? agenda.map((item, i) => (
+          <View key={item.id || i} style={s.agRow}>
+            <View style={{ flex: 1 }}><Text style={s.agBody}>{item.body || item.title}</Text>
+              {item.detail ? <Text style={s.agNote}>{item.detail}</Text> : null}</View>
+          </View>
+        )) : <Text style={s.cardMeta}>Nothing outstanding — this contact starts with a clear agenda.</Text>}
+      {customAgenda.map((topic, i) => <View key={`custom-${i}`} style={s.agRow}>
+        <Text style={s.agBody}>{topic}</Text>
+      </View>)}
+      <View style={s.addTopicRow}>
+        <TextInput style={[s.input, s.addTopicInput]} value={newTopic} onChangeText={setNewTopic}
+                   placeholder="Add a discussion topic" placeholderTextColor={C.faint} />
+        <Pressable style={({ pressed }) => [s.addTopicBtn, pressed && { backgroundColor: C.brandSoft }]}
+                   onPress={() => { const t = newTopic.trim(); if (t) { setCustomAgenda(v => [...v, t]); setNewTopic(""); } }}>
+          <Text style={s.addTopicBtnText}>＋ Add</Text>
+        </Pressable>
+      </View>
+
       <Text style={s.label}>Instructions for the subject (optional)</Text>
       <TextInput style={s.input} value={note} onChangeText={setNote}
                  placeholder="e.g. bring proof of employment"
@@ -1211,9 +1420,103 @@ function ScheduleSheet({ subject, askedFor, onCancel, onSave }) {
   );
 }
 
+/* Read-only visit details. Opening this preview never starts or changes the
+   visit; it gives the officer a quick look at the agenda before committing to
+   the recording/session flow. */
+function VisitPreview({ auth, visit, onClose, onStart }) {
+  const [agenda, setAgenda] = useState(visit.agenda || []);
+  const [agendaBusy, setAgendaBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setAgenda(visit.agenda || []);
+    setAgendaBusy(true);
+    const endpoint = visit.status === "completed"
+      ? `${SAAS_BASE}/api/visits/agenda?visit_id=${encodeURIComponent(visit.id)}`
+      : `${SAAS_BASE}/api/visits/agenda/preview?subject_id=${encodeURIComponent(visit.subject_id)}`;
+    authed(endpoint, auth.token)
+      .then(async r => {
+        if (!r.ok) return;
+        const d = await r.json();
+        const items = d.items || d.agenda || [];
+        if (alive && Array.isArray(items)) setAgenda(items);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setAgendaBusy(false); });
+    return () => { alive = false; };
+  }, [visit.id, auth.token]);
+  const address = addressOf(visit);
+  const status = visit.accepted_at ? "Accepted"
+    : visit.seen_at ? "Seen, not confirmed" : "Not confirmed";
+  const dateText = visit.time_fixed
+    ? timeLabel(visit.scheduled_at)
+    : `Any time · ${new Date(visit.scheduled_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}`;
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={s.dateModalScrim}>
+        <View style={[s.dateModal, { maxHeight: "88%", padding: 0, overflow: "hidden" }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", padding: 18, borderBottomWidth: 1, borderBottomColor: C.line }}>
+            <Text style={[s.sheetTitle, { flex: 1, marginBottom: 0 }]}>Visit details</Text>
+            <Pressable onPress={onClose} hitSlop={12}><Text style={s.agClose}>Close</Text></Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <Avatar name={visit.subject_name} size={58} rounded
+                      photoUri={visit.profile_photo_url ? `${SAAS_BASE}${visit.profile_photo_url}` : null} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.cardTitle}>{visit.subject_name}</Text>
+                <Text style={s.cardMeta}>{visit.subject_id}</Text>
+              </View>
+              <View style={[s.pill, visit.accepted_at ? s.pillOk : s.pillWarn]}>
+                <Text style={[s.pillText, { color: visit.accepted_at ? C.ok : C.amber }]}>{status}</Text>
+              </View>
+            </View>
+            <View style={[s.detailRow, { marginTop: 14 }]}>
+              <Ionicons name="calendar-outline" size={21} color={C.muted} />
+              <View style={{ flex: 1 }}><Text style={s.detailTitle}>{dateText}</Text><Text style={s.cardMeta}>{fmtVisit(visit.scheduled_at)}</Text></View>
+            </View>
+            {address ? <View style={s.detailRow}><Ionicons name="location-outline" size={21} color={C.muted} /><Text style={[s.cardMeta, { flex: 1 }]}>{address}</Text></View> : null}
+            {visit.notes ? <View style={{ marginTop: 8 }}><Text style={s.label}>Notes</Text><Text style={s.cardMeta}>{visit.notes}</Text></View> : null}
+            <Text style={[s.cardTitle, { marginTop: 18, marginBottom: 8 }]}>Agenda</Text>
+            {agendaBusy && !agenda.length ? <ActivityIndicator color={C.brand} /> : null}
+            {agenda.length ? agenda.map((item, i) => (
+              <View key={item.id || i} style={s.agRow}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.brand, marginTop: 7 }} />
+                <View style={{ flex: 1 }}><Text style={s.agBody}>{item.body || item.title}</Text>{item.detail ? <Text style={s.cardMeta}>{item.detail}</Text> : null}{item.note ? <Text style={s.agNote}>{item.note}</Text> : null}</View>
+              </View>
+            )) : !agendaBusy ? <Text style={s.cardMeta}>No agenda items yet.</Text> : null}
+            {visit.status === "completed" && (visit.summaries || []).length ? <>
+              <Text style={[s.cardTitle, { marginTop: 18, marginBottom: 8 }]}>Summary</Text>
+              {(visit.summaries || []).slice(-1).map(summary => <View key={summary.id}>
+                {summary.headline ? <Text style={s.detailTitle}>{summary.headline}</Text> : null}
+                {summary.body ? <Text style={s.cardMeta}>{summary.body}</Text> : null}
+              </View>)}
+            </> : null}
+            {visit.status === "completed" && (visit.notes_log || []).length ? <>
+              <Text style={[s.cardTitle, { marginTop: 18, marginBottom: 8 }]}>Notes</Text>
+              {(visit.notes_log || []).map(note => <View key={note.id} style={s.detailRow}><Text style={[s.cardMeta, { flex: 1 }]}>{note.body}</Text></View>)}
+            </> : null}
+            {visit.status === "completed" && (visit.summaries || []).flatMap(summary => summary.actions || []).length ? <>
+              <Text style={[s.cardTitle, { marginTop: 18, marginBottom: 8 }]}>Action items</Text>
+              {(visit.summaries || []).flatMap(summary => summary.actions || []).map(action => <View key={action.id} style={s.detailRow}><View style={{ flex: 1 }}><Text style={s.detailTitle}>{action.body}</Text><Text style={s.cardMeta}>Assigned to {action.owner === "subject" ? "subject" : action.owner === "officer" ? "officer" : "decide later"}{action.due_date ? ` · due ${asDate(action.due_date)}` : ""}{action.status === "in_review" ? " · In review" : action.status === "done" ? " · Confirmed" : ""}</Text></View></View>)}
+            </> : null}
+          </ScrollView>
+          <View style={[s.rowBtns, { padding: 18, borderTopWidth: 1, borderTopColor: C.line }]}>
+            <Pressable style={s.btnGhost} onPress={onClose}><Text style={s.btnGhostText}>Close</Text></Pressable>
+            <Pressable style={s.btnSolid} onPress={() => onStart(visit)}><Text style={s.btnSolidText}><Ionicons name="play" size={15} color="#fff" />  {visit.started_at ? "Continue" : "Start"}</Text></Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onSchedule,
-                           onScheduleRequest }) {
+                           onScheduleRequest, onPreview }) {
   const pull = usePullToRefresh(onRefresh);
+  const [openDays, setOpenDays] = useState({});
+  const [filter, setFilter] = useState("all");
+  const [subjectFilter, setSubjectFilter] = useState([]);
+  const [filterMenu, setFilterMenu] = useState(false);
 
   /* Today's stops, in appointment order. The order is not ours to optimise —
      these are times somebody has been told, and arriving at 9 for a 2 o'clock
@@ -1315,10 +1618,18 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
   const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
   const stale = upcoming.filter(v => new Date(v.scheduled_at) < startOfToday);
   const ahead = upcoming.filter(v => new Date(v.scheduled_at) >= startOfToday);
+  const matchesSubject = v => !subjectFilter.length || subjectFilter.includes(v.subject_id);
+  const filteredStale = (filter === "all" || filter === "past" ? stale : []).filter(matchesSubject);
+  const filteredAhead = ahead.filter(v => {
+    if (filter === "today") return new Date(v.scheduled_at).toDateString() === today;
+    if (filter === "upcoming") return new Date(v.scheduled_at).toDateString() !== today;
+    return filter !== "past";
+  }).filter(matchesSubject);
+  const subjectOptions = [...new Map(upcoming.map(v => [v.subject_id, v.subject_name])).entries()];
 
   const days = [];
-  if (stale.length) days.push({ label: "Not closed out", items: stale, stale: true });
-  ahead.forEach(v => {
+  if (filteredStale.length) days.push({ label: "Past due · needs close-out", items: filteredStale, stale: true });
+  filteredAhead.forEach(v => {
     const label = dayLabel(v.scheduled_at);
     const last = days[days.length - 1];
     if (last && last.label === label && !last.stale) last.items.push(v);
@@ -1328,6 +1639,38 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
   return (
     <ScrollView contentContainerStyle={s.listBody}
       refreshControl={pull}>
+
+      <View style={{ alignItems: "flex-end", marginBottom: 10 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Filters"
+                   style={({ pressed }) => [s.filterButton, (filter !== "all" || subjectFilter.length) && s.filterButtonOn, pressed && { opacity: .7 }]}
+                   onPress={() => setFilterMenu(v => !v)}>
+          <Ionicons name="funnel-outline" size={20} color={filter !== "all" || subjectFilter.length ? "#fff" : C.ink2} />
+          <Text style={[s.filterButtonText, (filter !== "all" || subjectFilter.length) && s.filterButtonTextOn]}>Filter{subjectFilter.length ? ` · ${subjectFilter.length}` : ""}</Text>
+        </Pressable>
+      </View>
+      {filterMenu && (
+        <View style={s.filterPanel}>
+          <Text style={s.label}>Show</Text>
+          <View style={s.filterPanelOptions}>
+            {[['all', 'All'], ['today', 'Today'], ['past', 'Past due'], ['upcoming', 'Upcoming']].map(([key, label]) => (
+              <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: filter === key }}
+                         style={[s.scheduleFilter, filter === key && s.scheduleFilterOn]}
+                         onPress={() => setFilter(key)}>
+                <Text style={[s.scheduleFilterText, filter === key && s.scheduleFilterTextOn]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={[s.label, { marginTop: 12 }]}>Subjects</Text>
+          {subjectOptions.map(([id, name]) => {
+            const selected = subjectFilter.includes(id);
+            return <Pressable key={id} style={s.subjectOption} onPress={() => setSubjectFilter(v => selected ? v.filter(x => x !== id) : [...v, id])}>
+              <View style={[s.subjectCheck, selected && s.subjectCheckOn]}>{selected ? <Text style={s.subjectCheckMark}>✓</Text> : null}</View>
+              <Text style={s.subjectOptionText}>{name}</Text>
+            </Pressable>;
+          })}
+          {subjectFilter.length ? <Pressable onPress={() => setSubjectFilter([])}><Text style={s.linkText}>Clear subjects</Text></Pressable> : null}
+        </View>
+      )}
 
       {routable.length > 1 && (
         <Pressable style={({ pressed }) => [s.routeBar, pressed && { opacity: .8 },
@@ -1399,20 +1742,33 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
       {data && upcoming.length === 0 && (
         <View style={s.center}><Text style={s.muted}>No visits scheduled.</Text></View>
       )}
+      {data && upcoming.length > 0 && days.length === 0 && (
+        <View style={s.center}><Text style={s.muted}>No visits match this filter.</Text></View>
+      )}
 
       {days.map(day => (
-        <View key={day.label}>
-          <Text style={[s.dayHeading, day.stale && { color: C.err }]}>
+        <View key={day.label} style={s.dayGroup}>
+          <Pressable style={s.dayGroupHead} onPress={() => setOpenDays(v => ({ ...v, [day.label]: v[day.label] === false }))}>
+            <Text style={[s.dayHeading, { marginTop: 0, marginBottom: 0, marginLeft: 0 }, day.stale && { color: C.err }]}>
             {day.label}
             {day.stale ? ` · ${day.items.length}` : ""}
-          </Text>
-          {day.items.map(v => {
+            </Text><Text style={s.secChevron}>{openDays[day.label] === false ? "›" : "⌄"}</Text>
+          </Pressable>
+          {openDays[day.label] !== false && day.items.map(v => {
             const address = addressOf(v);
             return (
               <View key={v.id} style={s.card}>
-                <View style={s.cardTop}>
-                  <Text style={s.visitTime}>
-                    {v.time_fixed ? timeLabel(v.scheduled_at) : "Any time"}</Text>
+                <Pressable onPress={() => onPreview(v)}
+                           style={({ pressed }) => [s.cardTop, pressed && { opacity: 0.72 }]}
+                           accessibilityRole="button" accessibilityLabel={`Preview visit for ${v.subject_name}`}>
+                  <Avatar name={v.subject_name} size={56} rounded
+                          photoUri={v.profile_photo_url ? `${SAAS_BASE}${v.profile_photo_url}` : null}
+                          authToken={auth.token} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.cardTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{v.subject_name}</Text>
+                    <Text style={s.subjectId}>{v.subject_id}</Text>
+                    <Text style={s.cardMeta} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}><Ionicons name="calendar-outline" size={14} />  {v.time_fixed ? timeLabel(v.scheduled_at) : `Any time · ${new Date(v.scheduled_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}</Text>
+                  </View>
                   {/* Acceptance is an ACKNOWLEDGMENT, not permission. The
                       officer goes either way; this tells them what to expect
                       when they knock, so "Not confirmed" is the honest label —
@@ -1421,20 +1777,11 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
                                : v.seen_at ? s.pillNeutral : s.pillWarn]}>
                     <Text style={[s.pillText, { color: v.accepted_at ? C.ok
                                   : v.seen_at ? C.brand : C.amber }]}>
-                      {v.accepted_at ? "Confirmed" : v.seen_at ? "Seen, not confirmed"
+                      {v.accepted_at ? "Accepted" : v.seen_at ? "Seen, not confirmed"
                                      : "Not confirmed"}
                     </Text>
                   </View>
-                </View>
-                <Text style={s.cardTitle}>{v.subject_name}</Text>
-                <Text style={s.cardMeta}>{v.case_number}{v.phone ? `  ·  ${v.phone}` : ""}</Text>
-                {address ? <Text style={s.cardAddr}>{address}</Text> : null}
-                {v.notes ? <Text style={s.noteLine}>{v.notes}</Text> : null}
-                {(v.agenda || []).length ? (
-                  <Text style={s.cardMeta}>
-                    {(v.agenda || []).filter(a => !a.covered_at).length} on the agenda
-                  </Text>
-                ) : null}
+                </Pressable>
                 {v.started_at ? (
                   <Text style={[s.cardMeta, { color: C.brand, fontWeight: "700" }]}>
                     In progress — started {timeLabel(v.started_at)}
@@ -1444,27 +1791,23 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
                   </Text>
                 ) : null}
 
-                <View style={s.rowBtns}>
+                <View style={[s.rowBtns, { flexWrap: "nowrap", alignItems: "center" }]}>
                   {address ? (
-                    <Pressable style={({ pressed }) => [s.btnGhost, pressed && { backgroundColor: C.line }]}
+                    <Pressable accessibilityLabel="Directions" style={({ pressed }) => [s.iconBtn, pressed && { backgroundColor: C.line }]}
                                onPress={() => openMaps(address)}>
-                      <Text style={s.btnGhostText}>Directions</Text>
+                      <Ionicons name="location-outline" size={22} color={C.ink2} />
                     </Pressable>
                   ) : null}
                   {v.phone ? (
-                    <Pressable style={({ pressed }) => [s.btnGhost, pressed && { backgroundColor: C.line }]}
+                    <Pressable accessibilityLabel="Call" style={({ pressed }) => [s.iconBtn, pressed && { backgroundColor: C.line }]}
                                onPress={() => Linking.openURL(`tel:${v.phone.replace(/[^0-9+]/g, "")}`)}>
-                      <Text style={s.btnGhostText}>Call</Text>
+                      <Ionicons name="call-outline" size={22} color={C.ink2} />
                     </Pressable>
                   ) : null}
-                  <Pressable style={({ pressed }) => [s.btnGhost, pressed && { backgroundColor: C.line }]}
-                             onPress={() => onSchedule(v)}>
-                    <Text style={s.btnGhostText}>Schedule next</Text>
-                  </Pressable>
-                  <Pressable style={({ pressed }) => [s.btnSolid, pressed && { backgroundColor: C.brandDark }]}
+                  <Pressable style={({ pressed }) => [s.btnSolid, { minWidth: 0, height: 42, paddingVertical: 0, paddingHorizontal: 10, justifyContent: "center" }, pressed && { backgroundColor: C.brandDark }]}
                              onPress={() => onStart(v)}>
                     <Text style={s.btnSolidText}>
-                      {v.started_at ? "Continue visit" : "Start visit"}</Text>
+                      <Ionicons name="play" size={15} color="#fff" />  {v.started_at ? "Continue" : "Start"}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -1477,7 +1820,7 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
         <>
           <Text style={s.dayHeading}>Recently completed</Text>
           {data.recent.map(v => (
-            <View key={v.id} style={[s.card, { opacity: 0.85 }]}>
+            <Pressable key={v.id} style={({ pressed }) => [s.card, { opacity: pressed ? 0.65 : 0.85 }]} onPress={() => onPreview(v)} accessibilityRole="button" accessibilityLabel={`Review completed visit for ${v.subject_name}`}>
               <Text style={s.cardTitle}>{v.subject_name}</Text>
               <Text style={s.cardMeta}>
                 {fmtVisit(v.completed_at)}{v.completed_by ? ` · ${v.completed_by}` : ""}
@@ -1485,7 +1828,8 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
               {(v.notes_log || []).map(n => (
                 <Text key={n.id} style={s.noteLine}>{n.body}</Text>
               ))}
-            </View>
+              <View style={{ alignItems: "flex-end", marginTop: 8 }}><Text style={s.linkText}>Review visit ›</Text></View>
+            </Pressable>
           ))}
         </>
       )}
@@ -1493,7 +1837,7 @@ function OfficerSchedule({ auth, data, busy, onRefresh, onStart, onComplete, onS
   );
 }
 
-function OfficerCaseload({ subjects, busy, onRefresh, onOpen, onSchedule }) {
+function OfficerCaseload({ auth, subjects, busy, onRefresh, onOpen, onSchedule }) {
   const pull = usePullToRefresh(onRefresh);
   return (
     <ScrollView contentContainerStyle={s.listBody}
@@ -1507,32 +1851,15 @@ function OfficerCaseload({ subjects, busy, onRefresh, onOpen, onSchedule }) {
                    style={({ pressed }) => [s.card, pressed && s.cardPressed]}
                    onPress={() => onOpen(sub)}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 13 }}>
-            <Avatar name={sub.name} size={44} hasLogin={sub.has_login} />
+            {__DEV__ && console.log("[caseload photo]", sub.subject_id, sub.profile_photo_url)}
+            <Avatar name={sub.name} size={88} rounded
+                    photoUri={sub.profile_photo_url ? `${SAAS_BASE}${sub.profile_photo_url}` : null}
+                    authToken={auth.token} />
             <View style={{ flex: 1 }}>
+              <Text style={s.subjectId}>{sub.subject_id}</Text>
               <Text style={s.cardTitle}>{sub.name}</Text>
-              <Text style={s.cardMeta}>{sub.case_number} · {sub.status}</Text>
-              <Text style={s.cardMeta}>
-                {sub.upcoming_visits} upcoming
-                {sub.pending_requests > 0 ? ` · ${sub.pending_requests} request` : ""}
-              </Text>
+              <Text style={s.addressText}>{addressOf(sub) || "No address on record"}</Text>
             </View>
-          </View>
-          <View style={s.rowBtns}>
-            {sub.phone ? (
-              <Pressable style={s.btnGhost}
-                         onPress={() => Linking.openURL(`tel:${sub.phone.replace(/[^0-9+]/g, "")}`)}>
-                <Text style={s.btnGhostText}>Call</Text>
-              </Pressable>
-            ) : null}
-            {sub.address_line1 ? (
-              <Pressable style={s.btnGhost}
-                         onPress={() => openMaps(addressOf(sub))}>
-                <Text style={s.btnGhostText}>Directions</Text>
-              </Pressable>
-            ) : null}
-            <Pressable style={s.btnSolid} onPress={() => onSchedule(sub)}>
-              <Text style={s.btnSolidText}>Schedule visit</Text>
-            </Pressable>
           </View>
         </Pressable>
       ))}
@@ -1586,10 +1913,11 @@ function Section({ title, chip, tone = "muted", summary, children, defaultOpen =
 }
 
 /** A label/value line inside an expanded section. */
-function Detail({ label, value, onPress, action }) {
+function Detail({ label, value, onPress, action, icon }) {
   if (!value && !action) return null;
   const body = (
     <View style={s.detailRow}>
+      {icon ? <Ionicons name={icon} size={25} color={C.ink2} style={{ marginRight: 12 }} /> : null}
       <View style={{ flex: 1 }}>
         <Text style={s.detailLabel}>{label}</Text>
         <Text style={[s.detailValue, onPress && { color: C.brand }]}>{value || "—"}</Text>
@@ -1605,29 +1933,49 @@ function Detail({ label, value, onPress, action }) {
 function OfficerSubject({ auth, subject, onBack }) {
   const [detail, setDetail] = useState(null);
   const [sheet, setSheet] = useState(null);
+  const [previewVisit, setPreviewVisit] = useState(null);
   const [busy, setBusy] = useState(false);
+  /* Caseload rows use subject_id; a few older cached/detail shapes used id.
+     Resolve both so a stale row can never produce a JSON body with an
+     omitted subject_id (JSON.stringify drops undefined properties). */
+  const subjectId = subject?.subject_id || subject?.subjectId || subject?.id
+    || subject?.person?.subject_id || detail?.subject?.subject_id;
   const load = useCallback(async () => {
     setBusy(true);
     try {
       const r = await authed(
-        `${SAAS_BASE}/api/subject/detail?subject_id=${encodeURIComponent(subject.subject_id)}`,
+        `${SAAS_BASE}/api/subject/detail?subject_id=${encodeURIComponent(subjectId || "")}`,
         auth.token);
       if (r.ok) setDetail(await r.json());
     } catch {} finally { setBusy(false); }
-  }, [subject]);
+  }, [subjectId, auth.token]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", st => {
+      if (st === "active") load();
+    });
+    return () => sub.remove();
+  }, [load]);
   const pull = usePullToRefresh(load);
 
   const post = async (path, body, okMsg) => {
+    if (__DEV__) console.log("[officer write]", path, { subjectId, keys: Object.keys(body || {}) });
+    if (!subjectId) {
+      toast("This subject could not be identified — refresh and try again", "err");
+      return false;
+    }
     try {
-      const r = await authed(`${SAAS_BASE}${path}`, auth.token, {
+      const target = `${SAAS_BASE}${path}?subject_id=${encodeURIComponent(subjectId)}`;
+      const r = await authed(target, auth.token, {
         method: "POST",
-        body: JSON.stringify({ subject_id: subject.subject_id, ...body }) });
+        body: JSON.stringify({ ...body, subject_id: subjectId }) });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
+        if (__DEV__) console.log("[officer write response]", r.status, d);
         toast(d.error || "Couldn't save — please try again", "err");
         return false;
       }
+      if (__DEV__) console.log("[officer write response]", r.status, "ok");
       toast(okMsg || "Saved");
       setSheet(null); await load();
       return true;
@@ -1635,6 +1983,36 @@ function OfficerSubject({ auth, subject, onBack }) {
       toast("No connection — nothing was saved", "err");
       return false;
     }
+  };
+
+  const scheduleContact = async (when, note, timeFixed = false, location, customAgenda = [], id, officerId) => {
+    try {
+      const r = await authed(`${SAAS_BASE}/api/visits`, auth.token, {
+        method: "POST", body: JSON.stringify({ subject_id: subjectId,
+          ...(id ? { id } : {}),
+          scheduled_at: when.toISOString(), officer: auth.user?.name,
+          officer_id: officerId,
+          location: location?.trim() || addressLine(subject) || null, time_fixed: timeFixed,
+          custom_agenda: customAgenda,
+          notes: note || null }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(d.error || "Couldn't schedule contact", "err"); return false; }
+      toast(id ? "Contact updated" : "Contact scheduled"); setSheet(null); await load(); return true;
+    } catch { toast("No connection — nothing was scheduled", "err"); return false; }
+  };
+
+  const changePhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { toast("Photo access is off", "err"); return; }
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.6, base64: true });
+    if (r.canceled || !r.assets?.[0]?.base64) return;
+    const a = r.assets[0];
+    /* iOS versions of ImagePicker have returned values such as `image` or
+       omitted mimeType entirely. The API intentionally accepts only concrete
+       image media types, so normalize those picker values to JPEG. */
+    const mime = /^image\/(jpeg|png|webp)$/i.test(a.mimeType || "")
+      ? a.mimeType.toLowerCase() : "image/jpeg";
+    await post("/api/subject/profile-photo", { data: a.base64, mime_type: mime }, "Profile photo updated");
   };
 
   const cur  = detail?.curfew;
@@ -1661,6 +2039,9 @@ function OfficerSubject({ auth, subject, onBack }) {
   const nextVisit = visits
     .filter(v => v.status !== "completed" && v.status !== "cancelled" && v.scheduled_at)
     .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))[0];
+  const lastVisit = visits
+    .filter(v => v.status === "completed" && (v.completed_at || v.scheduled_at))
+    .sort((a, b) => new Date(b.completed_at || b.scheduled_at) - new Date(a.completed_at || a.scheduled_at))[0];
   const travExpired = isExpired(trav);
   const travAllowed = trav && trav.level !== "none" && !travExpired;
 
@@ -1670,10 +2051,16 @@ function OfficerSubject({ auth, subject, onBack }) {
         <Pressable onPress={onBack} hitSlop={10}>
           <Text style={[s.linkText, { fontSize: 15 }]}>‹ Back</Text>
         </Pressable>
-        <Avatar name={subject.name} size={40} hasLogin={subject.has_login} />
+        <Avatar name={who?.name || subject.name} size={64} rounded
+                photoUri={who?.profile_photo_url ? `${SAAS_BASE}${who.profile_photo_url}` : null}
+                authToken={auth.token} />
         <View style={{ flex: 1 }}>
-          <Text style={s.profileName} numberOfLines={1}>{subject.name}</Text>
-          <Text style={s.profileMeta}>{subject.case_number} · {subject.status}</Text>
+          <Text style={s.subjectId}>{who?.subject_id || subject.subject_id}</Text>
+          <Text style={s.profileName} numberOfLines={1}>{who?.name || subject.name}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", marginTop: 3 }}>
+            <Ionicons name="calendar-outline" size={14} color={C.muted} />
+            <Text style={[s.profileMeta, { marginLeft: 5 }]}>Last visit: {lastVisit ? fmtVisit(lastVisit.completed_at || lastVisit.scheduled_at) : "None"}</Text>
+          </View>
         </View>
       </View>
 
@@ -1685,18 +2072,84 @@ function OfficerSubject({ auth, subject, onBack }) {
             {/* Who and where, first — it is what an officer needs standing at
                 a door, and it is the one thing that was not on this screen
                 at all. Open by default for the same reason. */}
-            <Section title="Contact & address" defaultOpen
+            <Pressable style={({ pressed }) => [s.cta, pressed && { backgroundColor: C.brandDark }]}
+                       onPress={() => setSheet({ mode: "schedule", subject: who || subject })}>
+              <Text style={s.ctaText}>＋  Supervision Contact Entry</Text>
+            </Pressable>
+
+            <View style={s.profileActions}>
+              <Pressable accessibilityLabel="Call subject"
+                         style={({ pressed }) => [s.profileAction, pressed && { backgroundColor: C.line }]}
+                         disabled={!who?.phone}
+                         onPress={() => Linking.openURL(`tel:${who.phone.replace(/[^0-9+]/g, "")}`)}>
+                <Ionicons name="call-outline" size={23} color={C.ink} />
+                <Text style={s.profileActionText}>Call</Text>
+              </Pressable>
+              <Pressable accessibilityLabel="Message subject"
+                         style={({ pressed }) => [s.profileAction, pressed && { backgroundColor: C.line }]}
+                         disabled={!who?.phone}
+                         onPress={() => Linking.openURL(`sms:${who.phone.replace(/[^0-9+]/g, "")}`)}>
+                <Ionicons name="chatbubble-outline" size={23} color={C.ink} />
+                <Text style={s.profileActionText}>Message</Text>
+              </Pressable>
+              <Pressable accessibilityLabel="Directions to subject"
+                         style={({ pressed }) => [s.profileAction, pressed && { backgroundColor: C.line }]}
+                         disabled={!addressOf(who)}
+                         onPress={() => openMaps(addressOf(who))}>
+                <Ionicons name="location-outline" size={23} color={C.ink} />
+                <Text style={s.profileActionText}>Directions</Text>
+              </Pressable>
+            </View>
+
+            <Section title="Contact Information" defaultOpen
                      summary={addressLine(who) || "No address on record"}>
-              <Detail label="Address" value={addressOf(who) || "None on record"}
-                      action="Directions"
+              <Pressable style={({ pressed }) => [s.ctaGhost, pressed && { opacity: .6 }]} onPress={changePhoto}>
+                <Text style={s.ctaGhostText}>Change profile photo</Text>
+              </Pressable>
+              <Detail icon="location-outline" label="Address" value={addressOf(who) || "None on record"}
                       onPress={() => openMaps(addressOf(who))} />
-              <Detail label="Phone" value={who?.phone} action="Call"
+              <Detail icon="call-outline" label="Phone" value={who?.phone}
                       onPress={() => who?.phone &&
                         Linking.openURL(`tel:${who.phone.replace(/[^0-9+]/g, "")}`)} />
-              <Detail label="Email" value={who?.email} />
-              <Detail label="Date of birth" value={dobLine(who?.dob)} />
-              <Detail label="Supervising officer" value={who?.officer} />
-              <Detail label="Next review" value={asDate(who?.next_review)} />
+              <Detail icon="mail-outline" label="Email" value={who?.email}
+                      onPress={() => who?.email && Linking.openURL(`mailto:${who.email}`)} />
+              <Detail icon="calendar-outline" label="Date of birth" value={dobLine(who?.dob)} />
+              <Detail icon="person-outline" label="Supervising officer" value={who?.officer} />
+              <Detail icon="calendar-outline" label="Next review" value={asDate(who?.next_review)} />
+            </Section>
+
+            <Section title="Contact history" chip={visits.length ? `${visits.length}` : "None"}
+                     tone={visits.length ? "brand" : "muted"}
+                     summary={nextVisit
+                       ? `Next ${fmtVisit(nextVisit.scheduled_at)}`
+                       : visits.length ? "Nothing upcoming" : "No visits on record"}>
+              {visits.length ? (() => {
+                /* A completed_at timestamp is the durable fact that the visit
+                   happened. Keep it in history even if an older API response
+                   still reports the pre-completion status. */
+                const completed = v => v.status === "completed" || !!v.completed_at;
+                const upcoming = visits.filter(v => !completed(v) && v.status !== "cancelled");
+                const past = visits.filter(completed)
+                  .sort((a, b) => new Date(b.completed_at || b.scheduled_at) - new Date(a.completed_at || a.scheduled_at));
+                const month = v => new Date(v.scheduled_at || v.completed_at).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+                return <>
+                  {upcoming.length ? <Text style={s.detailLabel}>Upcoming</Text> : null}
+                  {upcoming.slice(0, 8).map((v, i, a) => <Fragment key={v.id}>{(!i || month(v) !== month(a[i - 1])) && <Text style={s.monthHeading}><Ionicons name="people-outline" size={17} />  {month(v)}</Text>}<Pressable style={s.detailRow}
+                    onPress={() => setSheet({ mode: "schedule", subject: who || subject, visitId: v.id, existing: v })}>
+                    <View style={{ flex: 1 }}><Text style={s.detailTitle}>{fmtVisit(v.scheduled_at)}</Text>
+                      <Text style={s.cardMeta}>{v.officer || ""}</Text></View>
+                    <View style={[s.pill, v.accepted_at ? s.pillNeutral : s.pillWarn]}>
+                      <Text style={[s.pillText, { color: v.accepted_at ? C.brand : C.amber }]}>{v.accepted_at ? "Confirmed" : "Not confirmed"}</Text>
+                    </View>
+                  </Pressable></Fragment>)}
+                  {past.length ? <Text style={[s.detailLabel, { marginTop: 14 }]}>Past</Text> : null}
+                  {past.slice(0, 8).map((v, i, a) => <Fragment key={v.id}>{(!i || month(v) !== month(a[i - 1])) && <Text style={s.monthHeading}><Ionicons name="people-outline" size={17} />  {month(v)}</Text>}<Pressable style={({ pressed }) => [s.detailRow, pressed && { opacity: .6 }]} onPress={() => setPreviewVisit(v)} accessibilityRole="button" accessibilityLabel={`Review completed visit ${fmtVisit(v.completed_at || v.scheduled_at)}`}>
+                    <View style={{ flex: 1 }}><Text style={s.detailTitle}>{fmtVisit(v.completed_at || v.scheduled_at)}</Text>
+                      <Text style={s.cardMeta}>{v.officer || "Visit completed"}</Text><Text style={s.linkText}>Review visit ›</Text></View>
+                      <View style={[s.pill, s.pillOk]}><Text style={[s.pillText, { color: C.ok }]}>Complete</Text></View>
+                  </Pressable></Fragment>)}
+                </>;
+              })() : <Text style={s.cardMeta}>None on record.</Text>}
             </Section>
 
             <Section title="Family & contacts"
@@ -1960,10 +2413,22 @@ function OfficerSubject({ auth, subject, onBack }) {
                 <View key={a.id} style={s.detailRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={s.detailTitle}>{a.body}</Text>
-                    <Text style={[s.cardMeta, overdueAction(a) && { color: C.err }]}>
+                    <Text style={[
+                      s.cardMeta, overdueAction(a) && { color: C.err }
+                    ]}>
                       {a.due_date ? `Due ${asDate(a.due_date)}` : "No date set"}
                       {a.due_hint ? ` · said "${a.due_hint}"` : ""}
+                      {a.status === "in_review" ? " · In review" : ""}
                     </Text>
+                    {a.status === "in_review" ? (
+                      <Pressable style={({ pressed }) => [s.linkButton, pressed && { opacity: .6 }]}
+                                 onPress={async () => {
+                                   const ok = await post("/api/visits/summary/action", { id: a.id, status: "done" }, "Action item confirmed");
+                                   if (ok) load();
+                                 }}>
+                        <Text style={s.linkText}>Confirm complete</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 </View>
               )) : <Text style={s.cardMeta}>Nothing outstanding.</Text>}
@@ -1990,6 +2455,16 @@ function OfficerSubject({ auth, subject, onBack }) {
                       {g.due_date ? `Due ${asDate(g.due_date)}` : "No due date"}
                       {g.progress?.total ? ` · ${g.progress.done}/${g.progress.total} steps` : ""}
                     </Text>
+                    {(g.steps || []).map(st => (
+                      <View key={st.id} style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
+                        <Text style={[s.cardMeta, { flex: 1 }, st.review_status === "done" && { textDecorationLine: "line-through" }]}>• {st.body}</Text>
+                        {st.review_status === "in_review" ? (
+                          <Pressable onPress={() => post("/api/goals/step/done", { id: st.id, done: true }, "Action step confirmed")}>
+                            <Text style={s.linkText}>Confirm</Text>
+                          </Pressable>
+                        ) : st.review_status === "done" ? <Text style={s.cardMeta}>Confirmed</Text> : null}
+                      </View>
+                    ))}
                   </View>
                   <View style={[s.pill, g.status !== "open" ? s.pillOk
                                : goalOverdue(g) ? s.pillErr
@@ -2004,33 +2479,6 @@ function OfficerSubject({ auth, subject, onBack }) {
               <Text style={[s.cardMeta, { marginTop: 10, color: C.faint }]}>
                 Goals are set and closed from the console.
               </Text>
-            </Section>
-
-            <Section title="Visits" chip={visits.length ? `${visits.length}` : "None"}
-                     tone={visits.length ? "brand" : "muted"}
-                     summary={nextVisit
-                       ? `Next ${fmtVisit(nextVisit.scheduled_at)}`
-                       : visits.length ? "Nothing upcoming" : "No visits on record"}>
-              {visits.length ? visits.slice(0, 8).map(v => (
-                <View key={v.id} style={s.detailRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.detailTitle}>{fmtVisit(v.scheduled_at)}</Text>
-                    <Text style={s.cardMeta}>
-                      {[v.officer, (v.notes_log || []).length
-                        ? `${v.notes_log.length} notes` : "",
-                        (v.photos || []).length ? `${v.photos.length} photos` : ""]
-                        .filter(Boolean).join(" · ")}
-                    </Text>
-                  </View>
-                  <View style={[s.pill, v.status === "completed" ? s.pillOk
-                               : v.accepted_at ? s.pillNeutral : s.pillWarn]}>
-                    <Text style={[s.pillText, { color: v.status === "completed" ? C.ok
-                                  : v.accepted_at ? C.brand : C.amber }]}>
-                      {v.status === "completed" ? "Complete"
-                        : v.accepted_at ? "Confirmed" : "Not confirmed"}</Text>
-                  </View>
-                </View>
-              )) : <Text style={s.cardMeta}>None on record.</Text>}
             </Section>
 
             <Section title="Case notes" chip={notes.length ? `${notes.length}` : "None"}
@@ -2089,6 +2537,13 @@ function OfficerSubject({ auth, subject, onBack }) {
                       onSave={v => post("/api/obligations", { ...v, kind: "community_service" },
                                         "Requirement saved")} />
       )}
+      {sheet?.mode === "schedule" && (
+        <ScheduleSheet auth={auth} subject={sheet.subject} visitId={sheet.visitId} existing={sheet.existing}
+                       onCancel={() => setSheet(null)}
+                       onSave={scheduleContact} />
+      )}
+      {previewVisit && <VisitPreview auth={auth} visit={previewVisit}
+        onClose={() => setPreviewVisit(null)} onStart={() => setPreviewVisit(null)} />}
     </SafeAreaView>
   );
 }
@@ -2363,10 +2818,9 @@ function homeCards(c, programs, open) {
   if (fin?.totals?.balance_cents > 0) add({
     key: "money", icon: "cash-outline",
     tone: fin.totals.overdue_cents > 0 ? "err" : "brand",
-    title: "What you owe",
-    line: fin.totals.overdue_cents > 0
-      ? `${money(fin.totals.overdue_cents)} overdue`
-      : `${money(fin.totals.balance_cents)} outstanding`,
+    title: "Financial balance",
+    line: `${money(fin.totals.balance_cents)} due`,
+    meta: fin.items.map(i => FIN_KIND[i.kind] || i.kind).join(" · "),
     cta: "Open", onPress: open.details
   });
 
@@ -2463,6 +2917,12 @@ function Home({ auth, onLaunch, onSignOut }) {
   }, [auth]);
 
   useEffect(() => { loadCase(false); }, [loadCase]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", st => {
+      if (st === "active") loadCase(false);
+    });
+    return () => sub.remove();
+  }, [loadCase]);
 
   /* Assignments live in Waypoint, not Northwood, so this is a second server —
      the app is a client of both, by design. Held here rather than inside the
@@ -2513,7 +2973,10 @@ function Home({ auth, onLaunch, onSignOut }) {
        The badge does not depend on it: that counts what is outstanding, and
        only finishing something clears it. Seeing a badge is not seeing the
        thing it points at. */
-    if (caseData?.unseen_goals || caseData?.unseen_actions) loadCase(false, true);
+    /* Always re-read when opening this tab. Action items can be created by
+       the officer while the subject app remains open, so a one-time login
+       fetch would leave the subject looking at a stale list. */
+    loadCase(false, !!(caseData?.unseen_goals || caseData?.unseen_actions));
   };
 
   /* The root is BRAND coloured, not the page background.
@@ -2526,7 +2989,9 @@ function Home({ auth, onLaunch, onSignOut }) {
   return (
     <SafeAreaView style={s.safeBrand}>
       <View style={s.profileBarBrand}>
-        <Avatar name={auth.person?.name || subject?.name} onBrand />
+        <Avatar name={auth.person?.name || subject?.name} onBrand
+                photoUri={subject?.profile_photo_url ? `${SAAS_BASE}${subject.profile_photo_url}` : null}
+                authToken={auth.token} />
         <View style={{ flex: 1 }}>
           <Text style={s.profileNameOn}>{auth.person?.name || subject?.name}</Text>
           <Text style={s.profileMetaOn}>
@@ -3082,6 +3547,23 @@ function MyDetails({ auth, caseData, onRefresh, onOpenAgreement, onOpenReentry }
   const [editing, setEditing] = useState(null);   // {} for new, {…} for existing
   const [busy, setBusy] = useState(false);
 
+  const changePhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { toast("Photo access is off", "err"); return; }
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.6, base64: true });
+    if (r.canceled || !r.assets?.[0]?.base64) return;
+    const a = r.assets[0];
+    const mime = /^image\/(jpeg|png|webp)$/i.test(a.mimeType || "")
+      ? a.mimeType.toLowerCase() : "image/jpeg";
+    try {
+      const response = await authed(`${SAAS_BASE}/api/me/profile-photo`, auth.token, {
+        method: "POST", body: JSON.stringify({ data: a.base64, mime_type: mime }) });
+      const d = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(d.error || "Could not save photo");
+      await onRefresh(); toast("Profile photo updated");
+    } catch (e) { toast(e.message || "Could not save photo", "err"); }
+  };
+
   const save = async v => {
     setBusy(true);
     try {
@@ -3156,6 +3638,15 @@ function MyDetails({ auth, caseData, onRefresh, onOpenAgreement, onOpenReentry }
 
       {caseData && (
         <>
+          <View style={[s.card, { alignItems: "center" }]}>
+            <Avatar name={caseData.subject?.name || auth.person?.name} size={92}
+                    photoUri={caseData.subject?.profile_photo_url ? `${SAAS_BASE}${caseData.subject.profile_photo_url}` : null}
+                    authToken={auth.token} />
+            <Text style={[s.cardTitle, { marginTop: 10 }]}>Profile photo</Text>
+            <Pressable style={({ pressed }) => [s.ctaGhost, pressed && { opacity: .6 }]} onPress={changePhoto}>
+              <Text style={s.ctaGhostText}>Choose a photo</Text>
+            </Pressable>
+          </View>
           <View style={s.card}>
             <View style={s.cardTop}>
               <Text style={s.cardTitle}>Curfew</Text>
@@ -3748,12 +4239,20 @@ function GoalList({ auth, caseData, onRefresh }) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Couldn't update that");
       await onRefresh();
-      toast("Reported as done");
+      toast("Sent to your officer for review");
     } catch (e) { toast(String(e.message || e), "err"); }
     finally { setBusy(null); }
   };
 
   const toggle = async st => {
+    if (st.review_status === "done") {
+      toast("Your officer has already confirmed this step");
+      return;
+    }
+    if (st.review_status === "in_review" || st.status === "in_review") {
+      toast("Already sent to your officer for review");
+      return;
+    }
     setBusy(st.id);
     try {
       const r = await authed(`${SAAS_BASE}/api/me/goals/step`, auth.token, {
@@ -3761,7 +4260,7 @@ function GoalList({ auth, caseData, onRefresh }) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Couldn't update that step");
       await onRefresh();
-      toast(st.done_at ? "Step reopened" : "Step marked done");
+      toast(st.done_at ? "Step reopened" : "Sent to your officer for review");
     } catch (e) { toast(String(e.message || e), "err"); }
     finally { setBusy(null); }
   };
@@ -3797,13 +4296,14 @@ function GoalList({ auth, caseData, onRefresh }) {
 
         {(g.steps || []).map(st => (
           <Pressable key={st.id} style={s.goalStep}
-                     disabled={closedGoal || busy === st.id}
+                     disabled={closedGoal || busy === st.id || st.review_status === "in_review" || st.review_status === "done"}
                      onPress={() => toggle(st)}>
-            <View style={[s.goalTick, st.done_at && s.goalTickOn,
+            <View style={[s.goalTick, st.review_status === "done" && s.goalTickOn,
                           closedGoal && { opacity: 0.6 }]}>
-              {st.done_at ? <Text style={s.goalTickMark}>✓</Text> : null}
+              {st.review_status === "done" ? <Text style={s.goalTickMark}>✓</Text> : null}
             </View>
-            <Text style={[s.goalStepText, st.done_at && s.goalStepDone]}>{st.body}</Text>
+            <Text style={[s.goalStepText, st.review_status === "done" && s.goalStepDone]}>{st.body}</Text>
+            {st.review_status === "in_review" ? <Text style={s.goalNote}>In review</Text> : null}
           </Pressable>
         ))}
 
@@ -3843,9 +4343,12 @@ function GoalList({ auth, caseData, onRefresh }) {
             <Pressable key={a.id}
                        style={({ pressed }) => [s.actRow, i === 0 && s.actRowFirst,
                                                 pressed && { opacity: .55 }]}
-                       disabled={busy === `a${a.id}`}
+                       disabled={busy === `a${a.id}` || a.status !== "accepted"}
                        onPress={() => reportDone(a)}>
-              <View style={[s.goalTick, busy === `a${a.id}` && { opacity: .4 }]} />
+              <View style={[s.goalTick, a.status === "in_review" && s.goalTickOn,
+                            busy === `a${a.id}` && { opacity: .4 }]}>
+                {a.status === "in_review" ? <Text style={s.goalTickMark}>…</Text> : null}
+              </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.actBody}>{a.body}</Text>
                 <View style={s.actMeta}>
@@ -3854,6 +4357,9 @@ function GoalList({ auth, caseData, onRefresh }) {
                   </Text>
                   {a.due_hint
                     ? <Text style={s.actSaid} numberOfLines={1}>you said “{a.due_hint}”</Text>
+                    : null}
+                  {a.status === "in_review"
+                    ? <Text style={s.actSaid}>Reported — awaiting officer review</Text>
                     : null}
                 </View>
               </View>
@@ -4031,8 +4537,10 @@ function DatesCard({ auth, caseData, onRefresh, onOpenMaps }) {
 
   if (!dates.length) return null;
 
-  const open = dates.filter(d => d.status === "scheduled");
-  const past = dates.filter(d => d.status !== "scheduled");
+  const open = dates.filter(d => d.status === "scheduled" &&
+    (!d.scheduled_at || new Date(d.scheduled_at) >= new Date()));
+  const past = dates.filter(d => d.status !== "scheduled" ||
+    (d.scheduled_at && new Date(d.scheduled_at) < new Date()));
 
   const call = async (path, body, okMsg, id) => {
     setBusy(id);
@@ -4058,8 +4566,12 @@ function DatesCard({ auth, caseData, onRefresh, onOpenMaps }) {
          { id: d.id, status: "completed" }, "Recorded as attended", d.id) }]);
 
   const row = d => {
-    const needsAck = d.state === "assigned" || d.state === "viewed";
-    const needsOutcome = !!d.awaiting_outcome;
+    /* Keep the action language correct even if an older API response omitted
+       the derived flag. A scheduled date in the past always needs an outcome,
+       never a future-tense acknowledgement. */
+    const isPast = d.scheduled_at && new Date(d.scheduled_at) < new Date();
+    const needsOutcome = d.status === "scheduled" && (d.awaiting_outcome || isPast);
+    const needsAck = !needsOutcome && (d.state === "assigned" || d.state === "viewed");
     return (
       <View key={d.id} style={[s.detailRow, d.status !== "scheduled" && { opacity: 0.7 }]}>
         <View style={{ flex: 1 }}>
@@ -4749,13 +5261,44 @@ const s = StyleSheet.create({
 
   dayHeading: { fontSize: 13, fontWeight: "700", color: C.muted, textTransform: "uppercase",
                 letterSpacing: 0.6, marginTop: 6, marginBottom: 10, marginLeft: 2 },
+  dayGroupHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                  backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 10,
+                  marginTop: 4, marginBottom: 10 },
+  dayGroup: { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1,
+              borderColor: C.line, padding: 10, marginTop: 2 },
+  scheduleFilters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+  filterButton: { flexDirection: "row", alignItems: "center", gap: 7, borderWidth: 1,
+                  borderColor: C.line, borderRadius: 18, paddingHorizontal: 14,
+                  paddingVertical: 9, backgroundColor: C.surface },
+  filterButtonOn: { backgroundColor: C.brand, borderColor: C.brand },
+  filterButtonText: { color: C.ink2, fontSize: 13.5, fontWeight: "700" },
+  filterButtonTextOn: { color: "#fff" },
+  filterPanel: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line,
+                 borderRadius: 14, padding: 14, marginBottom: 12 },
+  filterPanelOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  scheduleFilter: { borderWidth: 1, borderColor: C.line, borderRadius: 18,
+                    paddingHorizontal: 14, paddingVertical: 8, backgroundColor: C.surface },
+  scheduleFilterOn: { backgroundColor: C.brand, borderColor: C.brand },
+  scheduleFilterText: { color: C.ink2, fontSize: 13.5, fontWeight: "650" },
+  scheduleFilterTextOn: { color: "#fff", fontWeight: "700" },
+  subjectMenu: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line,
+                 borderRadius: 12, padding: 10, marginBottom: 10 },
+  subjectOption: { flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 8 },
+  subjectCheck: { width: 20, height: 20, borderRadius: 5, borderWidth: 1, borderColor: C.faint,
+                  alignItems: "center", justifyContent: "center" },
+  subjectCheckOn: { backgroundColor: C.brand, borderColor: C.brand },
+  subjectCheckMark: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  subjectOptionText: { color: C.ink2, fontSize: 14 },
   visitTime: { flex: 1, fontSize: 20, fontWeight: "700", color: C.ink, letterSpacing: -0.4 },
   rowBtns: { flexDirection: "row", gap: 9, marginTop: 14, flexWrap: "wrap" },
+  iconBtn: { width: 52, height: 42, borderRadius: 10, borderWidth: 1,
+             borderColor: C.line, backgroundColor: C.surface,
+             alignItems: "center", justifyContent: "center" },
   btnGhost: { paddingVertical: 10, paddingHorizontal: 15, borderRadius: 9,
               borderWidth: 1, borderColor: C.line, backgroundColor: C.surface },
   btnGhostText: { color: C.ink2, fontWeight: "650", fontSize: 14 },
-  btnSolid: { flex: 1, minWidth: 130, paddingVertical: 11, borderRadius: 9,
-              backgroundColor: C.brand, alignItems: "center" },
+  btnSolid: { flex: 1, minWidth: 130, height: 42, paddingVertical: 0, borderRadius: 9,
+              backgroundColor: C.brand, alignItems: "center", justifyContent: "center" },
   btnSolidText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 
   sheetWrap: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" },
@@ -4771,6 +5314,7 @@ const s = StyleSheet.create({
   detailRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12,
                borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
   detailTitle: { fontSize: 15, fontWeight: "650", color: C.ink },
+  monthHeading: { fontSize: 16, fontWeight: "750", color: C.ink2, marginTop: 14, marginBottom: 4 },
   linkText: { color: C.brand, fontWeight: "650", fontSize: 14 },
   fieldRow: { flexDirection: "row", gap: 12 },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
@@ -4779,6 +5323,24 @@ const s = StyleSheet.create({
   choiceOn: { borderColor: C.brand, backgroundColor: C.brandSoft },
   choiceText: { fontSize: 14, fontWeight: "600", color: C.ink2 },
   choiceTextOn: { color: C.brand, fontWeight: "700" },
+  addTopicRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 },
+  addTopicInput: { flex: 1, paddingVertical: 11, marginTop: 0 },
+  addTopicBtn: { borderWidth: 1, borderColor: C.line, borderRadius: 10,
+                 paddingHorizontal: 14, paddingVertical: 12, backgroundColor: C.surface },
+  addTopicBtnText: { color: C.ink2, fontSize: 14, fontWeight: "700" },
+  actionDueRow: { flexDirection: "row", alignItems: "center", gap: 9,
+                  borderWidth: 1, borderColor: C.line, borderRadius: 10,
+                  paddingHorizontal: 13, minHeight: 48, marginTop: 8 },
+  actionDueLabel: { color: C.ink2, fontSize: 15, fontWeight: "600", flex: 1 },
+  actionDuePicker: { paddingVertical: 8, paddingLeft: 8 },
+  dateModalScrim: { flex: 1, backgroundColor: "rgba(15,23,42,0.45)", justifyContent: "center", padding: 24 },
+  dateModal: { backgroundColor: C.surface, borderRadius: 16, padding: 20 },
+  officerMenu: { borderWidth: 1, borderColor: C.line, borderRadius: 10,
+                  backgroundColor: C.surface, marginTop: 4, maxHeight: 240, overflow: "hidden" },
+  officerOption: { paddingHorizontal: 13, paddingVertical: 10,
+                   borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  officerOptionName: { color: C.ink, fontSize: 15, fontWeight: "600" },
+  officerOptionRole: { color: C.muted, fontSize: 12.5, marginTop: 2 },
 
   signInWrap: { flexGrow: 1, justifyContent: "center", padding: 28, backgroundColor: C.bg },
   signInMark: {
@@ -4791,10 +5353,10 @@ const s = StyleSheet.create({
   signInSub: { fontSize: 15, color: C.muted, textAlign: "center", marginTop: 4, marginBottom: 28 },
   signInServer: { fontSize: 12, color: C.faint, textAlign: "center", marginTop: -18, marginBottom: 24 },
   signInError: {
-    backgroundColor: C.errSoft, borderRadius: 10, padding: 13, marginBottom: 18,
-    borderWidth: 1, borderColor: "#fecaca"
+    backgroundColor: "#b91c1c", borderRadius: 10, padding: 13, marginBottom: 18,
+    borderWidth: 1, borderColor: "#991b1b"
   },
-  signInErrorText: { color: C.err, fontSize: 14, fontWeight: "600" },
+  signInErrorText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   signInNotice: { backgroundColor: C.amberSoft, borderColor: C.amberLine },
   signInNoticeText: { color: C.amber },
   label: { fontSize: 13.5, fontWeight: "600", color: C.ink2, marginBottom: 6, marginTop: 12 },
@@ -4818,6 +5380,8 @@ const s = StyleSheet.create({
   cardPressed: { backgroundColor: C.brandSoft, borderColor: C.brand },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   cardTitle: { flex: 1, fontSize: 17, fontWeight: "700", color: C.ink, letterSpacing: -0.3 },
+  subjectId: { fontSize: 14, color: C.ink2, fontVariant: ["tabular-nums"], marginBottom: 4 },
+  addressText: { fontSize: 14.5, color: C.ink2, lineHeight: 20, marginTop: 5 },
   cardAddr: { fontSize: 13, color: C.muted, marginTop: 4, lineHeight: 18 },
   routeBar: { flexDirection: "row", alignItems: "center", gap: 11,
               backgroundColor: C.brandSoft, borderRadius: 12, padding: 13,
@@ -4953,6 +5517,11 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: C.line
   },
   ctaGhostText: { color: C.ink2, fontWeight: "700", fontSize: 14.5 },
+  profileActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  profileAction: { flex: 1, minHeight: 82, borderRadius: 14, backgroundColor: C.surface,
+                   alignItems: "center", justifyContent: "center", gap: 7,
+                   borderWidth: 1, borderColor: C.line },
+  profileActionText: { color: C.ink, fontSize: 14, fontWeight: "600" },
 
   /* ---- supervision agreement ---- */
   agHeader: {

@@ -8,15 +8,23 @@
 
 import { officerSchedule, officerRecent, officerCaseload,
          activeOffices, officerBase } from "../db/northwood.mjs";
+import { one } from "../db/connect.mjs";
 import { saasJson } from "./shared.mjs";
 import { withLogins } from "./profile.mjs";
+
+const withPhoto = row => ({ ...row,
+  profile_photo_url: (() => {
+    const photo = one(`SELECT updated_at FROM subject_profile_photos WHERE subject_id = ?`, row.subject_id);
+    return photo ? `/subject-profile-photos/${encodeURIComponent(row.subject_id)}?v=${encodeURIComponent(photo.updated_at)}` : null;
+  })()
+});
 
 export const routes = {
 
   "ALL /api/officer/schedule": async (req, res, ctx) => {
     const all = officerSchedule(ctx.session.officer_id);
     return saasJson(res, 200, {
-      upcoming: all.filter(v => v.scheduled_at),
+      upcoming: all.filter(v => v.scheduled_at).map(withPhoto),
       requests: all.filter(v => !v.scheduled_at),
       recent:   officerRecent(ctx.session.officer_id)
     });
@@ -92,5 +100,6 @@ export const routes = {
   },
 
   "ALL /api/officer/caseload": async (req, res, ctx) =>
-    saasJson(res, 200, { subjects: await withLogins(officerCaseload(ctx.session.officer_id)) })
+    saasJson(res, 200, { subjects: await withLogins(
+      officerCaseload(ctx.session.officer_id).map(withPhoto)) })
 };

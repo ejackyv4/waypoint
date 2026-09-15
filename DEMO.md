@@ -27,6 +27,15 @@ server. The Mac and iPhone must be on the same Wi-Fi network.
 `./spike/demo reset` deletes and recreates the local demo database. Use it only
 when a clean demo dataset is actually wanted.
 
+After changing schema or seeded demo data, refresh the fixture explicitly:
+
+```bash
+./spike/demo rebaseline partial  # Dana's partial-data fixture
+```
+
+Full reset rebuilds from the current schema and seed code. Rebaseline is only
+needed for Dana's intentionally partial fixture.
+
 ## Demonstrating through Microsoft Teams
 
 Do **not** run the Teams meeting, Teams screen sharing, Screen Recording or Local

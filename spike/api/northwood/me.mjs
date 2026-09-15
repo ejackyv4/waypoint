@@ -76,9 +76,13 @@ export const routes = {
   "POST /api/me/profile": subjectOnly(async (req, res, ctx, person) => {
     const b = await readJson(req);
     const patch = {};
-    for (const field of ["phone", "email", "address"]) {
+    for (const field of ["phone", "email", "address_line1", "address_line2", "city", "state", "postal_code"]) {
       if (b[field] !== undefined) patch[field] = String(b[field] || "").trim() || null;
     }
+    /* Keep accepting the legacy single-line address while clients migrate to
+       the structured fields. A structured payload always wins. */
+    if (b.address !== undefined && !Object.keys(patch).some(k => k.startsWith("address_") || ["city","state","postal_code"].includes(k)))
+      patch.address_line1 = String(b.address || "").trim() || null;
     if (patch.email && !/^\S+@\S+\.\S+$/.test(patch.email))
       return saasJson(res, 400, { error: "That email address doesn't look right." });
     return saasJson(res, 200, { subject: asProfile(saveSubject(person.subject_id, patch)) });
@@ -98,8 +102,9 @@ export const routes = {
    */
   "POST /api/me/actions/done": subjectOnly(async (req, res, ctx, person) => {
     const b = await readJson(req);
+    const actionId = String(b.id).startsWith("standalone-") ? String(b.id) : Number(b.id);
     const mine = openActionsForSubject(person.subject_id)
-                   .find(a => a.id === Number(b.id) && a.owner === "subject");
+                   .find(a => String(a.id) === String(actionId) && a.owner === "subject");
     if (!mine) return saasJson(res, 404, { error: "no such action item" });
     const r = completeAction(mine.id, person.name || "the subject");
     if (r.error) return saasJson(res, 409, { error: r.error });

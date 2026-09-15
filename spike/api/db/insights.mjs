@@ -181,7 +181,8 @@ export function failSummary(id, message) {
 }
 
 /**
- * Accepted action items for one subject that are not done yet.
+ * Action items still active for one subject: accepted, or reported complete
+ * by the subject and awaiting officer confirmation.
  *
  * Only ACCEPTED ones. A proposal an officer has not looked at is not work
  * anybody owes, and putting it on a to-do list would quietly undo the rule the
@@ -191,8 +192,29 @@ export const openActionsForSubject = subject_id => all(
   `SELECT a.*, v.subject_id, v.scheduled_at, v.officer
      FROM visit_summary_actions a
      JOIN visits v ON v.id = a.visit_id
-    WHERE v.subject_id = ? AND a.status = 'accepted'
-    ORDER BY a.id`, subject_id);
+    WHERE v.subject_id = ? AND a.status IN ('accepted', 'in_review')
+    ORDER BY a.id`, subject_id)
+  .concat(standaloneActionsForSubject(subject_id).filter(a => a.status === "accepted" || a.status === "in_review"));
+
+export const standaloneActionsForSubject = subject_id => all(
+  `SELECT 'standalone-' || id AS id, subject_id, body, owner, due_date, status,
+          done_by, done_at, decided_by, decided_at, created_at,
+          NULL AS visit_id, NULL AS scheduled_at, NULL AS officer,
+          NULL AS headline
+     FROM subject_action_items WHERE subject_id = ?`, subject_id);
+
+export const addStandaloneAction = (subject_id, { body, due_date, owner = "subject" } = {}) => {
+  const sid = String(subject_id || "").trim();
+  if (!sid) return { error: "subject_id is required" };
+  if (!one(`SELECT subject_id FROM subjects WHERE subject_id = ?`, sid))
+    return { error: "no such subject" };
+  const text = String(body || "").trim();
+  if (!text) return { error: "An action item cannot be empty." };
+  const d = due_date ? String(due_date).slice(0, 10) : null;
+  if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return { error: "A due date looks like 2026-09-04." };
+  run(`INSERT INTO subject_action_items (subject_id, body, owner, due_date, created_at) VALUES (?,?,?,?,?)`, sid, text, owner, d, now());
+  return { ok: true };
+};
 
 /**
  * Every action item for a subject, whatever state it is in.
@@ -207,7 +229,8 @@ export const actionsForSubject = subject_id => all(
      FROM visit_summary_actions a
      JOIN visits v ON v.id = a.visit_id
     WHERE v.subject_id = ?
-    ORDER BY a.status = 'accepted' DESC, a.visit_id DESC, a.position`, subject_id);
+    ORDER BY a.status = 'accepted' DESC, a.visit_id DESC, a.position`, subject_id)
+  .concat(standaloneActionsForSubject(subject_id));
 
 /**
  * Turn "by Friday" into a date, using the day the visit happened.
@@ -380,6 +403,35 @@ export function setActionDue(id, due_date, who) {
   return { ok: true, action: one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id) };
 }
 
+/** Add an officer-entered action directly to a visit's accepted action list. */
+export function addManualAction(visit_id, { body, due_date, owner = "subject", who } = {}) {
+  const text = String(body || "").trim();
+  if (!text) return { error: "An action item cannot be empty." };
+  if (!["subject", "officer", "unclear"].includes(owner))
+    return { error: "An action belongs to the officer, the subject, or is unclear." };
+  const v = one(`SELECT id FROM visits WHERE id = ?`, visit_id);
+  if (!v) return { error: "no such visit" };
+  const d = due_date ? String(due_date).slice(0, 10) : null;
+  if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d))
+    return { error: "A due date looks like 2026-09-04." };
+  let s = one(`SELECT id FROM visit_summaries WHERE visit_id = ? ORDER BY id DESC LIMIT 1`, visit_id);
+  if (!s) {
+    run(`INSERT INTO visit_summaries
+           (visit_id, status, source_ids, headline, requested_by, created_at, completed_at)
+         VALUES (?, 'done', '[]', ?, ?, ?, ?)`,
+        visit_id, "Officer-added action items", who ?? null, now(), now());
+    s = one(`SELECT id FROM visit_summaries WHERE visit_id = ? ORDER BY id DESC LIMIT 1`, visit_id);
+  }
+  const pos = one(`SELECT COALESCE(MAX(position), -1) + 1 n
+                    FROM visit_summary_actions WHERE summary_id = ?`, s.id)?.n ?? 0;
+  run(`INSERT INTO visit_summary_actions
+         (summary_id, visit_id, body, body_proposed, owner, owner_proposed,
+          due_date, position, status, decided_by, decided_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?, ?)`,
+      s.id, visit_id, text, text, owner, owner, d, pos, who ?? null, now(), now());
+  return { ok: true, action: one(`SELECT * FROM visit_summary_actions WHERE visit_id = ? ORDER BY id DESC LIMIT 1`, visit_id) };
+}
+
 /** Accepted items the subject has not yet laid eyes on. Drives the banner. */
 export const unseenActionCount = subject_id => one(
   `SELECT COUNT(*) n
@@ -397,14 +449,22 @@ export const markActionsSeen = subject_id => run(
       AND visit_id IN (SELECT id FROM visits WHERE subject_id = ?)`,
   now(), subject_id);
 
-/** Marking one done. Only something already accepted can be finished. */
+/** The subject reports completion; the officer remains the confirmer. */
 export function completeAction(id, who) {
+  if (String(id).startsWith("standalone-")) {
+    const n = Number(String(id).slice("standalone-".length));
+    const a = one(`SELECT * FROM subject_action_items WHERE id = ?`, n);
+    if (!a) return { error: "no such action item" };
+    if (a.status !== "accepted") return { error: "Only an accepted action item can be reported." };
+    run(`UPDATE subject_action_items SET status='in_review', done_by=?, done_at=? WHERE id=?`, who ?? null, now(), n);
+    return { ok: true, action: { ...a, id, status: "in_review", done_by: who ?? null, done_at: now() } };
+  }
   const a = one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id);
   if (!a) return { error: "no such action item" };
   if (a.status !== "accepted")
-    return { error: "Only an accepted action item can be marked done." };
+    return { error: "Only an accepted action item can be reported." };
   run(`UPDATE visit_summary_actions
-          SET status = 'done', done_by = ?, done_at = ? WHERE id = ?`,
+          SET status = 'in_review', done_by = ?, done_at = ? WHERE id = ?`,
       who ?? null, now(), id);
   return { ok: true, action: one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id) };
 }
@@ -438,16 +498,55 @@ export function setActionOwner(id, owner, who) {
  * doing" is exactly the question asked afterwards.
  */
 export function decideAction(id, status, who) {
-  if (status === "done") return completeAction(id, who);
+  if (String(id).startsWith("standalone-")) {
+    const n = Number(String(id).slice("standalone-".length));
+    const a = one(`SELECT * FROM subject_action_items WHERE id = ?`, n);
+    if (!a) return { error: "no such action item" };
+    if (status === "done" && ["accepted", "in_review"].includes(a.status)) {
+      run(`UPDATE subject_action_items
+              SET status='done', done_by=COALESCE(done_by, ?),
+                  done_at=COALESCE(done_at, ?), decided_by=?, decided_at=?
+            WHERE id=?`, who ?? null, now(), who ?? null, now(), n);
+      return { ok: true, action: { ...a, id, status: "done",
+        done_by: a.done_by || who || null, done_at: a.done_at || now(),
+        decided_by: who ?? null } };
+    }
+    if (status === "archived" || status === "dismissed" || status === "accepted") {
+      const next = status === "dismissed" ? "archived" : status;
+      run(`UPDATE subject_action_items
+              SET status=?, done_by=?, done_at=?, decided_by=?, decided_at=? WHERE id=?`,
+          next, next === "accepted" ? null : a.done_by,
+          next === "accepted" ? null : a.done_at,
+          next === "accepted" ? null : (who ?? null),
+          next === "accepted" ? null : now(), n);
+      return { ok: true, action: { ...one(`SELECT * FROM subject_action_items WHERE id = ?`, n), id } };
+    }
+    return { error: "Only an item reported by the subject can be confirmed." };
+  }
+  if (status === "done") {
+    const a = one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id);
+    if (!a) return { error: "no such action item" };
+    if (!["accepted", "in_review"].includes(a.status))
+      return { error: "Only an accepted or subject-reported item can be completed." };
+    run(`UPDATE visit_summary_actions
+            SET status = 'done', done_by = COALESCE(done_by, ?),
+                done_at = COALESCE(done_at, ?), decided_by = ?, decided_at = ?
+          WHERE id = ?`,
+        who ?? null, now(), who ?? null, now(), id);
+    return { ok: true, action: one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id) };
+  }
   /* `proposed` is gone as a gate but stays reachable, so an item dismissed by
      mistake can be put back on the list rather than lost. */
-  if (!["accepted", "dismissed", "proposed"].includes(status))
-    return { error: "An action item is open, dismissed, or done." };
+  if (!["accepted", "dismissed", "archived", "proposed"].includes(status))
+    return { error: "An action item is open, archived, or done." };
   const a = one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id);
   if (!a) return { error: "no such action item" };
+  const next = status === "dismissed" ? "archived" : status;
   run(`UPDATE visit_summary_actions
-          SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?`,
-      status, status === "proposed" ? null : (who ?? null),
+      SET status = ?, done_by = ?, done_at = ?, decided_by = ?, decided_at = ? WHERE id = ?`,
+      next, next === "accepted" ? null : a.done_by,
+      next === "accepted" ? null : a.done_at,
+      status === "proposed" ? null : (who ?? null),
       status === "proposed" ? null : now(), id);
 
   /* Accepting is the moment it becomes work somebody owes, so that is when the

@@ -75,7 +75,7 @@ a.plain:hover{text-decoration:underline}
 .crumb a:hover{text-decoration:underline}
 
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;
-       box-shadow:var(--shadow);overflow:hidden}
+       box-shadow:var(--shadow);overflow:visible}
 .panel h2{margin:0;padding:15px 18px;font-size:14.5px;font-weight:650;
           border-bottom:1px solid var(--line)}
 .panel .body{padding:18px}
@@ -106,6 +106,15 @@ p.pagesub{color:var(--muted);font-size:14px;margin:0 0 22px}
    circle so it never changes the avatar's size or shifts the layout. */
 .avatar.hasLogin{box-shadow:0 0 0 4px var(--surface), 0 0 0 9px var(--brand)}
 .avatar.sm.hasLogin{box-shadow:0 0 0 3px var(--surface), 0 0 0 6px var(--brand)}
+.photoEditor{display:flex;align-items:center;gap:16px;padding:14px 16px;margin-bottom:18px;
+             background:var(--brand-soft);border:1px solid #dbeafe;border-radius:14px}
+.detailPhoto{width:72px;height:72px;border-radius:50%;object-fit:cover;flex:0 0 auto;
+             box-shadow:0 0 0 3px var(--surface),0 0 0 5px #bfdbfe}
+.detailPhotoFallback{display:grid;place-items:center;background:var(--brand);color:#fff;
+                     font-size:23px;font-weight:750;letter-spacing:.5px}
+.photoTitle{font-weight:700;color:var(--ink);font-size:14px}
+.photoHint{font-size:12.5px;color:var(--muted);margin:3px 0 9px}
+.photoButton{display:inline-flex;margin:0!important}
 .subjcard{overflow:visible}
 .loginRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
           padding:16px 24px;border-bottom:1px solid var(--line)}
@@ -433,7 +442,7 @@ tr:last-child td{border-bottom:0}
 .act.quiet:hover{color:var(--err)}
 .act:disabled{opacity:.5;cursor:default;text-decoration:none}
 .empty{padding:34px 18px;text-align:center;color:var(--muted);font-size:14px}
-.err{background:var(--err-soft);color:var(--err);border:1px solid #fecaca;
+.err{background:#b91c1c;color:#fff;border:1px solid #991b1b;
      border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
 .warn{background:var(--amber-soft);color:var(--amber);border:1px solid #fde68a;
       border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
@@ -918,7 +927,7 @@ function to12h(hhmm) {
 }
 
 /* Deterministic color per person, so an avatar is recognizable at a glance. */
-function avatar(name, size, hasLogin = false) {
+function avatar(name, size, hasLogin = false, photoUrl = null) {
   const initials = name.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
   let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
   // The ring carries meaning, so it is announced rather than left decorative.
@@ -926,7 +935,7 @@ function avatar(name, size, hasLogin = false) {
             style="background:hsl(${h} 42% 42%)"
             data-tip="${hasLogin ? "Has a Waypoint login" : "No Waypoint login yet"}"
             role="img" aria-label="${esc(name)}${hasLogin ? " — has a Waypoint login" : ""}"
-            >${esc(initials)}</div>`;
+            >${photoUrl ? `<img src="${esc(photoUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">` : esc(initials)}</div>`;
 }
 
 /* ---------------- routing ---------------- */
@@ -1001,12 +1010,16 @@ function showAlerts() {
           <div class="cnMeta">${esc(whenFull(r.requested_at))}</div>
           <div class="cnBody"><b>${esc(r.subject_name)}</b>${
             r.request_note ? ` — ${esc(r.request_note)}` : ""}</div>
-          <button class="btn small" data-go="${esc(r.subject_id)}">Schedule it</button>
+          <button class="btn small" data-schedule-request="${esc(r.subject_id)}">Schedule it</button>
         </div>`).join("")}
     </div>`);
-  document.querySelectorAll("[data-go]").forEach(x => x.onclick = () => {
+  document.querySelectorAll("[data-schedule-request]").forEach(x => x.onclick = () => {
     closeModal();
-    location.hash = `/subject/${x.dataset.go}/visits`;
+    const subject = subjectOf(x.dataset.scheduleRequest);
+    const request = rows.find(r => r.subject_id === x.dataset.scheduleRequest);
+    if (subject && request) addVisitModal(subject, {
+      ...request, status: "requested", id: request.id
+    });
   });
 }
 
@@ -1103,6 +1116,10 @@ async function renderDashboard(from) {
       throw new Error("The dashboard returned an incomplete response.");
   } catch (e) {
     view.innerHTML = `<div class="err">Couldn't load the dashboard: ${esc(e.message || e)}</div>`;
+    /* A 401 is not a transient dashboard failure. Retrying it forever floods
+       the console and keeps the page on a dead session; the fetch guard above
+       has already returned the officer to sign-in. */
+    if (/\b401\b|session ended|access/i.test(String(e.message || e))) return;
     /* A login can complete just before the browser has applied its session
        cookie. Give the first dashboard request one quiet retry; navigation
        should never be required to make the home screen appear. */
@@ -1228,13 +1245,13 @@ function paintDashboard() {
         <div class="panelHead"><h2>Appointment requests</h2></div>
         <div class="dayList">
           ${d.requests.map(r => `
-            <div class="dashRow" data-go="${esc(r.subject_id)}" data-to="visits">
+            <div class="dashRow">
               <span class="dashTag date">Requested</span>
               <div style="flex:1;min-width:0">
                 <div class="dashBody">${esc(r.subject_name)}</div>
                 <div class="finMeta">${esc(r.request_note || "No reason given")}</div>
               </div>
-              <span class="dashGo">Schedule &rsaquo;</span>
+              <button class="linkbtn" data-schedule-request="${esc(r.subject_id)}">Schedule &rsaquo;</button>
             </div>`).join("")}
         </div>
       </section>` : ""}
@@ -1357,6 +1374,12 @@ function paintDashboard() {
 
   view.querySelectorAll("[data-go-subject]").forEach(b => b.onclick = () => {
     location.hash = `/subject/${b.dataset.goSubject}`;
+  });
+  view.querySelectorAll("[data-schedule-request]").forEach(b => b.onclick = () => {
+    const id = b.dataset.scheduleRequest;
+    const subject = subjectOf(id);
+    const request = (DASH.requests || []).find(r => r.subject_id === id);
+    if (subject && request) addVisitModal(subject, { ...request, status: "requested", id: request.id });
   });
   view.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     const to = b.dataset.to;
@@ -1524,7 +1547,7 @@ function renderRoster() {
     <div class="roster">
       ${SUBJECTS.map(s => `
         <button class="subjcard" data-id="${esc(s.subject_id)}">
-          ${avatar(s.name, "sm", s.has_login)}
+          ${avatar(s.name, "sm", s.has_login, s.profile_photo_url)}
           <div>
             <div class="nm">${esc(s.name)}</div>
             <div class="id">${esc(s.case_number)}</div>
@@ -1544,7 +1567,7 @@ function renderProfile(s) {
     <div class="crumb"><a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp; ${esc(s.name)}</div>
     <div class="panel">
       <div class="profhead">
-        ${avatar(s.name, "lg", s.has_login)}
+        ${avatar(s.name, "lg", s.has_login, s.profile_photo_url)}
         <div class="who">
           <div class="nm">${esc(s.name)}</div>
           <div class="sub">${esc(s.case_number)}</div>
@@ -2349,6 +2372,7 @@ function renderVisits(s) {
  * something you reach for; a list is something you look at.
  */
 function addVisitModal(s, existing) {
+  const request = existing?.status === "requested";
   // 10am, three days out: a sensible starting point to edit, not a guess to fix.
   const d = existing?.scheduled_at ? new Date(existing.scheduled_at)
                                    : new Date(Date.now() + 3 * 864e5);
@@ -2357,7 +2381,7 @@ function addVisitModal(s, existing) {
                        .toISOString().slice(0, 16);
   const addr = existing?.location || oneLineAddress(s);
 
-  showModal(existing ? "Edit Visit" : "Add Visit", `${s.name} — ${s.case_number}`, `
+  showModal(existing && !request ? "Edit Visit" : "Add Visit", `${s.name} — ${s.case_number}`, `
     <p class="hint">The subject sees this in their app immediately, and it stays
        flagged for them until they confirm it.</p>
 
@@ -2365,7 +2389,11 @@ function addVisitModal(s, existing) {
       <div><label for="when">Date and time</label>
         <input type="datetime-local" id="when" value="${localValue}"></div>
       <div><label for="officer">Officer</label>
-        <input type="text" id="officer" value="${esc(existing?.officer || s.officer)}"></div>
+        <input id="officer" list="officerOptions" value="${esc(existing?.officer || USER?.name || s.officer || "")}"
+               placeholder="Search officers…">
+        <datalist id="officerOptions">
+          ${OFFICERS.map(o => `<option value="${esc(o.name)}">${o.role ? esc(o.role) : ""}</option>`).join("")}
+        </datalist></div>
     </div>
 
     <!-- A home visit is a day, not an hour. Saying so lets the route planner
@@ -2389,10 +2417,10 @@ function addVisitModal(s, existing) {
       this visit. Changing the time or the place withdraws that, and they will
       be asked to confirm again.</p>` : ""}
 
-    ${existing ? "" : `<h4 class="vdHead" style="margin-top:20px">Agenda</h4>`}
+    ${(!existing || request) ? `<h4 class="vdHead" style="margin-top:20px">Agenda</h4>` : ""}
     <p class="hint">What is outstanding right now. These are attached to the visit
        when you schedule it, and stay on its record afterwards.</p>
-    ${existing ? "" : `<div id="agPreview" class="mempty">Loading&hellip;</div>`}
+    ${(!existing || request) ? `<div id="agPreview" class="mempty">Loading&hellip;</div>` : ""}
 
     ${reFoot(existing ? "Save changes" : "Schedule visit", "book")}`);
 
@@ -2400,7 +2428,7 @@ function addVisitModal(s, existing) {
      they are still picking a date. An existing visit already has an agenda of
      its own, on its detail screen — showing a preview beside it would be two
      answers to one question. */
-  if (!existing) fetch(`/api/visits/agenda/preview?subject_id=${encodeURIComponent(s.subject_id)}`)
+  if (!existing || request) fetch(`/api/visits/agenda/preview?subject_id=${encodeURIComponent(s.subject_id)}`)
     .then(r => r.json()).then(d => {
       const box = el("agPreview"); if (!box) return;
       const items = d.items || [];
@@ -2430,13 +2458,16 @@ function addVisitModal(s, existing) {
     if (!whenVal) return toast("Pick a date and time.", "err");
     btn.disabled = true; btn.textContent = "Saving\u2026";
     try {
-      const d = await api("/api/visits", {
+      const d = await api(request ? "/api/visits/schedule" : "/api/visits", {
         id: existing?.id,
         subject_id: s.subject_id,
         scheduled_at: new Date(whenVal).toISOString(),
-        officer: el("officer").value, location: el("place").value,
+        officer: el("officer").value.trim(),
+        officer_id: OFFICERS.find(o => o.name.toLowerCase() === el("officer").value.trim().toLowerCase())?.id || null,
+        location: el("place").value,
         time_fixed: el("firm").checked,
-        notes: el("notes").value || null });
+        notes: el("notes").value || null,
+        custom_agenda: [] });
       /* Say what changed, and say when it cost a confirmation — an officer
          who moves a visit needs to know the subject has to agree again. */
       toast(d.reconfirm
@@ -2486,11 +2517,6 @@ async function loadVisits(s) {
     const typed = {};
     body.querySelectorAll("input[id^='rq-']").forEach(i => { typed[i.id] = i.value; });
 
-    // Default for a request the officer is about to schedule.
-    const d3 = new Date(Date.now() + 3 * 864e5); d3.setHours(10, 0, 0, 0);
-    const defaultWhen = new Date(d3.getTime() - d3.getTimezoneOffset() * 60000)
-                          .toISOString().slice(0, 16);
-
     body.innerHTML = rows.length ? rows.map(v => {
       const requested = v.status === "requested";
       const done = v.status === "completed";
@@ -2503,11 +2529,10 @@ async function loadVisits(s) {
                   : v.seen_at ? { cls: "go",    label: "Viewed",    at: v.seen_at }
                   :             { cls: "muted", label: "Scheduled", at: v.created_at };
 
-      /* A request has no date yet, so the officer sets one right here.
-         The reason sits behind an info icon rather than filling the row. */
+      /* A request has no date yet. Scheduling belongs in the full form so the
+         officer can review the agenda, timing and location before committing. */
       const whenCell = requested
-        ? `<div class="whenedit">
-             <input type="datetime-local" id="rq-${v.id}" value="${defaultWhen}">
+        ? `<div class="cellSub">Awaiting scheduling
              ${v.request_note
                ? `<button class="info" tabindex="0"
                     aria-label="Reason given by the subject"
@@ -2529,7 +2554,7 @@ async function loadVisits(s) {
          the same start/end flow lives here. Which control appears depends on
          where the visit actually is, not on whether the subject confirmed. */
       const actions = requested
-        ? `<button class="act" data-schedule="${v.id}">Schedule</button>
+        ? `<button class="act" data-edit="${v.id}">Schedule</button>
            ${ibtn("decline", v.id, "Decline this request", "danger")}`
         : done
         ? ibtn("view", v.id, "View this visit")
@@ -3598,7 +3623,7 @@ async function renderAgreement(s) {
     const path = typeof input === "string" ? input : input?.url || "";
     // Sign-in itself answers 401 for a wrong password; that is a message on
     // the form, not a session ending.
-    if (r.status === 401 && !path.includes("/auth/login") && USER) {
+    if ((r.status === 401 || r.status === 403) && !path.includes("/auth/login") && USER) {
       USER = null;
       showSignIn("Your session ended. Please sign in again.");
     }
@@ -3610,7 +3635,7 @@ async function api(path, body) {
   const r = await fetch(path, { method: "POST",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (r.status === 401) throw new Error("Your session ended.");
+  if (r.status === 401 || r.status === 403) throw new Error("Your session ended.");
   if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
   return d;
 }
@@ -4410,9 +4435,20 @@ async function renderMyProfile(body) {
 
 function renderDetails(body, s) {
   const isNew = !s.subject_id;
+  const photo = s.profile_photo_url
+    ? `<img src="${esc(s.profile_photo_url)}" alt="${esc(s.name || "Subject")}" class="detailPhoto">`
+    : `<div class="detailPhoto detailPhotoFallback">${esc((s.name || "?").split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase())}</div>`;
   body.innerHTML = head(isNew ? "New subject" : "Subject details",
                         isNew ? "They will land on your caseload" : esc(s.name)) + `
     <div class="mbody">
+      <div class="photoEditor">
+        ${photo}
+        <div><div class="photoTitle">Profile photo</div>
+          <div class="photoHint">Use a clear, recent photo for identification.</div>
+          <label class="btn small ghost photoButton" for="d_photo">Change photo</label>
+          <input type="file" id="d_photo" accept="image/jpeg,image/png,image/webp" hidden>
+        </div>
+      </div>
       <div class="frow">
         <div><label for="d_first">First name</label>
           <input id="d_first" value="${esc(s.first_name || "")}"></div>
@@ -4473,6 +4509,24 @@ function renderDetails(body, s) {
   showAge();
   el("d_dob").oninput = showAge;
 
+  let pendingPhoto = null;
+  el("d_photo")?.addEventListener("change", async e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (file.size > 6 * 1024 * 1024) { toast("Photo must be 6 MB or smaller", "err"); return; }
+    if (!s.subject_id) { pendingPhoto = file; toast("Photo will be added when the subject is created"); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        await api("/api/subject/profile-photo", { subject_id: s.subject_id,
+          mime_type: file.type, data: String(reader.result).split(",")[1] });
+        const i = SUBJECTS.findIndex(x => x.subject_id === s.subject_id);
+        if (i >= 0) SUBJECTS[i].profile_photo_url = `/subject-profile-photos/${encodeURIComponent(s.subject_id)}?v=${Date.now()}`;
+        closeModal(); route(); toast("Profile photo updated");
+      } catch (err) { toast(err.message || "Photo could not be saved", "err"); }
+    };
+    reader.readAsDataURL(file);
+  });
+
   el("d_save").onclick = async () => {
     const first = el("d_first").value.trim(), last = el("d_last").value.trim();
     if (!first || !last) {
@@ -4497,6 +4551,11 @@ function renderDetails(body, s) {
            roster makes you hunt for the person you just typed in, and the
            profile is where the modules they now need actually live. */
         const d = await api("/api/subjects", payload);
+        if (pendingPhoto) {
+          const reader = await new Promise(resolve => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(pendingPhoto); });
+          await api("/api/subject/profile-photo", { subject_id: d.subject.subject_id,
+            mime_type: pendingPhoto.type, data: String(reader).split(",")[1] });
+        }
         SUBJECTS.push(d.subject);
         closeModal();
         toast(`${d.subject.name} added to your caseload`);
@@ -4903,19 +4962,61 @@ async function renderActions(s) {
   el("toProfile").onclick = () => { location.hash = `/subject/${s.subject_id}`; };
 
   try {
-    ACTIONS = (await fetch(`/api/subject/actions?subject_id=${encodeURIComponent(s.subject_id)}`)
-                .then(r => r.json())).actions || [];
+    const actionData = await fetch(`/api/subject/actions?subject_id=${encodeURIComponent(s.subject_id)}`).then(r => r.json());
+    ACTIONS = actionData.actions || [];
   } catch {
     view.innerHTML += `<div class="err">Couldn't load the action items.</div>`; return;
   }
   paintActions(s);
 }
 
+function actionModal(s) {
+  closeModal();
+  const wrap = document.createElement("div");
+  wrap.id = "modal"; wrap.className = "modalwrap";
+  wrap.innerHTML = `<div class="scrim"></div><div class="modal"></div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector(".scrim").onclick = closeModal;
+  document.addEventListener("keydown", escClose);
+  wrap.querySelector(".modal").innerHTML = head("Add an action item", `${esc(s.name)} — add something they need to do`) + `
+    <div class="mbody">
+      <p class="hint">This creates an item for the subject. They can report it complete; you confirm it.</p>
+      <label for="aa_body">What needs to be done</label>
+      <input id="aa_body" placeholder="e.g. Complete passport application">
+      <label for="aa_owner">Assign to</label>
+      <select id="aa_owner">
+        <option value="subject">${esc(s.name)} (${esc(s.subject_id)})</option>
+        <option value="officer">${esc(USER?.name || "Me")} (officer)</option>
+      </select>
+      <label for="aa_due">Due date <span class="opt">(optional)</span></label>
+      <input id="aa_due" type="date">
+      <div class="mfoot">
+        <button class="linkbtn" id="aa_cancel">Cancel</button>
+        <button class="btn small" id="aa_save">Add action item</button>
+      </div>
+    </div>`;
+  el("aa_cancel").onclick = closeModal;
+  el("aa_save").onclick = async () => {
+    const body = el("aa_body").value.trim();
+    if (!body) return toast("Enter an action item", "err");
+    const b = el("aa_save"); b.disabled = true; b.textContent = "Saving…";
+    try {
+      const r = await api("/api/subject/action", { subject_id: s.subject_id, body,
+        owner: el("aa_owner").value, due_date: el("aa_due").value || null });
+      if (!r.ok) throw new Error((await r.json()).error || "Couldn't add that action item");
+      closeModal(); toast("Action item added"); renderActions(s);
+    } catch (e) { toast(e.message, "err"); b.disabled = false; b.textContent = "Add action item"; }
+  };
+  el("aa_body").focus();
+}
+
 function paintActions(s) {
   const open = ACTIONS.filter(a => a.status === "accepted");
+  const inReview = ACTIONS.filter(a => a.status === "in_review");
+  const active = [...open, ...inReview];
   const fromGoals = open.filter(a => a.kind === "goal_step").length;
   const done = ACTIONS.filter(a => a.status === "done");
-  const dropped = ACTIONS.filter(a => a.status === "dismissed");
+  const dropped = ACTIONS.filter(a => a.status === "archived" || a.status === "dismissed");
   const mine = open.filter(a => a.owner === "officer" || a.owner === "unclear").length;
   const theirs = open.length - mine;
 
@@ -4923,8 +5024,14 @@ function paintActions(s) {
      "the subject told me they dropped the pay stub off" and "I have it" are
      different facts, and a list that cannot tell them apart cannot answer the
      question an officer actually asks. */
-  const byThem = done.filter(a => (a.done_by || "") !== (a.officer || ""));
-  const byMe = done.filter(a => (a.done_by || "") === (a.officer || ""));
+  const byThem = inReview;
+  const byMe = done.filter(a => a.confirmed_by ||
+    (a.done_by && a.done_by === a.officer));
+  /* Keep every completed item on the page. A subject report is reviewed and
+     then closed by the officer, while an officer may complete a goal step
+     directly (which records confirmed_by rather than done_by). Filtering the
+     section by one actor made those valid completions disappear. */
+  const completed = done;
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -4932,7 +5039,7 @@ function paintActions(s) {
      labelled "Mark done" beside it — an officer working down a list wants one
      target per row, in the same place every time. */
   const row = a => `
-    <div class="aiAct ${a.status === "done" ? "done" : a.status === "dismissed" ? "dropped" : ""}">
+    <div class="aiAct ${a.status === "done" ? "done" : (a.status === "archived" || a.status === "dismissed") ? "dropped" : ""}">
       <div class="aiActNo">
         ${a.status === "accepted"
           ? `<button class="aiTick" ${a.kind === "goal_step"
@@ -4940,20 +5047,20 @@ function paintActions(s) {
                      aria-label="Mark done" data-tip="Mark done">&check;</button>`
           : a.status === "done"
             ? `<span class="aiTick on">&check;</span>`
-            : a.status === "dismissed" ? `<span>&times;</span>` : `<span>&middot;</span>`}
+            : (a.status === "archived" || a.status === "dismissed") ? `<span>—</span>` : `<span>&middot;</span>`}
       </div>
       <div>
-        ${a.kind === "goal_step" || a.status !== "accepted"
+        ${a.kind === "goal_step" || a.kind === "standalone" || a.status !== "accepted"
           ? `<div class="aiActBody">${esc(a.body)}</div>`
           : `<button class="aiActBody aiEditable" data-edit="${a.id}"
                      data-tip="Click to fix the wording">${esc(a.body)}</button>`}
         <div class="aiActMeta">
-          ${a.kind === "goal_step"
+          ${a.kind === "goal_step" && a.source?.title
             ? `<button class="aiSrc" data-goal="${a.source.id}"
                        data-tip="Open the goal this step belongs to"
                 >Goal &middot; ${esc(a.source.title || "")}</button>`
             : ""}
-          ${a.kind === "goal_step"
+          ${a.kind === "goal_step" && a.source?.title
             ? `<span class="aiOwner">${esc(AI_OWNER[a.owner] || "Subject")}</span>`
             : a.status === "accepted"
             ? `<select class="aiOwner" data-owner="${a.id}">
@@ -4976,16 +5083,16 @@ function paintActions(s) {
                    : "No date was spoken. Set one if it needs a deadline."}">`
             : a.due_date ? `<span class="aiDue">${esc(a.due_date)}</span>` : ""}
           ${a.due_hint ? `<span>&ldquo;${esc(a.due_hint)}&rdquo;</span>` : ""}
-          ${a.quote ? "" : `<span>${esc(shortDate(a.scheduled_at) || "—")} visit</span>`}
+          ${a.quote || !(a.visit_id || a.scheduled_at) ? "" : `<span>${esc(shortDate(a.scheduled_at) || "—")} visit</span>`}
           ${a.owner_proposed && a.owner_proposed !== a.owner
             ? `<span class="aiOwnerFixed">was <b>${
                  esc(AI_OWNER[a.owner_proposed] || a.owner_proposed)}</b></span>` : ""}
           ${a.body_proposed && a.body_proposed !== a.body
             ? `<span class="aiOwnerFixed" data-tip="${esc(a.body_proposed)}"
                  >wording <b>edited</b></span>` : ""}
-          ${a.status === "done" ? `<span>Done by ${esc(a.done_by || "—")}
-             &middot; ${esc(whenFull(a.done_at))}</span>` : ""}
-          ${a.status === "dismissed" ? `<span>Removed by ${esc(a.decided_by || "—")}</span>` : ""}
+          ${a.status === "done" ? `<span>Done by ${esc(a.done_by || a.confirmed_by || a.decided_by || "—")}
+             &middot; ${esc(whenFull(a.done_at || a.confirmed_at || a.decided_at))}</span>` : ""}
+          ${(a.status === "archived" || a.status === "dismissed") ? `<span>Archived by ${esc(a.decided_by || "—")}</span>` : ""}
         </div>
         ${a.quote ? `
           <div class="aiActQuote">
@@ -5005,9 +5112,11 @@ function paintActions(s) {
         ${a.kind === "goal_step" ? ""
           : a.status === "accepted"
           ? `<button class="btn small ghost" data-drop="${a.id}"
-                     data-tip="Remove — the recording did not actually say this">Remove</button>`
+                     data-tip="Archive this action item">Archive</button>`
+          : a.status === "in_review"
+            ? `<button class="btn small" data-confirm="${a.id}">Confirm complete</button>`
           : a.status === "dismissed"
-            ? `<button class="btn small ghost" data-undrop="${a.id}">Put back</button>`
+            ? `<button class="btn small ghost" data-undrop="${a.id}">Restore</button>`
             : ""}
       </div>
     </div>`;
@@ -5019,51 +5128,45 @@ function paintActions(s) {
     <div class="panel reHead">
       <div class="reScore">
         <div class="reDial" style="--pct:${
-            Math.round(done.length / Math.max(1, done.length + open.length) * 100)}">
-          <span>${open.length}<i>open</i></span>
+            Math.round(done.length / Math.max(1, done.length + active.length) * 100)}">
+          <span>${active.length}<i>open</i></span>
         </div>
         ${mine
           ? `<div class="reGate">${mine} yours to do</div>`
-          : `<div class="reGate ${open.length ? "" : "on"}">${
-              open.length ? "All with the subject" : "Nothing outstanding"}</div>`}
+          : `<div class="reGate ${active.length ? "" : "on"}">${
+              active.length ? "All with the subject" : "Nothing outstanding"}</div>`}
       </div>
       <div class="reFacts">
         <div><dt>Yours to do</dt><dd class="${mine ? "warn" : ""}">${mine}</dd></div>
-        <div><dt>With the subject</dt><dd>${theirs}</dd></div>
+        <div><dt>Outstanding items</dt><dd>${theirs}</dd></div>
         <div><dt>Reported by them</dt><dd>${byThem.length}</dd></div>
         <div><dt>Closed by you</dt><dd>${byMe.length}</dd></div>
       </div>
+      <div class="reActs"><button class="btn small" id="addAction">Add action item</button></div>
     </div>
 
     ${open.length ? `<h4 class="vdHead">Outstanding</h4>
       <div class="panel" style="padding:4px 18px">${open.map(row).join("")}</div>` : ""}
 
-    ${byThem.length ? `<h4 class="vdHead">Reported by the subject</h4>
+    ${byThem.length ? `<h4 class="vdHead">In review — reported by the subject</h4>
       <div class="panel" style="padding:4px 18px">${byThem.map(row).join("")}</div>
-      <p class="mnote">They told you these are done. Taken at their word &mdash;
-        nothing here waits on you &mdash; but kept apart from the ones you closed
-        yourself, because those are two different facts.</p>` : ""}
+      <p class="mnote">The subject reported these as complete. Confirm them
+        here when you have verified the work.</p>` : ""}
 
-    ${byMe.length ? `<h4 class="vdHead">Closed by you</h4>
-      <div class="panel" style="padding:4px 18px">${byMe.map(row).join("")}</div>` : ""}
+    ${completed.length ? `<h4 class="vdHead">Completed</h4>
+      <div class="panel" style="padding:4px 18px">${completed.map(row).join("")}</div>` : ""}
 
-    ${dropped.length ? `<h4 class="vdHead">Removed</h4>
+    ${dropped.length ? `<h4 class="vdHead">Archived</h4>
       <div class="panel" style="padding:4px 18px">${dropped.map(row).join("")}</div>` : ""}
 
     ${ACTIONS.length ? "" : `<div class="panel"><p class="mempty">No action items yet.
       They come out of a visit summary, once a recording has been transcribed.</p></div>`}
 
-    <p class="mnote">Everything ${esc(s.first_name || "they")} has to do, from both
-      places it can come from: a step written into a goal, and a commitment picked
-      out of a visit recording. Each still lives with whatever produced it &mdash;
-      this screen only gathers them.<br><br>
-      Commitments from a visit go straight on the list.
-      Ownership is inferred &mdash; the transcript has no speaker labels &mdash; so
-      change it on the row if it landed on the wrong person, and remove anything
-      the recording did not actually say.</p>`;
+    `;
 
   el("toRoster").onclick = () => { location.hash = "/subjects"; };
   el("toProfile").onclick = () => { location.hash = `/subject/${s.subject_id}`; };
+  el("addAction").onclick = () => actionModal(s);
 
   /* A goal step ticks through the goals endpoint, not the summary one. Same
      gesture on screen, two different records underneath — which is the point of
@@ -5111,11 +5214,24 @@ function paintActions(s) {
   view.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
     b.disabled = true; b.classList.add("on");
     try {
+      const rawId = b.dataset.done;
+      const id = rawId.startsWith("standalone-") ? rawId : Number(rawId);
       await api("/api/visits/summary/action",
-                { id: Number(b.dataset.done), status: "done" });
+                { id, status: "done" });
       toast("Marked done");
       renderActions(s);
     } catch (e) { toast(e.message, "err"); b.disabled = false; b.classList.remove("on"); }
+  });
+
+  view.querySelectorAll("[data-confirm]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const rawId = b.dataset.confirm;
+      const id = rawId.startsWith("standalone-") ? rawId : Number(rawId);
+      await api("/api/visits/summary/action", { id, status: "done" });
+      toast("Action item confirmed");
+      renderActions(s);
+    } catch (e) { toast(e.message, "err"); b.disabled = false; }
   });
 
   /* The derived date is a suggestion. An officer who knows the real deadline
@@ -5135,8 +5251,10 @@ function paintActions(s) {
     view.querySelectorAll(sel).forEach(b => b.onclick = async () => {
       b.disabled = true;
       try {
+        const rawId = b.dataset.drop || b.dataset.undrop;
+        const id = rawId.startsWith("standalone-") ? rawId : Number(rawId);
         await api("/api/visits/summary/action",
-                  { id: Number(b.dataset.drop || b.dataset.undrop), status });
+                  { id, status });
         toast(msg);
         renderActions(s);
       } catch (e) { toast(e.message, "err"); b.disabled = false; }
@@ -5252,6 +5370,7 @@ function goalCard(g, s) {
   const [label, cls] = GOAL_STATE[g.state] || GOAL_STATE.not_started;
   const p = g.progress;
   const closed = g.status !== "open";
+  const allStepsConfirmed = !p.total || (p.final || 0) === p.total;
   return `
     <section class="panel goalPanel ${closed ? "closed" : ""}">
       <div class="goalTop">
@@ -5277,12 +5396,12 @@ function goalCard(g, s) {
       <div class="goalSteps">
         ${(g.steps || []).map(st => `
           <div class="goalStep">
-            <button class="goalTick ${st.done_at ? "on" : ""}"
-                    data-step-done="${st.id}" data-done="${st.done_at ? "0" : "1"}"
-                    data-tip="${st.done_at ? "Mark not done" : "Mark done"}"
-                    ${closed ? "disabled" : ""}>${st.done_at ? "&#10003;" : ""}</button>
-            <span class="${st.done_at ? "goalStepDone" : ""}">${esc(st.body)}</span>
-            ${st.done_at ? `<span class="reBy">${esc(st.done_by || "")}</span>` : ""}
+            <button class="goalTick ${st.review_status === "done" ? "on" : ""}"
+                    data-step-done="${st.id}" data-done="${st.review_status === "done" ? "0" : "1"}"
+                    data-tip="${st.review_status === "in_review" ? "Confirm completion" : st.review_status === "done" ? "Mark not done" : "Mark done"}"
+                    ${closed ? "disabled" : ""}>${st.review_status === "done" ? "&#10003;" : ""}</button>
+            <span class="${st.review_status === "done" ? "goalStepDone" : ""}">${esc(st.body)}</span>
+            ${st.review_status === "in_review" ? `<span class="reBy">In review</span>` : st.review_status === "done" ? `<span class="reBy">${esc(st.confirmed_by || st.done_by || "")}</span>` : ""}
             ${closed ? "" : `<button class="linkbtn danger" data-del-step="${st.id}"
                               data-tip="Remove this step">&times;</button>`}
           </div>`).join("")}
@@ -5298,7 +5417,7 @@ function goalCard(g, s) {
         <button class="linkbtn" data-edit-goal="${g.id}">Edit goal</button>
         ${closed
           ? `<button class="linkbtn" data-close-goal="${g.id}" data-reopen="1">Reopen</button>`
-          : `<button class="btn small" data-close-goal="${g.id}">Mark complete</button>`}
+          : `<button class="btn small" data-close-goal="${g.id}" ${allStepsConfirmed ? "" : "disabled title=\"Confirm every action step first\""}>Mark complete</button>`}
         <button class="linkbtn danger" data-del-goal="${g.id}">Remove</button>
       </div>
     </section>`;
@@ -6263,7 +6382,7 @@ async function refresh(s) {
                       const rr = await fetch("/api/program-analysis/review", { method: "POST", headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ analysis_id: p.job.id, disposition: el("analysisDisposition").value, notes: el("analysisNotes").value }) });
                       const out = await rr.json(); if (!rr.ok) throw new Error(out.error || `HTTP ${rr.status}`);
-                      status.textContent = "Review saved"; el("exportAnalysisPdf").disabled = out.review.disposition === "dismissed";
+                      status.textContent = "Review saved"; toast("Review saved"); el("exportAnalysisPdf").disabled = out.review.disposition === "dismissed";
                     } catch (e) { status.textContent = String(e.message || e); } finally { save.disabled = false; save.textContent = "Save review"; }
                   };
                   el("exportAnalysisPdf").onclick = async () => {
@@ -6271,7 +6390,7 @@ async function refresh(s) {
                     try {
                       const rr = await fetch("/api/program-analysis/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis_id: p.job.id }) });
                       const out = await rr.json(); if (!rr.ok) throw new Error(out.error || `HTTP ${rr.status}`);
-                      window.open(`/documents/${out.document.id}`, "_blank", "noopener"); status.textContent = "PDF exported";
+                      window.open(`/documents/${out.document.id}`, "_blank", "noopener"); status.textContent = "PDF exported"; toast("PDF exported");
                     } catch (e) { status.textContent = String(e.message || e); } finally { x.disabled = false; x.textContent = "Export reviewed PDF"; }
                   };
                 };

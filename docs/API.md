@@ -517,6 +517,17 @@ POST /auth/logout    revokes the session server-side
 GET  /auth/me        the signed-in staff member
 ```
 
+### Demo operations
+
+These authenticated routes are used only by the local demo-ops page:
+
+```
+GET  /api/demo-ops/status
+POST /api/demo-ops/clean
+POST /api/demo-ops/partial
+POST /api/demo-ops/reset
+```
+
 Sessions are stored server-side and only a **SHA-256 hash of the token** is kept — a
 database leak yields hashes, not live sessions. Five failed attempts locks an account for
 fifteen minutes. Wrong password and unknown account return an identical response.
@@ -566,13 +577,60 @@ together. `/api/reference` returns supervision kinds and levels, obligation unit
 condition categories, employment statuses, contact relationships, offices and officers —
 one call rather than a copy of each list in each client.
 
+#### Subject profile photos
+
+Profile photos are owned by Northwood (not the LMS) and are replaceable: the
+database stores metadata while the image bytes live under the configured data
+directory. Clients never write a filename or path.
+
+```
+POST /api/subject/profile-photo   staff body: { subject_id, data, mime_type,
+                                  source?, source_id? }
+POST /api/me/profile-photo        subject body: { data, mime_type,
+                                  source?, source_id? }
+GET  /subject-profile-photos/:subject_id   authenticated image bytes
+GET  /api/me/profile-photo                 authenticated subject image bytes
+```
+
+`data` is base64 (a data-URL prefix is also accepted). The server allowlists
+JPEG, PNG and WebP and caps decoded images at 6 MB. Uploading replaces the
+current photo atomically; a generated filename prevents path traversal and the
+old file is removed after the database pointer changes. Staff access is based
+on the Northwood session. Subject access is based on the Waypoint token, whose
+subject identity is ignored if a caller supplies a different ID.
+
+Every subject profile shape (`/api/subjects`, `/api/subject/detail` and
+`/api/me/case`) includes `profile_photo_url` when a photo exists, otherwise
+`null`. The URL is intentionally authenticated and clients should fetch it
+with their existing session/token rather than cache credentials in a query
+string. This is also the integration seam for a real upstream identity API:
+the importer can send the bytes plus `source` and `source_id` without changing
+the client contract.
+
+The native officer caseload sends `subject_id` explicitly on every staff upload;
+the native subject screen does not send an ID because the server derives it from
+the subject token. A `subject_id required` response therefore indicates a
+malformed officer request (typically an old Metro bundle or stale row), not an
+image-storage failure.
+
+The officer mobile client also repeats the ID as the `subject_id` query
+parameter during upload. The server accepts that fallback for native upload
+transport quirks, while JSON remains the canonical integration contract.
+
 #### The subject's own details
 
 ```
+POST /api/me/profile       { phone, email, address_line1, address_line2, city,
+                              state, postal_code }
 POST /api/subject   { subject_id, first_name, last_name, case_number, dob,
                       phone, email, address_line1, address_line2, city,
                       state, postal_code, intake_date, next_review }
 ```
+
+The subject-facing endpoint uses the identity in the Waypoint token and accepts
+the same structured address fields as the officer endpoint. The legacy single
+`address` field is accepted during migration, but new clients should always
+send the five address fields and the state abbreviation from the US-state list.
 
 **Merges** — only fields actually present are written, so a partial save cannot
 blank the rest of the record.
@@ -1000,14 +1058,14 @@ POST /api/goals/complete       the officer closes it (or reopens it)
 POST /api/goals/delete         remove a goal and its steps
 POST /api/goals/step           add or edit an action step
 POST /api/goals/step/delete
-POST /api/goals/step/done      tick one off
+POST /api/goals/step/done      officer confirms (or reopens) one
 ```
 
 And the subject's own half:
 
 ```
 GET  /api/me/case              includes `goals` and `unseen_goals`
-POST /api/me/goals/step        the subject ticks off a step
+POST /api/me/goals/step        the subject reports a step complete
 ```
 
 **Two rules pull in opposite directions, on purpose.**
@@ -1018,9 +1076,12 @@ a person sets. Ten resumes submitted is not a job: the steps say how far along
 somebody is, and only the officer says the goal is met. A goal with every step
 ticked reports `state: "awaiting_officer"` and stays `status: "open"`.
 
-**The subject ticks off the steps**, because they are the ones doing them, and
-`done_by` records who ticked each one — "they said they did" and "I saw that
-they did" are different claims. `/api/me/goals/step` is scoped to the caller's
+**The subject reports the steps**, because they are the ones doing them. That
+sets `review_status: "in_review"`; only `/api/goals/step/done` makes it
+`done`, so every action-step type has the same officer review gate. A goal
+cannot be closed until every step is `done`. `done_by`
+records who reported it — "they said they did" and "I saw that they did" are
+different claims. `/api/me/goals/step` is scoped to the caller's
 own goals: a step id from somebody else's goal is a 404, and a closed goal is a
 409.
 
@@ -1375,6 +1436,11 @@ uploaded recording's filename is generated rather than supplied. The new subject
 on the **creating officer's** caseload; moving them is `reassignSubject`, which writes
 a case note naming both officers.
 
+Because the server mints `subject_id`, a new subject's initial photo is uploaded
+immediately after `POST /api/subjects` returns, using the returned ID and the
+profile-photo endpoint above. This keeps creation and photo ingestion safe for
+both the Northwood form and a future upstream API importer.
+
 `case_number` is `NOT NULL`, so when one is not supplied a provisional
 `NC-<year>-<four digits>` is minted and shown in the form to be replaced. An obviously
 provisional number an officer will overwrite beats an empty string that reads like a
@@ -1393,6 +1459,7 @@ caseloads with nothing on the record is how a case goes quiet.
 ```
 POST /api/visits/note    { id, body, officer? }
 POST /api/visits/photo   { id, data, mime_type, caption?, officer? }
+POST /api/visits/action  { id, body, due_date?, owner?, officer? }  add a manual action item
 GET  /visit-photos/:id   the image itself
 ```
 
@@ -1601,15 +1668,14 @@ glanced at is the bug this project already fixed once, on visits — an unconfir
 appointment lost its indicator the moment the subject opened the screen, while the
 officer's console still read "Seen, not confirmed".
 
-**They report, they do not decide.** Ticking records `done_by` as the subject, the
-same shape as a goal step either side can tick. A list only the officer can close is
-a list the subject is merely watched against, which is the opposite of what this
-product argues.
+**They report, they do not decide.** Ticking records `done_by` / `done_at` as the
+subject and changes status to `in_review`. The officer confirms with
+`POST /api/visits/summary/action { id, status: "done" }`, the only path to final
+`done` status.
 
-Nothing waits on the officer — the tick is immediate and real. But the module keeps
-**"Reported by the subject"** apart from **"Closed by you"**, because "they told me
-they dropped the pay stub off" and "I have it" are two different facts, and a list
-that cannot tell them apart cannot answer the question an officer actually asks.
+The subject's report is immediate, but the module keeps **"In review"** apart from
+**"Closed by you"**, because "they told me they dropped the pay stub off" and "I have
+it" are two different facts.
 
 Both clients carry it: the app's Goals tab and the learner website's *What I agreed
 to*. Someone on supervision may have a library computer and a phone out of credit,
@@ -1642,12 +1708,13 @@ and not editable here. A visit item can be reassigned, dated, and removed.
 An accepted item is work somebody owes, so it surfaces in two places: the
 **Action Items** module on the subject, and the officer's **dashboard**, split by
 owner — the officer's own read *"Yours to do"*, the subject's read *"Waiting on the
-subject"*. Only `accepted` items reach either. A proposal nobody has looked at is not
+subject"*. Accepted and `in_review` items reach the subject list. A proposal nobody has looked at is not
 work anybody owes, and listing it would quietly undo the rule the feature rests on.
 
-`status: "done"` completes one, recorded in `done_by` / `done_at` rather than
-overwriting `decided_by`. When an officer accepted an item and when they did it are
-two facts; a to-do list that cannot tell them apart cannot say how long anything took.
+The subject endpoint `POST /api/me/actions/done { id }` records a report as
+`status: "in_review"` with `done_by` / `done_at`. The officer endpoint accepts
+`status: "done"` only for an item in review and records the confirming officer in
+`decided_by` / `decided_at`. Thus `done` always means officer-confirmed.
 
 **Due dates are arithmetic, not inference.** `due_hint` is the phrase quoted as
 spoken — *"by Friday"*, *"this week"*. `due_date` is a real date derived from it

@@ -291,6 +291,31 @@ CREATE TABLE IF NOT EXISTS subjects (
   updated_at    TEXT
 );
 
+/* A subject keeps one primary officer; temporary/secondary access lives here. */
+CREATE TABLE IF NOT EXISTS subject_care_group (
+  subject_id TEXT NOT NULL REFERENCES subjects(subject_id) ON DELETE CASCADE,
+  officer_id INTEGER NOT NULL REFERENCES officers(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member',
+  active INTEGER NOT NULL DEFAULT 1,
+  added_at TEXT NOT NULL,
+  PRIMARY KEY (subject_id, officer_id)
+);
+
+/* One replaceable identity photo per subject. The bytes live on disk; this
+   row is the API's durable pointer and source metadata. Keeping it separate
+   from subjects lets an upstream identity provider add its own identifiers
+   later without widening the core demographic record. */
+CREATE TABLE IF NOT EXISTS subject_profile_photos (
+  subject_id       TEXT PRIMARY KEY REFERENCES subjects(subject_id) ON DELETE CASCADE,
+  filename         TEXT NOT NULL,
+  mime_type        TEXT NOT NULL,
+  byte_size        INTEGER NOT NULL,
+  source           TEXT NOT NULL DEFAULT 'manual',
+  source_id        TEXT,
+  updated_by       TEXT,
+  updated_at       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS subject_vehicles (
   id         INTEGER PRIMARY KEY,
   subject_id TEXT NOT NULL,
@@ -503,6 +528,7 @@ CREATE TABLE IF NOT EXISTS visits (
   completed_at    TEXT,                   -- officer marked the visit as having happened
   completed_by    TEXT,
   created_at      TEXT NOT NULL
+  ,officer_id     INTEGER REFERENCES officers(id)
 );
 
 -- What the officer recorded about a visit. Separate from visits.notes,
@@ -590,67 +616,47 @@ for (const [c, d] of [["role","TEXT NOT NULL DEFAULT 'officer'"],["password_hash
   ensureColumn("officers", c, d);
 
 for (const [c, d] of [["accepted_at","TEXT"],["completed_at","TEXT"],["completed_by","TEXT"],
-                      ["requested_by","TEXT"],["requested_at","TEXT"],["request_note","TEXT"]])
+                      ["requested_by","TEXT"],["requested_at","TEXT"],["request_note","TEXT"],
+                      ["officer_id","INTEGER"]])
   ensureColumn("visits", c, d);
 
 /* A subject-requested appointment has no date yet — the officer sets it.
    SQLite cannot drop NOT NULL, so rebuild the table if it still has one. */
-/* WARNING: this rebuilds `visits` from an explicit column list, so it DROPS
-   anything added before it runs. Every visits migration must come after it —
-   the visit-conduct columns were added above and silently vanished. */
-(function relaxVisitDate() {
-  const col = db.prepare(`PRAGMA table_info(visits)`).all().find(c => c.name === "scheduled_at");
-  if (!col || col.notnull === 0) return;
-  db.exec(`
-    CREATE TABLE visits_new (
-      id INTEGER PRIMARY KEY, subject_id TEXT NOT NULL, scheduled_at TEXT,
-      officer TEXT, location TEXT, notes TEXT,
-      status TEXT NOT NULL DEFAULT 'scheduled', seen_at TEXT,
-      accepted_at TEXT, completed_at TEXT, completed_by TEXT,
-      requested_by TEXT, requested_at TEXT, request_note TEXT,
-      created_at TEXT NOT NULL);
-    INSERT INTO visits_new SELECT id, subject_id, scheduled_at, officer, location, notes,
-      status, seen_at, accepted_at, completed_at, completed_by,
-      requested_by, requested_at, request_note, created_at FROM visits;
-    DROP TABLE visits;
-    ALTER TABLE visits_new RENAME TO visits;
-    -- What the officer recorded about a visit. Separate from visits.notes,
--- which is the instruction given to the subject beforehand ("bring proof of
--- employment") — a different fact with a different author and audience.
---
--- Append-only: a correction is a new note, never an edit. In this domain the
--- record of what was recorded when is itself evidence.
-CREATE TABLE IF NOT EXISTS visit_notes (
-  id         INTEGER PRIMARY KEY,
-  visit_id   INTEGER NOT NULL REFERENCES visits(id),
-  body       TEXT NOT NULL,
-  author     TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS ix_visit_notes ON visit_notes(visit_id, created_at);
-
--- Photographs taken during a visit. The image itself lives on disk; this row
--- is the record of it — who took it, when, and what they said it shows.
---
--- APPEND-ONLY, like the notes it sits beside. A photograph of a doorway, a
--- damaged window or an empty room is evidence, and evidence that can be
--- quietly removed later is not evidence. Deleting one is a deliberate act
--- somebody has to be able to answer for; there is no endpoint for it.
-CREATE TABLE IF NOT EXISTS visit_photos (
-  id         INTEGER PRIMARY KEY,
-  visit_id   INTEGER NOT NULL REFERENCES visits(id),
-  filename   TEXT NOT NULL,
-  mime_type  TEXT NOT NULL,
-  byte_size  INTEGER,
-  caption    TEXT,
-  author     TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS ix_visit_photos ON visit_photos(visit_id, id);
-CREATE INDEX IF NOT EXISTS ix_visits_subject ON visits(subject_id, scheduled_at);`);
+/* The migration below is intentionally data-preserving. */
+(function relaxVisitDateSafely() {
+  const info = db.prepare(`PRAGMA table_info(visits)`).all();
+  const scheduled = info.find(c => c.name === "scheduled_at");
+  if (!scheduled || scheduled.notnull === 0) return;
+  const defs = [
+    ["id", "INTEGER PRIMARY KEY"], ["subject_id", "TEXT NOT NULL"], ["scheduled_at", "TEXT"],
+    ["officer", "TEXT"], ["location", "TEXT"], ["notes", "TEXT"],
+    ["status", "TEXT NOT NULL DEFAULT 'scheduled'"], ["seen_at", "TEXT"],
+    ["accepted_at", "TEXT"], ["completed_at", "TEXT"], ["completed_by", "TEXT"],
+    ["created_at", "TEXT NOT NULL"], ["requested_by", "TEXT"], ["requested_at", "TEXT"],
+    ["request_note", "TEXT"], ["officer_id", "INTEGER REFERENCES officers(id)"],
+    ["started_at", "TEXT"], ["ended_at", "TEXT"], ["location_safe", "TEXT"],
+    ["contraband", "TEXT"], ["contraband_detail", "TEXT"], ["demeanour", "TEXT"],
+    ["others_present", "TEXT"], ["subject_present", "TEXT"], ["concerns", "TEXT"]
+  ];
+  /* Keep forward-compatible columns too; a future migration must not turn
+     this compatibility rebuild into silent data loss. */
+  const known = new Set(defs.map(([name]) => name));
+  for (const c of info) if (!known.has(c.name)) defs.push([c.name, c.type || "TEXT"]);
+  const old = new Set(info.map(c => c.name));
+  const copy = defs.map(([name]) => name).filter(name => old.has(name));
+  const quote = name => `"${name}"`;
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec(`CREATE TABLE visits_new (${defs.map(([name, type]) => `${quote(name)} ${type}`).join(", ")})`);
+    db.prepare(`INSERT INTO visits_new (${copy.map(quote).join(", ")})
+                SELECT ${copy.map(quote).join(", ")} FROM visits`).run();
+    db.exec(`DROP TABLE visits; ALTER TABLE visits_new RENAME TO visits`);
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
 })();
+
+db.exec(`CREATE INDEX IF NOT EXISTS ix_visits_officer ON visits(officer_id, status, scheduled_at)`);
 
 /* Conducting a visit.
  *
@@ -1162,7 +1168,7 @@ CREATE TABLE IF NOT EXISTS visit_summary_actions (
   due_hint      TEXT,
   quote         TEXT,                   -- what was said that produced it
   position      INTEGER NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'proposed',  -- proposed | accepted | dismissed
+  status        TEXT NOT NULL DEFAULT 'proposed',  -- proposed | accepted | in_review | done | dismissed
   decided_by    TEXT,
   decided_at    TEXT,
   created_at    TEXT NOT NULL
@@ -1259,3 +1265,19 @@ ensureColumn("visit_summary_actions", "body_set_by", "TEXT");
 ensureColumn("visit_summary_actions", "body_set_at", "TEXT");
 db.exec(`UPDATE visit_summary_actions
             SET body_proposed = body WHERE body_proposed IS NULL`);
+
+/* Goal steps have the same two-party completion lifecycle as visit actions.
+   A subject's tick is a report; only an officer's confirmation is final. */
+ensureColumn("goal_steps", "review_status", "TEXT NOT NULL DEFAULT 'open'");
+ensureColumn("goal_steps", "confirmed_by", "TEXT");
+ensureColumn("goal_steps", "confirmed_at", "TEXT");
+db.exec(`UPDATE goal_steps SET review_status = 'done'
+         WHERE done_at IS NOT NULL AND (review_status IS NULL OR review_status = 'open')`);
+
+/* Officer-created action items that are not tied to a particular visit. */
+db.exec(`CREATE TABLE IF NOT EXISTS subject_action_items (
+  id INTEGER PRIMARY KEY, subject_id TEXT NOT NULL, body TEXT NOT NULL,
+  owner TEXT NOT NULL DEFAULT 'subject', due_date TEXT,
+  status TEXT NOT NULL DEFAULT 'accepted', done_by TEXT, done_at TEXT,
+  decided_by TEXT, decided_at TEXT, created_at TEXT NOT NULL
+)`);

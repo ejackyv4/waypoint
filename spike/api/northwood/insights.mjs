@@ -23,7 +23,8 @@ import {
   claimSummary, summaryById, hydrateSummary, summariesForVisit, summaryInFlight,
   markSummaryRunning, finishSummary, failSummary,
   decideAction, setActionOwner, setActionDue, setActionBody, staleRunning,
-  actionsForSubject, backfillDueDates, promoteProposedActions,
+  addManualAction,
+  actionsForSubject, addStandaloneAction, backfillDueDates, promoteProposedActions,
   supersedeStaleActions
 } from "../db/insights.mjs";
 import { transcribe, summarise } from "./ai.mjs";
@@ -295,8 +296,9 @@ ${t.text || ""}
    */
   "POST /api/visits/summary/action": async (req, res, ctx) => {
     const b = await readJson(req);
-    if (!Number(b.id)) return saasJson(res, 400, { error: "id is required" });
-    const who = b.officer || ctx.session?.name || null;
+    const validId = String(b.id || "").startsWith("standalone-") || Number(b.id);
+    if (!validId) return saasJson(res, 400, { error: "id is required" });
+    const who = ctx.session?.name || null;
     const bad = e => saasJson(res, e === "no such action item" ? 404 : 400,
                               { error: e });
 
@@ -329,9 +331,27 @@ ${t.text || ""}
       if (!b.status) return saasJson(res, 200, r);
     }
 
-    const r = decideAction(Number(b.id), String(b.status || ""), who);
+    const actionId = String(b.id).startsWith("standalone-") ? String(b.id) : Number(b.id);
+    const r = decideAction(actionId, String(b.status || ""), who);
     if (r.error) return bad(r.error);
     return saasJson(res, 200, r);
+  },
+
+  "POST /api/visits/action": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const r = addManualAction(Number(b.id), {
+      body: b.body, due_date: b.due_date,
+      owner: b.owner || "subject",
+      who: ctx.session?.name || null
+    });
+    return saasJson(res, r.error ? (r.error === "no such visit" ? 404 : 400) : 200, r);
+  },
+
+  "POST /api/subject/action": async (req, res, ctx) => {
+    const b = await readJson(req), subject_id = String(b.subject_id || "");
+    const owner = ["subject", "officer"].includes(String(b.owner)) ? String(b.owner) : "subject";
+    const r = addStandaloneAction(subject_id, { body: b.body, due_date: b.due_date, owner });
+    return saasJson(res, r.error ? (r.error === "no such subject" ? 404 : 400) : 200, r);
   },
 
   /**
@@ -366,15 +386,17 @@ ${t.text || ""}
         due_date: g.due_date || null,
         due_hint: null,
         quote: null,
-        status: st.done_at ? "done" : (g.status === "open" ? "accepted" : "closed"),
+        status: st.review_status || (st.done_at ? "done" : (g.status === "open" ? "accepted" : "closed")),
         done_by: st.done_by || null,
         done_at: st.done_at || null,
+        confirmed_by: st.confirmed_by || null,
+        confirmed_at: st.confirmed_at || null,
         subject_id,
         source: { type: "goal", id: g.id, title: g.title, status: g.status }
       })));
 
     const fromVisits = actionsForSubject(subject_id).map(a => ({
-      ...a, kind: "visit_item",
+      ...a, kind: a.visit_id ? "visit_item" : "standalone",
       source: { type: "visit", id: a.visit_id, on: a.scheduled_at }
     }));
 

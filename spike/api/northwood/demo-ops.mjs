@@ -46,12 +46,25 @@ export const routes = {
     child.unref();
     return saasJson(res, 202, { ok: true, output: "Reset started. The demo will be available again shortly." });
   },
+  "POST /api/demo-ops/partial": async (req, res, ctx) => {
+    const g = gate(ctx); if (g.error) return saasJson(res, g.status, { error: g.error });
+    const child = spawn(command, [...commandPrefix, "partial", "--yes"], {
+      detached: true, stdio: "ignore", env: process.env
+    });
+    child.unref();
+    return saasJson(res, 202, { ok: true, output: "Dana cleanup and partial restore started. The demo will be available again shortly." });
+  },
   "POST /api/demo-ops/clean": async (req, res, ctx) => {
     const b = await readJson(req); const subject = String(b.subject_id || "cust-1041");
     if (!/^cust-\d{4,}$/.test(subject)) return saasJson(res, 400, { error: "invalid subject" });
-    // Run cleanup in a detached maintenance unit. It must stop the service
-    // before replacing the SQLite file; writing it while this process has an
-    // open connection risks a malformed database.
-    return execute(["clean", subject, "--yes"], req, res, ctx);
+    /* Cleanup replaces the SQLite file, so the command must stop this service
+       before writing. Running it in the request handler used to terminate the
+       process serving this request; the shell never reliably reached its
+       restart and localhost was left down. Detach it exactly like reset. */
+    const child = spawn(command, [...commandPrefix, "clean", subject, "--yes"], {
+      detached: true, stdio: "ignore", env: process.env
+    });
+    child.unref();
+    return saasJson(res, 202, { ok: true, output: "Cleanup started. The demo will be available again shortly." });
   }
 };
