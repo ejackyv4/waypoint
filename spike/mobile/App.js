@@ -250,7 +250,7 @@ function employmentSummary(e) {
 const TRAVEL_LABEL = { none: "None", local: "Local only",
                        interstate: "Interstate", international: "International" };
 const asDate = d => d ? new Date(d + "T00:00:00")
-  .toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "numeric" }) : "";
+  .toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
 /* A full timestamp, for things that are a matter of record. */
 const asDateTime = t => t ? new Date(t).toLocaleString(undefined,
   { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
@@ -487,7 +487,7 @@ function OfficerAssistantSheet({ auth, onClose }) {
                   <Text style={{ color: C.ink, fontSize: 16, lineHeight: 21 }}>{a.body}</Text>
                   <Text style={{ color: C.muted, marginTop: 4 }}>
                     {a.owner === "subject" ? "Assigned to subject" : a.owner === "officer" ? "Assigned to officer" : "Owner to confirm"}
-                    {a.due_date ? ` · due ${a.due_date}` : " · no due date"}
+                    {a.due_date ? ` · due ${asDate(a.due_date)}` : " · no due date"}
                   </Text>
                 </View>
               )) : <Text style={{ color: C.muted }}>No open action items.</Text>}
@@ -521,7 +521,7 @@ function OfficerAssistantSheet({ auth, onClose }) {
             <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: 8 }} nestedScrollEnabled>
               {(result.items || []).map(item => <View key={item.id} style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg }}>
                 <Text style={{ color: C.ink, fontSize: 16 }}>{item.description || item.kind_label || "Financial item"}</Text>
-                <Text style={{ color: C.muted, marginTop: 4 }}>{item.state} · balance {((item.balance_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}{item.due_date ? ` · due ${item.due_date}` : ""}</Text>
+                <Text style={{ color: C.muted, marginTop: 4 }}>{item.state} · balance {((item.balance_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}{item.due_date ? ` · due ${asDate(item.due_date)}` : ""}</Text>
               </View>)}
             </ScrollView>
           </View>
@@ -1213,7 +1213,7 @@ function VisitInProgress({ auth, visit, onAddNote, onAddPhoto, onAddRecording,
             <View key={a.id} style={s.detailRow}>
               <View style={{ flex: 1 }}>
                 <Text style={s.detailTitle}>{a.body}</Text>
-                <Text style={s.cardMeta}>Assigned to {a.owner === "officer" ? "officer" : a.owner === "subject" ? "subject" : "decide later"}{a.due_date ? ` · due ${a.due_date}` : ""}</Text>
+                <Text style={s.cardMeta}>Assigned to {a.owner === "officer" ? "officer" : a.owner === "subject" ? "subject" : "decide later"}{a.due_date ? ` · due ${asDate(a.due_date)}` : ""}</Text>
               </View>
             </View>
           )) : <Text style={s.cardMeta}>No action items yet.</Text>}

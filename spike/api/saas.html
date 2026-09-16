@@ -6161,8 +6161,8 @@ const dobLine = d => {
   return longDate(d) + (a === null ? "" : ` (${a})`);
 };
 
-const asDate = d => d ? new Date(d + "T00:00:00").toLocaleDateString(undefined,
-  { month:"numeric", day:"numeric", year:"numeric" }) : "";
+const asDate = d => d ? new Date(d + "T00:00:00").toLocaleDateString("en-GB",
+  { day:"2-digit", month:"2-digit", year:"numeric" }) : "";
 /* An expired permit is not a permit — say so rather than showing a level
    that no longer applies. */
 const isExpired = t => !!(t?.expires_on && new Date(t.expires_on + "T23:59:59") < new Date());
