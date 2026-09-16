@@ -67,6 +67,10 @@ Agreement creation and officer signatures now record authenticated officer IDs
 in additive columns. The focused identity test passes 19/19 checks. Reentry
 and financial audit fields remain open.
 
+Reentry plan and checkpoint officer signatures now record authenticated officer
+IDs in additive columns. The focused identity test passes 21/21 checks.
+Financial audit fields remain open.
+
 Baseline note: the isolated session-sweeper test passed on 2026-09-16,
 including the assertion that the default database is `spike/data/waypoint.db`.
 The full HTTP smoke suite remains open because it requires a running test

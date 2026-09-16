@@ -1289,6 +1289,10 @@ ensureColumn("visit_recordings", "author_officer_id", "INTEGER");
 ensureColumn("case_notes", "author_officer_id", "INTEGER");
 ensureColumn("agreements", "created_by_officer_id", "INTEGER");
 ensureColumn("agreements", "officer_signed_by_id", "INTEGER");
+ensureColumn("reentry_plans", "officer_signed_by_id", "INTEGER");
+ensureColumn("reentry_plans", "certified_by_officer_id", "INTEGER");
+ensureColumn("reentry_items", "officer_signed_by_id", "INTEGER");
+ensureColumn("reentry_events", "author_officer_id", "INTEGER");
 db.exec(`UPDATE goal_steps SET review_status = 'done'
          WHERE done_at IS NOT NULL AND (review_status IS NULL OR review_status = 'open')`);
 

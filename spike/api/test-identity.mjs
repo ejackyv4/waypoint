@@ -6,6 +6,7 @@ import { db } from "./db/connect.mjs";
 import { setStepDone, saveGoal, completeGoal } from "./db/goals.mjs";
 import { addStandaloneAction, completeAction, decideAction } from "./db/insights.mjs";
 import { startVisit, completeVisit, addVisitNote, addCaseNote, saveAgreement, signAgreement } from "./db/northwood.mjs";
+import { signItem, signPlan } from "./db/reentry.mjs";
 
 let pass = 0, fail = 0;
 const ok = (condition, message) => {
@@ -83,6 +84,18 @@ ok(agreementAudit.created_by_officer_id === officer.id, "agreement creation stor
 signAgreement(agreement.id, "officer", "Officer Test", null, { officer_id: officer.id });
 const signedAudit = db.prepare(`SELECT officer_signed_by_id FROM agreements WHERE id = ?`).get(agreement.id);
 ok(signedAudit.officer_signed_by_id === officer.id, "agreement signature stores the officer ID");
+db.prepare(`INSERT INTO reentry_plans (subject_id, status, created_at) VALUES (?, 'active', datetime('now'))`)
+  .run("cust-identity");
+const plan = db.prepare(`SELECT id FROM reentry_plans WHERE subject_id = ? ORDER BY id DESC LIMIT 1`).get("cust-identity");
+signPlan(plan.id, "officer", "Officer Test", null, { officer_id: officer.id });
+const planAudit = db.prepare(`SELECT officer_signed_by_id FROM reentry_plans WHERE id = ?`).get(plan.id);
+ok(planAudit.officer_signed_by_id === officer.id, "reentry plan signature stores the officer ID");
+db.prepare(`INSERT INTO reentry_items (plan_id, area, label, status, created_at) VALUES (?, 'housing', 'Identity item', 'ready', datetime('now'))`)
+  .run(plan.id);
+const item = db.prepare(`SELECT id FROM reentry_items WHERE plan_id = ? ORDER BY id DESC LIMIT 1`).get(plan.id);
+signItem(item.id, "officer", "Officer Test", { officer_id: officer.id });
+const itemAudit = db.prepare(`SELECT officer_signed_by_id FROM reentry_items WHERE id = ?`).get(item.id);
+ok(itemAudit.officer_signed_by_id === officer.id, "reentry checkpoint signature stores the officer ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
