@@ -107,6 +107,26 @@ The registry is also the boundary for scope. An officer-wide request such as
 authorization, pagination, and response limits rather than inferred as a
 different spelling of the subject-specific tool.
 
+## Current implementation status
+
+The current read-only mobile assistant supports these subject-specific queries:
+
+- action items, with open/all scope;
+- upcoming officer visits;
+- financial balances and fines;
+- important dates and appointments;
+- travel restrictions and permit expiration; and
+- curfew details.
+
+Voice and text use the same server endpoint family. The server resolves the
+subject name to a real `subject_id`, checks the officer's caseload, and returns
+typed data. The mobile client renders the result; the model does not generate
+UI or SQL.
+
+The remaining module entries in the capability map are roadmap items, not
+currently supported questions. They should be added through the same registry
+and authorization path rather than by expanding the model prompt alone.
+
 ## ID and identity rules
 
 - Names are for display and natural-language matching only.
@@ -187,7 +207,9 @@ time because a subject's assignment or an action's status may have changed.
 - Send a short question recording through a dedicated assistant endpoint; do not
   attach it to a visit or mix it into the visit recording history.
 - Support subject resolution and read-only intents for action items, visits,
-  goals, financials, important dates, travel restrictions, and contact history.
+  financials, important dates, travel restrictions, and curfew. Goals,
+  agreements, reentry, contacts, vehicles, employment, documents, community
+  service, programs, and case notes remain planned follow-on capabilities.
 - Render results using existing mobile components rather than model-generated
   HTML.
 - Require a subject selection when a name is ambiguous.
