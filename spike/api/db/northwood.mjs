@@ -679,15 +679,15 @@ export const curfewFor = subject_id =>
 export function saveCurfew(c) {
   const existing = curfewFor(c.subject_id);
   if (existing) {
-    run(`UPDATE curfews SET active=?, start_time=?, end_time=?, notes=?, updated_at=?
+    run(`UPDATE curfews SET active=?, start_time=?, end_time=?, expires_on=?, notes=?, updated_at=?
           WHERE subject_id = ?`,
         c.active ? 1 : 0, c.start_time ?? null, c.end_time ?? null,
-        c.notes ?? null, now(), c.subject_id);
+        c.expires_on ?? null, c.notes ?? null, now(), c.subject_id);
   } else {
-    run(`INSERT INTO curfews (subject_id, active, start_time, end_time, notes, created_at)
-         VALUES (?,?,?,?,?,?)`,
+    run(`INSERT INTO curfews (subject_id, active, start_time, end_time, expires_on, notes, created_at)
+         VALUES (?,?,?,?,?,?,?)`,
         c.subject_id, c.active ? 1 : 0, c.start_time ?? null, c.end_time ?? null,
-        c.notes ?? null, now());
+        c.expires_on ?? null, c.notes ?? null, now());
   }
   return curfewFor(c.subject_id);
 }

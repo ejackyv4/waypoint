@@ -370,6 +370,7 @@ CREATE TABLE IF NOT EXISTS curfews (
   active     INTEGER NOT NULL DEFAULT 0,
   start_time TEXT,                       -- "21:00"
   end_time   TEXT,                       -- "06:00"
+  expires_on TEXT,                       -- ISO date, optional
   notes      TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT
@@ -571,6 +572,8 @@ CREATE INDEX IF NOT EXISTS ix_reg_person ON registrations(person_id);
 CREATE INDEX IF NOT EXISTS ix_cred_ident ON credentials(kind, identifier);
 CREATE INDEX IF NOT EXISTS ix_ticket_token ON launch_tickets(token);
 `);
+
+ensureColumn("curfews", "expires_on", "TEXT");
 
 ensureColumn("agreements", "amended_at", "TEXT");
 /* cmi.core.session_time is the elapsed time of the CURRENT session, rewritten

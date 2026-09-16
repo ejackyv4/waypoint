@@ -531,7 +531,11 @@ function OfficerAssistantSheet({ auth, onClose }) {
             <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>{result.subject.name} · {result.kind === "travel" ? "Travel restrictions" : "Curfew"}</Text>
             <Text style={{ color: C.muted }}>
               {result.kind === "travel"
-                ? result.travel_permit ? `${result.travel_permit.level} travel permission${result.travel_permit.expires_on ? ` · expires ${result.travel_permit.expires_on}` : " · no expiration recorded"}` : "No travel permit or restriction recorded."
+                ? result.travel_permit
+                  ? result.travel_permit.level === "none"
+                    ? "No travel permitted."
+                    : `${result.travel_permit.level} travel permitted${result.travel_permit.expires_on ? ` · expires ${result.travel_permit.expires_on}` : " · no expiration recorded"}`
+                  : "No travel restriction record found."
                 : result.curfew?.active ? `${result.curfew.start_time || "Start not set"}–${result.curfew.end_time || "end not set"}` : "No active curfew recorded."}
             </Text>
             {(result.travel_permit?.notes || result.curfew?.notes) ? <Text style={{ color: C.ink2 }}>{result.travel_permit?.notes || result.curfew?.notes}</Text> : null}
@@ -2346,6 +2350,7 @@ function OfficerSubject({ auth, subject, onBack }) {
                        : "No curfew set"}>
               <Detail label="Hours" value={cur?.active
                 ? `${to12h(cur.start_time)} to ${to12h(cur.end_time)}` : "No curfew set"} />
+              <Detail label="Expires" value={cur?.expires_on ? asDate(cur.expires_on) : "No expiration date"} />
               <Detail label="Notes" value={cur?.notes} />
               <Pressable style={({ pressed }) => [s.cta, pressed && { backgroundColor: C.brandDark }]}
                          onPress={() => setSheet({ mode: "curfew" })}>
@@ -2702,11 +2707,12 @@ function CurfewSheet({ value, onCancel, onSave }) {
   const [active, setActive] = useState(!!value.active);
   const [start, setStart] = useState(hhmmToDate(value.start_time || "21:00"));
   const [end, setEnd] = useState(hhmmToDate(value.end_time || "06:00"));
+  const [expires, setExpires] = useState(value.expires_on ? new Date(value.expires_on + "T00:00:00") : null);
   const [show, setShow] = useState(null);
   return (
     <Sheet title="Curfew" onCancel={onCancel} saveLabel="Save"
            onSave={() => onSave({ active, start_time: dateToHhmm(start),
-                                  end_time: dateToHhmm(end) })}>
+                                  end_time: dateToHhmm(end), expires_on: expires ? isoDay(expires) : null })}>
       <Choice options={[["yes","Has a curfew"],["no","No curfew"]]}
               value={active ? "yes" : "no"} onChange={v => setActive(v === "yes")} />
       {active && (
@@ -2729,10 +2735,18 @@ function CurfewSheet({ value, onCancel, onSave }) {
           </View>
         </View>
       )}
+      {active && <View style={{ marginTop: 12 }}>
+        <Text style={s.label}>Expiration date (optional)</Text>
+        {Platform.OS === "ios"
+          ? <DateTimePicker value={expires || new Date()} mode="date" display="compact" minimumDate={new Date()}
+              onChange={(_, d) => d && setExpires(d)} />
+          : <Pressable style={s.input} onPress={() => setShow("expires")}>
+              <Text style={{ fontSize: 16 }}>{expires ? asDate(isoDay(expires)) : "No expiration date"}</Text></Pressable>}
+      </View>}
       {show && Platform.OS === "android" && (
-        <DateTimePicker value={show === "start" ? start : end} mode="time"
+        <DateTimePicker value={show === "expires" ? (expires || new Date()) : show === "start" ? start : end} mode={show === "expires" ? "date" : "time"}
           onChange={(e, d) => { setShow(null);
-            if (e.type === "set" && d) (show === "start" ? setStart : setEnd)(d); }} />
+            if (e.type === "set" && d) (show === "expires" ? setExpires : show === "start" ? setStart : setEnd)(d); }} />
       )}
     </Sheet>
   );
@@ -3794,6 +3808,7 @@ function MyDetails({ auth, caseData, onRefresh, onOpenAgreement, onOpenReentry }
             {cur?.active ? (
               <>
                 <Text style={s.bigTime}>{to12h(cur.start_time)} to {to12h(cur.end_time)}</Text>
+                {cur.expires_on ? <Text style={s.noteLine}>Expires {asDate(cur.expires_on)}</Text> : null}
                 {cur.notes ? <Text style={s.noteLine}>{cur.notes}</Text> : null}
               </>
             ) : (
