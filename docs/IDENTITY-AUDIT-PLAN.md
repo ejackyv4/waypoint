@@ -57,3 +57,18 @@ derived compatibility data. Dropdowns may display names, but must submit IDs.
 - Test full and partial demo resets against a copy of the database.
 - Verify existing passwords, sessions, photos, visits, and action items.
 - Have the read-only code-review agent inspect the complete migration diff.
+
+## Follow-up engineering work
+
+Complete identity and audit normalization first. It changes database fields and API
+contracts, so it is the stable foundation for the remaining cleanup. Afterwards,
+create separate focused work for:
+
+- splitting the large `saas.html`, `App.js`, and smoke-test files by screen/domain;
+- moving remaining direct SQLite calls behind domain data-access functions;
+- centralizing request validation for IDs, dates, ownership, and assignments; and
+- expanding integration coverage for authenticated audit identity, care-group visibility,
+  reassignment, and completion history.
+
+Keep those structural and testability improvements out of the identity migration so
+each change can be reviewed and rolled back independently.
