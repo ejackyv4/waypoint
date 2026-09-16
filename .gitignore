@@ -37,6 +37,7 @@ docs/session/transcript-raw.jsonl
 # Local env / secrets
 .env
 .env.local
+.local/
 
 # How to reach the server, and what is on it. Hostnames, IPs, the shape of the
 # firewall — none of it is a secret on its own, and all of it is a map for
