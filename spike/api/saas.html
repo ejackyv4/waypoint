@@ -2267,7 +2267,7 @@ function renderTiles(s) {
            v.length ? v.map(x => [x.year, x.make, x.model].filter(Boolean).join(" ")).join(", ")
                     : "None on record", v.length)
     + tile("curfew", "Curfew",
-           c?.active ? `${esc(to12h(c.start_time).replace(":00", "").replace(" ", "").toLowerCase())}-${esc(to12h(c.end_time).replace(":00", "").replace(" ", "").toLowerCase())}${c.expires_on ? ` · ${esc(new Date(c.expires_on + "T00:00:00").toLocaleDateString(undefined, { month:"numeric", day:"numeric" }))}` : ""}` : "No curfew", "")
+           c?.active ? `${esc(to12h(c.start_time).replace(":00", "").replace(" ", "").toLowerCase())}-${esc(to12h(c.end_time).replace(":00", "").replace(" ", "").toLowerCase())}${c.expires_on ? `<br>Expires ${esc(asDate(c.expires_on))}` : ""}` : "No curfew", "")
     + tile("contacts", "Family & Contacts",
            kin.length
              ? kin.slice(0, 2).map(c => `${c.name} (${c.relationship})`).join(", ")

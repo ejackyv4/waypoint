@@ -536,7 +536,9 @@ function OfficerAssistantSheet({ auth, onClose }) {
                     ? "No travel permitted."
                     : `${result.travel_permit.level} travel permitted${result.travel_permit.expires_on ? ` · expires ${result.travel_permit.expires_on}` : " · no expiration recorded"}`
                   : "No travel restriction record found."
-                : result.curfew?.active ? `${result.curfew.start_time || "Start not set"}–${result.curfew.end_time || "end not set"}` : "No active curfew recorded."}
+                : result.curfew?.active
+                  ? `${to12h(result.curfew.start_time).replace(":00", "")}–${to12h(result.curfew.end_time).replace(":00", "")}${result.curfew.expires_on ? ` · Expires ${asDate(result.curfew.expires_on)}` : ""}`
+                  : "No active curfew recorded."}
             </Text>
             {(result.travel_permit?.notes || result.curfew?.notes) ? <Text style={{ color: C.ink2 }}>{result.travel_permit?.notes || result.curfew?.notes}</Text> : null}
           </View>
