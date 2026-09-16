@@ -32,8 +32,11 @@ be used when a review needs to be started or refreshed:
 ```text
 @coderabbitai review
 @coderabbitai full review
-@coderabbitai summary
 ```
+
+Use `@coderabbitai summary` as a PR comment to regenerate the summary, or place
+it in the PR description to control the summary location. It does not start or
+refresh a review.
 
 Use `full review` when a complete review from scratch is genuinely needed;
 ordinary updates should use the incremental review. `@coderabbitai pause` and
