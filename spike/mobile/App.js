@@ -670,11 +670,11 @@ function OfficerHome({ auth, onSignOut }) {
           <Text style={s.profileName}>{auth.user?.name}</Text>
           <Text style={s.profileMeta}>Northwood Corrections · {auth.user?.role}</Text>
         </View>
-        <Pressable onPress={onSignOut} hitSlop={10}>
-          <Text style={s.signOut}>Sign out</Text>
+        <Pressable onPress={onSignOut} hitSlop={10} accessibilityLabel="Sign out">
+          <Ionicons name="log-out-outline" size={25} color={C.brand} />
         </Pressable>
-        <Pressable onPress={() => setAssistantOpen(true)} hitSlop={10} style={{ marginLeft: 12 }}>
-          <Text style={{ color: C.brand, fontSize: 24, fontWeight: "800" }}>?</Text>
+        <Pressable onPress={() => setAssistantOpen(true)} hitSlop={10} style={{ marginLeft: 14 }} accessibilityLabel="Ask Waypoint">
+          <Ionicons name="help-circle-outline" size={28} color={C.brand} />
         </Pressable>
       </View>
 
