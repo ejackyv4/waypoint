@@ -364,6 +364,11 @@ ${t.text || ""}
   "ALL /api/subject/actions": async (req, res, ctx) => {
     const subject_id = ctx.url.searchParams.get("subject_id");
     if (!subject_id) return saasJson(res, 400, { error: "subject_id is required" });
+    // Keep the read model live across deploys/restarts.  Rows created by an
+    // earlier summary worker may still be `proposed`; that state is no longer
+    // an officer gate, so leaving it there makes the item vanish from both
+    // clients even though the visit summary visibly contains it.
+    promoteProposedActions();
 
     /* Everything this person has to do, wherever it came from.
      *

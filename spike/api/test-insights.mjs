@@ -106,7 +106,7 @@ const {
   summariesForVisit, decideAction, staleRunning, summaryInFlight,
   failSummary, setActionOwner, resolveDueHint, setActionDue,
   completeAction, openActionsForSubject, unseenActionCount, markActionsSeen,
-  addStandaloneAction
+  addStandaloneAction, promoteProposedActions
 } = await import("./db/insights.mjs");
 const { transcribe, summarise } = await import("./northwood/ai.mjs");
 
@@ -217,6 +217,13 @@ ok(done.actions.length === 3 && done.actions.every(a => a.status === "accepted")
    "\x1b[1maction items land live — assigning one is the decision, not a proposal\x1b[0m");
 ok(done.actions[0].position === 0 && done.actions[2].position === 2,
    "and keep the order they were proposed in");
+
+/* A deploy can leave rows from the pre-acceptance workflow in `proposed`.
+   The clients must heal that state when they read, not wait for a restart. */
+run(`UPDATE visit_summary_actions SET status = 'proposed' WHERE id = ?`, done.actions[0].id);
+ok(promoteProposedActions() === 1 && openActionsForSubject('cust-test')
+   .some(a => a.id === done.actions[0].id && a.status === 'accepted'),
+   "a legacy proposed action is promoted before either client reads it");
 
 /* Whisper does not diarise, so ownership is inferred and sometimes wrong —
    most often where the officer instructs the subject to do something. */
