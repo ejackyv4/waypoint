@@ -1,0 +1,11 @@
+.git
+.local
+spike/data
+spike/backups
+spike/corpus
+spike/documents
+**/node_modules
+**/.expo
+spike/mobile/ios
+*.tgz
+*.db
