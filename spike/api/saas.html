@@ -1183,14 +1183,6 @@ function paintDashboard() {
           ${esc(d.officer || "")}${d.officer ? " &middot; " : ""}${d.caseload_count}
           subject${d.caseload_count === 1 ? "" : "s"}</p>
       </div>
-      <div class="dashStats">
-        <div><dt>This week</dt><dd>${all.length - stale.length}</dd></div>
-        <div><dt>Needs you</dt>
-             <dd class="${d.attention.length ? "warn" : ""}">${d.attention.length}</dd></div>
-        <div><dt>Requests</dt>
-             <dd class="${d.requests.length ? "warn" : ""}">${d.requests.length}</dd></div>
-        <div><dt>Next ${d.horizon_days} days</dt><dd>${d.upcoming.length}</dd></div>
-      </div>
       <button class="btn small" id="dashFilter" aria-label="Filter dashboard by subject">⚲ Filter${DASH_SUBJECTS.size ? ` (${DASH_SUBJECTS.size})` : ""}</button>
     </div>
 
