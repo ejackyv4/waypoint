@@ -6,6 +6,28 @@ This document captures the architectural options discussed for evolving Waypoint
 
 The goal is not to rewrite everything at once. The preferred approach is to keep the current system working, establish clean contracts, and replace or refactor one boundary at a time.
 
+## Progress
+
+### Completed — 2026-09-16
+
+- [x] Preserved the current working state in Git.
+- [x] Created safety branch `safety/pre-vantage-refactor`.
+- [x] Created safety tag `pre-vantage-refactor-20260916`.
+- [x] Created working branch `refactor/vantage-foundation`.
+- [x] Committed the identity audit plan separately before refactoring.
+- [x] Added optional Docker packaging and documented its isolated database and
+      ports; Docker remains separate from the normal local workflow.
+- [x] Added `.local/` to `.gitignore` so private development databases cannot
+      be committed accidentally.
+
+### Next — not started
+
+- [ ] Capture the baseline test results for login, visits, action items,
+      profiles, assistant queries, and demo resets.
+- [ ] Inventory every identity-bearing field and route.
+- [ ] Normalize subject and officer IDs using additive migrations.
+- [ ] Add authorization and identity-scope tests.
+
 ## Current stack
 
 - Backend/API: Node.js ES modules.
