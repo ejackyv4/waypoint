@@ -700,6 +700,10 @@ input.aiDue:hover{border-color:var(--brand)}
 .dashTag.financial{background:var(--amber-soft);color:var(--amber)}
 .dashTag.date{background:var(--err-soft);color:var(--err)}
 .dashTag.goal{background:var(--ok-soft);color:var(--ok)}
+.dashTag.action{background:var(--brand-soft);color:var(--brand)}
+.dashBlockHead{cursor:pointer;user-select:none;background:var(--brand-soft);padding:12px 18px;border-radius:10px}
+.dashBlockHead::after{content:'⌄';float:right;color:var(--muted);font-size:18px}
+.dashBlockHead.closed::after{content:'›'}
 .dashGo{flex:0 0 auto;font-size:13px;font-weight:650;color:var(--brand)}
 .dayFoot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .dayStartInput{flex:1;min-width:240px;width:auto;margin:0;font-size:13px;padding:6px 10px}
@@ -1254,8 +1258,8 @@ function paintDashboard() {
     </section>
 
     ${d.requests.length ? `
-      <section class="panel" style="margin-top:16px">
-        <div class="panelHead"><h2>Appointment requests</h2></div>
+      <section class="panel dashBlock" style="margin-top:16px">
+        <div class="panelHead dashBlockHead" data-collapse="requests"><h2>Visit requests</h2></div>
         <div class="dayList">
           ${d.requests.map(r => `
             <div class="dashRow">
@@ -1269,9 +1273,9 @@ function paintDashboard() {
         </div>
       </section>` : ""}
 
-    <section class="panel" style="margin-top:16px">
-      <div class="panelHead">
-        <h2>Needs you
+    <section class="panel dashBlock" style="margin-top:16px">
+      <div class="panelHead dashBlockHead" data-collapse="attention">
+        <h2>Needs your attention
           ${d.attention.length ? `<span class="reBy">${d.attention.length}</span>` : ""}</h2>
       </div>
       ${d.attention.length ? `
@@ -1280,8 +1284,8 @@ function paintDashboard() {
              caseload.</p>`}
     </section>
 
-    <section class="panel" style="margin-top:16px">
-      <div class="panelHead"><h2>Coming up</h2>
+    <section class="panel dashBlock" style="margin-top:16px">
+      <div class="panelHead dashBlockHead" data-collapse="upcoming"><h2>Upcoming visits and deadlines</h2>
         <span class="reBy">next ${d.horizon_days} days</span></div>
       ${d.upcoming.length ? `
         <div class="dayList">${d.upcoming.map(dashUpcoming).join("")}</div>`
@@ -1296,6 +1300,11 @@ function paintDashboard() {
   };
   el("weekPrev").onclick = () => shiftWeek(-1);
   el("weekNext").onclick = () => shiftWeek(1);
+  view.querySelectorAll(".dashBlockHead").forEach(head => head.onclick = () => {
+    const section = head.closest(".dashBlock");
+    const closed = head.classList.toggle("closed");
+    Array.from(section.children).slice(1).forEach(node => { node.style.display = closed ? "none" : ""; });
+  });
   el("dashFilter").onclick = () => { DASH_FILTER_OPEN = !DASH_FILTER_OPEN; paintDashboard(); };
   if (el("dashSubjectSearch")) el("dashSubjectSearch").oninput = e => { DASH_SUBJECT_QUERY = e.target.value; paintDashboard(); };
   view.querySelectorAll("[data-dash-subject]").forEach(c => c.onchange = () => {
@@ -1523,11 +1532,11 @@ function paintRoutePlan(r, stops, addressOf, start) {
 }
 
 const DASH_TAG = { visit: "Visit", agreement: "Agreement", reentry: "Reentry",
-                   goal: "Goal", financial: "Money", date: "Appointment" };
+                   goal: "Goal", action: "Action", financial: "Money", date: "Appointment" };
 
 const dashRow = a => `
   <div class="dashRow ${a.severity}" data-go="${esc(a.subject_id)}" data-to="${esc(a.link)}">
-    <span class="dashTag ${esc(a.kind)}">${esc(DASH_TAG[a.kind] || "")}</span>
+    <span class="dashTag ${esc(a.kind || "action")}">${esc(DASH_TAG[a.kind] || "Item")}</span>
     <div style="flex:1;min-width:0">
       <div class="dashBody">${esc(a.body)}</div>
       <div class="finMeta">${esc(a.subject_name)}${
