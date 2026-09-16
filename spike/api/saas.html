@@ -950,7 +950,7 @@ function route() {
   stopPolling();
   const hash = location.hash.replace(/^#\/?/, "");
   if (hash === "subjects") return renderRoster();
-  const m = hash.match(/^subject\/([^/]+)(?:\/(\w+))?/);
+  const m = hash.match(/^subject\/([^/]+)(?:\/(\w+))?(?:\/(\d+))?/);
   const subject = m && subjectOf(m[1]);
   /* The dashboard is home. The roster was, and it answered the wrong
      question: an officer opening this does not want a list of everybody, they
@@ -961,7 +961,7 @@ function route() {
   if (m[2] === "goals")     return renderGoals(subject);
   if (m[2] === "actions")   return renderActions(subject);
   if (m[2] === "programs") return renderPrograms(subject);
-  if (m[2] === "visits")   return renderVisits(subject);
+  if (m[2] === "visits")   return renderVisits(subject, m[3] ? Number(m[3]) : null);
   renderProfile(subject);
 }
 addEventListener("hashchange", route);
@@ -1402,8 +1402,13 @@ function paintDashboard() {
   });
   view.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     const to = b.dataset.to;
+    const item = b.dataset.item;
+    if (to === "visits" && item) {
+      location.hash = `/subject/${b.dataset.go}/visits/${item}`;
+      return;
+    }
     location.hash = `/subject/${b.dataset.go}`
-      + (["visits", "goals", "reentry", "agreement"].includes(to) ? `/${to}` : "");
+      + (["visits", "goals", "actions", "reentry", "agreement"].includes(to) ? `/${to}` : "");
     if (["financial", "dates"].includes(to))
       setTimeout(() => openModal(to, subjectOf(b.dataset.go)), 60);
   });
@@ -1525,7 +1530,7 @@ const DASH_TAG = { visit: "Visit", agreement: "Agreement", reentry: "Reentry",
                    goal: "Goal", action: "Action", financial: "Money", date: "Appointment" };
 
 const dashRow = a => `
-  <div class="dashRow ${a.severity}" data-go="${esc(a.subject_id)}" data-to="${esc(a.link)}">
+  <div class="dashRow ${a.severity}" data-go="${esc(a.subject_id)}" data-to="${esc(a.link)}" data-item="${esc(a.item_id || "")}">
     <span class="dashTag ${esc(a.kind || "action")}">${esc(DASH_TAG[a.kind] || "Item")}</span>
     <div style="flex:1;min-width:0">
       <div class="dashBody">${esc(a.body)}</div>
@@ -1536,7 +1541,7 @@ const dashRow = a => `
   </div>`;
 
 const dashUpcoming = u => `
-  <div class="dashRow" data-go="${esc(u.subject_id)}" data-to="${esc(u.link)}">
+  <div class="dashRow" data-go="${esc(u.subject_id)}" data-to="${esc(u.link)}" data-item="${esc(u.item_id || "")}">
     <span class="dashWhen">${esc(longDate(u.on))}</span>
     <span class="dashTag ${esc(u.kind)}">${esc(DASH_TAG[u.kind] || "")}</span>
     <div style="flex:1;min-width:0">
@@ -2353,7 +2358,8 @@ function paintProfileCounts() {
 }
 
 /* ---------------- visits ---------------- */
-function renderVisits(s) {
+function renderVisits(s, focusId = null) {
+  let pendingFocus = focusId;
   view.innerHTML = `
     <div class="crumb">
       <a id="toRoster">Subjects</a> &nbsp;&rsaquo;&nbsp;
@@ -2627,6 +2633,15 @@ async function loadVisits(s) {
       const v = rows.find(x => x.id === Number(b.dataset.view));
       if (v) showVisit(v, s);
     });
+
+    /* A dashboard link can identify the visit that needs attention. Open its
+       record immediately instead of making the officer find it again in the
+       list. */
+    if (pendingFocus != null) {
+      const focused = rows.find(x => x.id === pendingFocus);
+      pendingFocus = null;
+      if (focused) showVisit(focused, s);
+    }
 
     body.querySelectorAll("[data-start]").forEach(b => b.onclick = async () => {
       b.disabled = true;
