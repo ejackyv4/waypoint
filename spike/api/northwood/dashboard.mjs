@@ -73,7 +73,8 @@ export const routes = {
         if (v.scheduled_at.slice(0, 10) < day && v.status !== "completed")
           push(attention, { ...who, kind: "visit", severity: "overdue",
             body: "Visit not closed out",
-            detail: `Scheduled ${v.scheduled_at.slice(0, 10)}`, link: "visits" });
+            detail: `Scheduled ${v.scheduled_at.slice(0, 10)}`, link: "visits",
+            item_id: v.id });
       }
 
       /* The agreement is issued and they have not acknowledged it. Not the
@@ -138,7 +139,7 @@ export const routes = {
                    a.due_hint,
                    a.scheduled_at ? `from the visit on ${a.scheduled_at.slice(0, 10)}` : ""]
                   .filter(Boolean).join(" · "),
-          link: "visits" });
+          link: "actions" });
       }
 
       /* Money: what is late, and what falls due soon. */

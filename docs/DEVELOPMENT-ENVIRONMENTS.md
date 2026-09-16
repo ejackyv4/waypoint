@@ -49,6 +49,18 @@ saves a safety snapshot first and defaults to Dana:
 
 `clean` does not alter the baseline or the catalog programs.
 
+### Keeping demo baselines current
+
+Full reset is deterministic: it rebuilds from the current schema and seed
+code, so schema and seed changes do not require a rebaseline. For the
+intentionally partial Dana fixture, configure Dana first and run:
+
+    WAYPOINT_DATA_DIR="$PWD/.local/eric" ./spike/demo rebaseline partial
+
+Dana's partial fixture has its own database/content snapshot and manifest.
+`partial` checks the manifest for visibility, then lets normal startup
+migrations upgrade an older restored copy automatically.
+
 ## Physical-phone testing
 
 Browser development stays on localhost. A phone requires an explicit LAN
@@ -58,6 +70,35 @@ override:
 
 Keep the phone and computer on the same Wi-Fi network. Do not commit generated
 machine-specific changes such as `spike/mobile/config.js`.
+
+### Native mobile data and profile-photo debugging
+
+The native app has two independent choices: Metro supplies the JavaScript bundle,
+while `spike/mobile/config.js` chooses the API origin. Starting Metro does not
+change the database. For a local officer/subject test, start the servers with the
+same private data directory every time, then launch the app with the LAN host:
+
+    WAYPOINT_DATA_DIR="$PWD/.local/eric" ./spike/demo restart
+    WAYPOINT_HOST=192.168.x.x WAYPOINT_DATA_DIR="$PWD/.local/eric" ./spike/demo phone
+
+Use `localhost` only for an iOS simulator. A physical device cannot reach the
+Mac's localhost. For a demo/TestFlight build, the app is compiled to use the
+public demo origins; local Metro settings cannot override that release bundle.
+Always confirm the server banner and `/api/health` before testing so the app and
+the database are known to be the intended pair.
+
+Profile photos are Northwood data. The officer app reads the authenticated
+caseload's `profile_photo_url` and writes a replacement with
+`POST /api/subject/profile-photo` (including the required `subject_id`, base64
+`data`, and `mime_type`). The subject app uses `POST /api/me/profile-photo`, where
+the subject is taken from the login token. In a development build, the useful
+diagnostics are `[caseload photo]` and `[profile photo] loaded`; a `subject_id
+required` response means an old bundle or an incomplete cached caseload row is
+being used, not that the stored image is corrupt.
+
+Some iOS ImagePicker versions report the asset MIME as the generic `image` (or
+omit it). The mobile client normalizes that value to `image/jpeg` before calling
+the API; the server continues to reject unknown types at the integration boundary.
 
 ## Demo environment
 

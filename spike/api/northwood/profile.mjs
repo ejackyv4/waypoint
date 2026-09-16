@@ -42,6 +42,7 @@ import { planFor } from "../db/reentry.mjs";
 import { goalsFor } from "../db/goals.mjs";
 import { financialSummary } from "../db/financial.mjs";
 import { datesSummary } from "../db/dates.mjs";
+import { actionsForSubject, promoteProposedActions } from "../db/insights.mjs";
 
 /**
  * Mark which subjects can actually sign in.
@@ -160,6 +161,10 @@ export const routes = {
     if (!sid) return saasJson(res, 400, { error: "subject_id required" });
     const row = subjectByKey(sid);
     if (!row) return saasJson(res, 404, { error: "no such subject" });
+    // Keep the officer's profile in sync with the visit and SaaS action views.
+    // Legacy proposed rows are promoted on read so they cannot disappear from
+    // this profile until a maintenance restart happens to run.
+    promoteProposedActions();
 
     /* Opening somebody's file is the read worth recording. It returns their
        address, their vehicles, their employment, their contacts and their
@@ -197,6 +202,7 @@ export const routes = {
       important_dates: datesSummary(sid),
       documents: documentsFor(sid),
       visits: visitsFor(sid),
+      actions: actionsForSubject(sid),
       /* Summaries, not the documents themselves. An officer glancing at a
          case file needs to know where the agreement and the plan stand; the
          full text has its own screen and its own signatures. */

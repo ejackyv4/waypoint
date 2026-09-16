@@ -134,6 +134,8 @@ export function seedCaseFile() {
     // Two of three done: enough to show progress without looking finished.
     const steps = goalsFor(SUBJECT).find(g => g.id === employment.id).steps;
     setStepDone(steps[0].id, true, "subject");
+    setStepDone(steps[0].id, true, "officer");
+    setStepDone(steps[1].id, true, "subject");
     setStepDone(steps[1].id, true, "officer");
 
     const licence = saveGoal({
@@ -152,6 +154,7 @@ export function seedCaseFile() {
     }, OFFICER);
     saveStep({ goal_id: housing.id, body: "Address approved by supervision" });
     const hs = goalsFor(SUBJECT).find(g => g.id === housing.id).steps;
+    setStepDone(hs[0].id, true, "subject");
     setStepDone(hs[0].id, true, "officer");
     /* Closed through the same function the officer's button calls, so it gets
        a completed_at and a name on it rather than just a status string. */

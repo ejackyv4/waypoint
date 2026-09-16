@@ -1344,6 +1344,8 @@ if (staff && staff.status === 200) {
     let s2 = await saas("/api/me/goals/step", { id: g0.steps[0].id }, MH);
     ok(s2.status === 200 && s2.body.step.done_by === "subject",
        "\x1b[1mthe subject ticks off a step, and who ticked it is recorded\x1b[0m");
+    ok(s2.body.step.review_status === "in_review",
+       "the subject report waits for officer review");
     ok(s2.body.goal.progress.percent === 50, "progress is computed from the steps");
     ok(s2.body.goal.state === "in_progress", "and the goal reads as under way");
 
@@ -1356,7 +1358,18 @@ if (staff && staff.status === 200) {
     ok(s2.status === 404,
        "\x1b[1ma subject cannot tick off a step on somebody else's goal\x1b[0m");
 
-    /* ---- every step done is still not the officer's decision ---- */
+    /* An officer may complete an individual step directly. */
+    r = await saas("/api/goals/step/done", { id: g0.steps[1].id }, SH);
+    ok(r.status === 200 && r.body.step.review_status === "done",
+       "an officer can complete an untouched step directly");
+
+    /* Subject reports the first step; the officer confirms that step too. */
+    s2 = await saas("/api/me/goals/step", { id: g0.steps[0].id }, MH);
+    ok(s2.status === 200 && s2.body.step.review_status === "in_review",
+       "the subject can report a step");
+    r = await saas("/api/goals/step/done", { id: g0.steps[0].id }, SH);
+    ok(r.status === 200 && r.body.step.review_status === "done",
+       "the officer confirms the first step only");
     r = await saas("/api/goals/step/done", { id: g0.steps[1].id }, SH);
     ok(r.body.goal.progress.percent === 100, "all steps done reads as 100%");
     ok(r.body.goal.status === "open",

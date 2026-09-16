@@ -15,7 +15,7 @@
 import { one, all, run, now, db } from "./connect.mjs";
 import "./schema.mjs";
 import { transcriptsForVisit, summariesForVisit } from "./insights.mjs";
-import { agendaFor } from "./agenda.mjs";
+import { agendaFor, buildAgenda } from "./agenda.mjs";
 
 /* ---------------- mock SaaS inbox ---------------- */
 
@@ -187,7 +187,18 @@ export function scheduleRequested(id, { scheduled_at, officer, location, notes }
         WHERE id = ?`, scheduled_at, officer ?? null, location ?? null, id);
   if (notes !== undefined && notes !== null && String(notes).trim())
     run(`UPDATE visits SET notes = ? WHERE id = ?`, String(notes).trim(), id);
+  buildAgenda(id, v.subject_id, officer ?? v.officer);
   return { ok: true, visit: visit(id) };
+}
+
+export function assignVisitOfficer(visit_id, subject_id, officer_id) {
+  const o = officerById(Number(officer_id));
+  if (!o || !o.active) return { error: "no such officer" };
+  run(`UPDATE visits SET officer_id = ?, officer = ? WHERE id = ?`, o.id, o.name, visit_id);
+  run(`INSERT INTO subject_care_group (subject_id, officer_id, role, active, added_at)
+       VALUES (?, ?, 'member', 1, ?)
+       ON CONFLICT(subject_id, officer_id) DO UPDATE SET active = 1`, subject_id, o.id, now());
+  return { ok: true, officer: o.name };
 }
 
 /** The subject confirms they will attend. Scoped by subject_id so a valid
@@ -531,9 +542,11 @@ export const officerSchedule = officer_id => all(
           s.address_line1, s.address_line2, s.city, s.state, s.postal_code
      FROM visits v
      JOIN subjects s ON s.subject_id = v.subject_id
-    WHERE s.officer_id = ?
+    WHERE (s.officer_id = ? OR EXISTS (SELECT 1 FROM subject_care_group cg
+                                      WHERE cg.subject_id = s.subject_id AND cg.officer_id = ? AND cg.active = 1)
+           OR v.officer_id = ?)
       AND v.status IN ('scheduled','accepted','requested')
-    ORDER BY (v.scheduled_at IS NULL) ASC, v.scheduled_at ASC`, officer_id)
+    ORDER BY (v.scheduled_at IS NULL) ASC, v.scheduled_at ASC`, officer_id, officer_id, officer_id)
   .map(hydrate);
 
 /** Recently completed, so the officer can see what they have already done. */
@@ -541,8 +554,11 @@ export const officerRecent = (officer_id, limit = 10) => all(
   `SELECT v.*, s.first_name || ' ' || s.last_name AS subject_name, s.case_number
      FROM visits v
      JOIN subjects s ON s.subject_id = v.subject_id
-    WHERE s.officer_id = ? AND v.status = 'completed'
-    ORDER BY v.completed_at DESC LIMIT ?`, officer_id, limit)
+    WHERE (s.officer_id = ? OR v.officer_id = ? OR EXISTS
+           (SELECT 1 FROM subject_care_group cg
+             WHERE cg.subject_id = s.subject_id AND cg.officer_id = ? AND cg.active = 1))
+      AND v.status = 'completed'
+    ORDER BY v.completed_at DESC LIMIT ?`, officer_id, officer_id, officer_id, limit)
   .map(hydrate);
 
 export const officerCaseload = officer_id => all(
@@ -552,8 +568,9 @@ export const officerCaseload = officer_id => all(
           (SELECT COUNT(*) FROM visits v
              WHERE v.subject_id = s.subject_id AND v.status = 'requested') AS pending_requests
      FROM subjects s
-    WHERE s.officer_id = ?
-    ORDER BY s.last_name, s.first_name`, officer_id);
+    WHERE (s.officer_id = ? OR EXISTS (SELECT 1 FROM subject_care_group cg
+                                      WHERE cg.subject_id = s.subject_id AND cg.officer_id = ? AND cg.active = 1))
+     ORDER BY s.last_name, s.first_name`, officer_id, officer_id);
 
 /* ---------------- vehicles ---------------- */
 
@@ -816,6 +833,10 @@ export const activeOffices = () =>
 
 export const activeOfficers = () =>
   all(`SELECT id, name, email, badge, role FROM officers WHERE active = 1 ORDER BY name`);
+
+export const officerByName = name => one(
+  `SELECT id, name, email, badge, role FROM officers WHERE active = 1 AND lower(name) = lower(?)`,
+  String(name || "").trim());
 
 export function seedOffices(names) {
   if (one(`SELECT COUNT(*) n FROM offices`).n > 0) return false;

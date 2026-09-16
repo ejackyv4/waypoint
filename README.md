@@ -51,6 +51,7 @@ CocoaPods, an Apple Development signing identity, and a paired device. See
 | **[SQLITE-TO-SQL.md](docs/SQLITE-TO-SQL.md)** | What moving off SQLite would take, and whether to |
 | **[SubjectRecording.md](docs/SubjectRecording.md)** | Recording a visit, transcribing it, and what the summary may and may not assert |
 | **[DEMO-CONVERSATION.md](docs/DEMO-CONVERSATION.md)** | Two-minute script to record for demonstrating the transcript and summary |
+| **[CODE-REVIEW.md](docs/CODE-REVIEW.md)** | Codex's read-only review gate before pushing a feature branch |
 | **[CLAUDE.md](CLAUDE.md)** | Engineering lessons and pitfalls |
 | **[TRANSCRIPT.md](docs/session/TRANSCRIPT.md)** | The full build session |
 
