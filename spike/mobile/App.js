@@ -445,15 +445,13 @@ function OfficerAssistantSheet({ auth, onClose }) {
           <Text style={{ fontSize: 26, fontWeight: "800", color: C.ink }}>Ask Meridian</Text>
           <Pressable onPress={onClose}><Text style={{ fontSize: 28, color: C.faint }}>×</Text></Pressable>
         </View>
-        <Text style={{ color: C.muted, fontSize: 16, lineHeight: 22 }}>Ask about a subject’s action items. Choose how you want to ask.</Text>
+        <Text style={{ color: C.muted, fontSize: 16, lineHeight: 22 }}>Ask questions about a particular subject.</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
-          <Pressable onPress={recording ? stop : start} style={{ flex: 1, height: 76, borderWidth: 1.5, borderColor: recording ? C.err : C.brand, backgroundColor: recording ? C.errSoft : C.brandSoft, borderRadius: 12, padding: 8, alignItems: "center", gap: 2 }}>
-            <Ionicons name={recording ? "stop-circle-outline" : "mic-outline"} size={21} color={recording ? C.err : C.brand} />
-            <Text style={{ color: recording ? C.err : C.brand, fontWeight: "800", fontSize: 16 }}>{recording ? "Stop" : "Voice"}</Text>
+          <Pressable accessibilityLabel={recording ? "Stop voice question" : "Ask by voice"} onPress={recording ? stop : start} style={{ width: 52, height: 52, borderWidth: 1.5, borderColor: recording ? C.err : C.brand, backgroundColor: recording ? C.errSoft : C.brandSoft, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name={recording ? "stop-circle-outline" : "mic-outline"} size={23} color={recording ? C.err : C.brand} />
           </Pressable>
-          <Pressable onPress={() => setMode("text")} style={{ flex: 1, height: 76, borderWidth: 1.5, borderColor: mode === "text" ? C.brand : C.line, backgroundColor: mode === "text" ? C.brandSoft : C.surface, borderRadius: 12, padding: 8, alignItems: "center", gap: 2 }}>
-            <Ionicons name="create-outline" size={21} color={mode === "text" ? C.brand : C.ink2} />
-            <Text style={{ color: mode === "text" ? C.brand : C.ink2, fontWeight: "800", fontSize: 16 }}>Text</Text>
+          <Pressable accessibilityLabel="Ask by text" onPress={() => setMode("text")} style={{ width: 52, height: 52, borderWidth: 1.5, borderColor: mode === "text" ? C.brand : C.line, backgroundColor: mode === "text" ? C.brandSoft : C.surface, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="create-outline" size={23} color={mode === "text" ? C.brand : C.ink2} />
           </Pressable>
         </View>
         {mode === "text" ? <>
