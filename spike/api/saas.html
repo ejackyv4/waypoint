@@ -2282,7 +2282,7 @@ function renderTiles(s) {
     + tile("travel", "Travel Permit",
            !tp || tp.level === "none" ? "None permitted"
              : isExpired(tp) ? `${travelLabel(tp.level)} — expired ${asDate(tp.expires_on)}`
-             : `${travelLabel(tp.level)}${tp.expires_on ? ` until ${asDate(tp.expires_on)}` : ""}`, "")
+             : `${travelLabel(tp.level)}${tp.expires_on ? `<br>Expires ${asDate(tp.expires_on)}` : ""}`, "")
     + tile("docs", "Documents",
            docs.length ? `${docs.length} on file · latest ${asDate((docs[0].created_at || "").slice(0,10))}`
                        : "None on file", docs.length)

@@ -534,7 +534,7 @@ function OfficerAssistantSheet({ auth, onClose }) {
                 ? result.travel_permit
                   ? result.travel_permit.level === "none"
                     ? "No travel permitted."
-                    : `${result.travel_permit.level} travel permitted${result.travel_permit.expires_on ? ` · expires ${result.travel_permit.expires_on}` : " · no expiration recorded"}`
+                    : `${result.travel_permit.level} travel permitted${result.travel_permit.expires_on ? `\nExpires ${asDate(result.travel_permit.expires_on)}` : "\nNo expiration recorded"}`
                   : "No travel restriction record found."
                 : result.curfew?.active
                   ? `${to12h(result.curfew.start_time).replace(":00", "")}–${to12h(result.curfew.end_time).replace(":00", "")}${result.curfew.expires_on ? ` · Expires ${asDate(result.curfew.expires_on)}` : ""}`
@@ -2364,7 +2364,7 @@ function OfficerSubject({ auth, subject, onBack }) {
                      chip={travExpired ? "Expired" : travAllowed ? TRAVEL_LABEL[trav.level] : "None"}
                      tone={travExpired ? "warn" : travAllowed ? "ok" : "muted"}
                      summary={travAllowed
-                       ? `${TRAVEL_LABEL[trav.level]}${trav.expires_on ? ` until ${asDate(trav.expires_on)}` : ", no expiry"}`
+                       ? `${TRAVEL_LABEL[trav.level]}${trav.expires_on ? `\nExpires ${asDate(trav.expires_on)}` : "\nNo expiration date"}`
                        : travExpired ? `Expired ${asDate(trav.expires_on)}` : "No travel permitted"}>
               <Detail label="Level" value={trav ? TRAVEL_LABEL[trav.level] : "None permitted"} />
               <Detail label="Expires" value={trav?.expires_on ? asDate(trav.expires_on) : "No expiry"} />
@@ -3922,7 +3922,7 @@ function MyDetails({ auth, caseData, onRefresh, onOpenAgreement, onOpenReentry }
               <>
                 <Text style={s.bigTime}>{TRAVEL_LABEL[trav.level]}</Text>
                 <Text style={s.cardMeta}>
-                  {trav.expires_on ? `Valid until ${asDate(trav.expires_on)}` : "No expiry date"}
+                  {trav.expires_on ? `Expires ${asDate(trav.expires_on)}` : "No expiration date"}
                 </Text>
                 {trav.notes ? <Text style={s.noteLine}>{trav.notes}</Text> : null}
               </>
