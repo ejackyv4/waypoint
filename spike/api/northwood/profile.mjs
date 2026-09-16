@@ -73,7 +73,7 @@ export const routes = {
     if (!r.unchanged)
       addCaseNote({ subject_id: b.subject_id,
         body: `Supervision transferred${r.from ? ` from ${r.from}` : ""} to ${r.officer}.`,
-        author: ctx.session?.name || null });
+        author: ctx.session?.name || null, author_officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { ...r, subject: asProfile(subjectByKey(b.subject_id)) });
   },
 
@@ -331,7 +331,8 @@ export const routes = {
       return saasJson(res, 400, { error: "A note cannot be empty." });
 
     const note = addCaseNote({ subject_id: b.subject_id, body: String(b.body).trim(),
-                               author: b.author || ctx.session?.name || null });
+                               author: b.author || ctx.session?.name || null,
+                               author_officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { note, notes: caseNotesFor(b.subject_id) });
   },
 
