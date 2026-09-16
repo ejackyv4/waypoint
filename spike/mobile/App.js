@@ -250,7 +250,7 @@ function employmentSummary(e) {
 const TRAVEL_LABEL = { none: "None", local: "Local only",
                        interstate: "Interstate", international: "International" };
 const asDate = d => d ? new Date(d + "T00:00:00")
-  .toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+  .toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
 /* A full timestamp, for things that are a matter of record. */
 const asDateTime = t => t ? new Date(t).toLocaleString(undefined,
   { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
