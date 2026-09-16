@@ -481,6 +481,49 @@ function OfficerAssistantSheet({ auth, onClose }) {
             </ScrollView>
           </View>
         ) : null}
+        {result?.kind === "visits" || result?.kind === "appointments" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>
+              {result.subject.name} · {result.kind === "visits" ? "Upcoming visits" : "Appointments"}
+            </Text>
+            <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ gap: 10 }} nestedScrollEnabled>
+              {(result.visits || result.dates || []).length ? (result.visits || result.dates).map(item => (
+                <View key={item.id} style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg }}>
+                  <Text style={{ color: C.ink, fontSize: 16, lineHeight: 21 }}>
+                    {item.title || item.kind_label || "Visit"}
+                  </Text>
+                  <Text style={{ color: C.muted, marginTop: 4 }}>
+                    {item.scheduled_at ? new Date(item.scheduled_at).toLocaleString() : "Date not set"}
+                    {item.location ? ` · ${item.location}` : ""}
+                  </Text>
+                </View>
+              )) : <Text style={{ color: C.muted }}>None found.</Text>}
+            </ScrollView>
+          </View>
+        ) : null}
+        {result?.kind === "financial" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>{result.subject.name} · Financial balance</Text>
+            <Text style={{ color: C.muted }}>Outstanding: {((result.totals?.balance_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}</Text>
+            <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: 8 }} nestedScrollEnabled>
+              {(result.items || []).map(item => <View key={item.id} style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg }}>
+                <Text style={{ color: C.ink, fontSize: 16 }}>{item.description || item.kind_label || "Financial item"}</Text>
+                <Text style={{ color: C.muted, marginTop: 4 }}>{item.state} · balance {((item.balance_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}{item.due_date ? ` · due ${item.due_date}` : ""}</Text>
+              </View>)}
+            </ScrollView>
+          </View>
+        ) : null}
+        {result?.kind === "travel" || result?.kind === "curfew" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>{result.subject.name} · {result.kind === "travel" ? "Travel restrictions" : "Curfew"}</Text>
+            <Text style={{ color: C.muted }}>
+              {result.kind === "travel"
+                ? result.travel_permit ? `${result.travel_permit.level} travel permission${result.travel_permit.expires_on ? ` · expires ${result.travel_permit.expires_on}` : " · no expiration recorded"}` : "No travel permit or restriction recorded."
+                : result.curfew?.active ? `${result.curfew.start_time || "Start not set"}–${result.curfew.end_time || "end not set"}` : "No active curfew recorded."}
+            </Text>
+            {(result.travel_permit?.notes || result.curfew?.notes) ? <Text style={{ color: C.ink2 }}>{result.travel_permit?.notes || result.curfew?.notes}</Text> : null}
+          </View>
+        ) : null}
       </View>
     </View>
   </Modal>;

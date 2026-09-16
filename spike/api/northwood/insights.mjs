@@ -15,7 +15,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { visit, recordingById, subjectByKey, officerCaseload, visitsFor } from "../db/northwood.mjs";
+import { visit, recordingById, subjectByKey, officerCaseload, visitsFor,
+         curfewFor, travelPermitFor } from "../db/northwood.mjs";
+import { financialSummary } from "../db/financial.mjs";
+import { datesFor } from "../db/dates.mjs";
 import { goalsFor } from "../db/goals.mjs";
 import {
   claimTranscript, transcriptById, transcriptFor, transcriptsForVisit,
@@ -186,8 +189,8 @@ export const routes = {
     try {
       const t = await transcribe(bytes, "officer-question.m4a", "audio/m4a");
       const intent = await interpretOfficerQuestion(t.text);
-      if (!["list_action_items", "list_upcoming_visits"].includes(intent.intent) || !intent.subject_name)
-        return saasJson(res, 200, { kind: "unsupported", transcript: t.text, message: "I can currently list action items or upcoming visits for a subject." });
+      if (!["list_action_items", "list_upcoming_visits", "get_financial_balance", "list_appointments", "get_travel_restrictions", "get_curfew"].includes(intent.intent) || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", transcript: t.text, message: "I can currently answer questions about a subject's action items, visits, finances, appointments, travel restrictions, and curfew." });
       const matches = officerCaseload(ctx.session.officer_id)
         .filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
       if (matches.length !== 1)
@@ -195,6 +198,14 @@ export const routes = {
       const subject = matches[0];
       if (intent.intent === "list_upcoming_visits")
         return saasJson(res, 200, { kind: "visits", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
+      if (intent.intent === "get_financial_balance")
+        return saasJson(res, 200, { kind: "financial", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, ...financialSummary(subject.subject_id) });
+      if (intent.intent === "list_appointments")
+        return saasJson(res, 200, { kind: "appointments", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, dates: datesFor(subject.subject_id).filter(d => d.status === "scheduled") });
+      if (intent.intent === "get_travel_restrictions")
+        return saasJson(res, 200, { kind: "travel", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, travel_permit: travelPermitFor(subject.subject_id) });
+      if (intent.intent === "get_curfew")
+        return saasJson(res, 200, { kind: "curfew", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, curfew: curfewFor(subject.subject_id) });
       const all = actionsForSubject(subject.subject_id).concat(
         goalsFor(subject.subject_id).flatMap(g => (g.steps || []).map(st => ({
           id: `goal-${st.id}`, body: st.body, owner: "subject",
@@ -218,8 +229,8 @@ export const routes = {
     if (!prompt) return saasJson(res, 400, { error: "Ask a question first." });
     try {
       const intent = await interpretOfficerQuestion(prompt);
-      if (!["list_action_items", "list_upcoming_visits"].includes(intent.intent) || !intent.subject_name)
-        return saasJson(res, 200, { kind: "unsupported", message: "I can currently list action items or upcoming visits for a subject." });
+      if (!["list_action_items", "list_upcoming_visits", "get_financial_balance", "list_appointments", "get_travel_restrictions", "get_curfew"].includes(intent.intent) || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", message: "I can currently answer questions about a subject's action items, visits, finances, appointments, travel restrictions, and curfew." });
       const allowed = officerCaseload(ctx.session.officer_id);
       const matches = allowed.filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
       if (matches.length !== 1)
@@ -227,6 +238,14 @@ export const routes = {
       const subject = matches[0];
       if (intent.intent === "list_upcoming_visits")
         return saasJson(res, 200, { kind: "visits", subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
+      if (intent.intent === "get_financial_balance")
+        return saasJson(res, 200, { kind: "financial", subject: { subject_id: subject.subject_id, name: subject.name }, ...financialSummary(subject.subject_id) });
+      if (intent.intent === "list_appointments")
+        return saasJson(res, 200, { kind: "appointments", subject: { subject_id: subject.subject_id, name: subject.name }, dates: datesFor(subject.subject_id).filter(d => d.status === "scheduled") });
+      if (intent.intent === "get_travel_restrictions")
+        return saasJson(res, 200, { kind: "travel", subject: { subject_id: subject.subject_id, name: subject.name }, travel_permit: travelPermitFor(subject.subject_id) });
+      if (intent.intent === "get_curfew")
+        return saasJson(res, 200, { kind: "curfew", subject: { subject_id: subject.subject_id, name: subject.name }, curfew: curfewFor(subject.subject_id) });
       const all = actionsForSubject(subject.subject_id).concat(
         goalsFor(subject.subject_id).flatMap(g => (g.steps || []).map(st => ({
           id: `goal-${st.id}`, body: st.body, owner: "subject",

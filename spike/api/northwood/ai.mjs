@@ -294,7 +294,7 @@ const OFFICER_ASSISTANT_TOOL = {
   name: "officer_question",
   description: "Interpret a read-only officer question.",
   input_schema: { type: "object", properties: {
-    intent: { type: "string", enum: ["list_action_items", "unsupported"] },
+    intent: { type: "string", enum: ["list_action_items", "list_upcoming_visits", "get_financial_balance", "list_appointments", "get_travel_restrictions", "get_curfew", "unsupported"] },
     subject_name: { type: "string" },
     scope: { type: "string", enum: ["open", "all"] }
   }, required: ["intent"] }
@@ -312,7 +312,7 @@ export async function interpretOfficerQuestion(prompt) {
     } }],
     tool_choice: { type: "function", function: { name: OFFICER_ASSISTANT_TOOL.name } },
     messages: [
-      { role: "system", content: "You are an officer assistant. Interpret the request only. For action-item questions return list_action_items, extract the subject's full display name, and default scope to open. Never invent an ID. For anything else return unsupported." },
+      { role: "system", content: "You are an officer assistant. Interpret the request only. For action-item questions return list_action_items. For questions about upcoming officer visits return list_upcoming_visits. For questions about fines, restitution, court costs, supervision fees, or money owed return get_financial_balance. For questions about appointments, hearings, treatment, drug tests, or other important dates return list_appointments. For questions about travel restrictions or permits return get_travel_restrictions. For questions about curfew return get_curfew. Extract the subject's full display name and default scope to open. Never invent an ID. For anything else return unsupported." },
       { role: "user", content: String(prompt || "").trim() }
     ]
   };
@@ -328,7 +328,7 @@ export async function interpretOfficerQuestion(prompt) {
   try { out = call && JSON.parse(call.function.arguments); } catch { out = null; }
   if (!out) fail("The assistant did not return a structured answer.");
   return {
-    intent: out.intent === "list_action_items" ? "list_action_items" : "unsupported",
+    intent: ["list_action_items", "list_upcoming_visits", "get_financial_balance", "list_appointments", "get_travel_restrictions", "get_curfew"].includes(out.intent) ? out.intent : "unsupported",
     subject_name: String(out.subject_name || "").trim(),
     scope: out.scope === "all" ? "all" : "open"
   };
