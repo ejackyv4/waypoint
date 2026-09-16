@@ -949,6 +949,10 @@ CREATE INDEX IF NOT EXISTS ix_fin_payments ON financial_payments(item_id, id);
  * steps, and a case file that cannot tell them apart has lost the part
  * anybody would dispute. */
 ensureColumn("financial_payments", "recorded_role", "TEXT");
+ensureColumn("financial_items", "created_by_officer_id", "INTEGER");
+ensureColumn("financial_items", "updated_by_officer_id", "INTEGER");
+ensureColumn("financial_items", "waived_by_officer_id", "INTEGER");
+ensureColumn("financial_payments", "recorded_by_officer_id", "INTEGER");
 
 /* ================================================================
    Important dates

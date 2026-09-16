@@ -26,7 +26,8 @@ The goal is not to rewrite everything at once. The preferred approach is to keep
       profiles, assistant queries, and demo resets.
 - [x] Inventory every identity-bearing field and route (see
       `docs/IDENTITY-INVENTORY.md`).
-- [ ] Normalize subject and officer IDs using additive migrations.
+- [x] Normalize subject and officer IDs using additive migrations for the
+      identity-bearing write paths currently in scope.
 - [ ] Add authorization and identity-scope tests.
 
 Migration checkpoint: additive identity columns for goal-step completion and
@@ -69,7 +70,9 @@ and financial audit fields remain open.
 
 Reentry plan and checkpoint officer signatures now record authenticated officer
 IDs in additive columns. The focused identity test passes 21/21 checks.
-Financial audit fields remain open.
+Financial items now record officer IDs for creation, update, and waiver; payment
+rows record the officer who recorded them. The focused identity test passes
+24/24 checks. Authorization and identity-scope tests remain open.
 
 Baseline note: the isolated session-sweeper test passed on 2026-09-16,
 including the assertion that the default database is `spike/data/waypoint.db`.

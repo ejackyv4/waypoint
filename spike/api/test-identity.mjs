@@ -7,6 +7,7 @@ import { setStepDone, saveGoal, completeGoal } from "./db/goals.mjs";
 import { addStandaloneAction, completeAction, decideAction } from "./db/insights.mjs";
 import { startVisit, completeVisit, addVisitNote, addCaseNote, saveAgreement, signAgreement } from "./db/northwood.mjs";
 import { signItem, signPlan } from "./db/reentry.mjs";
+import { saveFinancialItem, addPayment, waiveItem } from "./db/financial.mjs";
 
 let pass = 0, fail = 0;
 const ok = (condition, message) => {
@@ -96,6 +97,16 @@ const item = db.prepare(`SELECT id FROM reentry_items WHERE plan_id = ? ORDER BY
 signItem(item.id, "officer", "Officer Test", { officer_id: officer.id });
 const itemAudit = db.prepare(`SELECT officer_signed_by_id FROM reentry_items WHERE id = ?`).get(item.id);
 ok(itemAudit.officer_signed_by_id === officer.id, "reentry checkpoint signature stores the officer ID");
+
+const financial = saveFinancialItem({ subject_id: "cust-identity", kind: "fine", description: "Identity fine", amount_cents: 10000 }, "Officer Test", { officer_id: officer.id });
+const financialAudit = db.prepare(`SELECT created_by_officer_id FROM financial_items WHERE id = ?`).get(financial.id);
+ok(financialAudit.created_by_officer_id === officer.id, "financial item creation stores the officer ID");
+addPayment({ item_id: financial.id, amount_cents: 2500, paid_on: "2026-09-16" }, "Officer Test", "officer", { officer_id: officer.id });
+const paymentAudit = db.prepare(`SELECT recorded_by_officer_id FROM financial_payments WHERE item_id = ? ORDER BY id DESC LIMIT 1`).get(financial.id);
+ok(paymentAudit.recorded_by_officer_id === officer.id, "financial payment stores the officer ID");
+waiveItem(financial.id, "Officer Test", "Identity test waiver", true, { officer_id: officer.id });
+const waiverAudit = db.prepare(`SELECT waived_by_officer_id FROM financial_items WHERE id = ?`).get(financial.id);
+ok(waiverAudit.waived_by_officer_id === officer.id, "financial waiver stores the officer ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
