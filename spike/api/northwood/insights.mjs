@@ -25,7 +25,7 @@ import {
   decideAction, setActionOwner, setActionDue, setActionBody, staleRunning,
   addManualAction,
   actionsForSubject, addStandaloneAction, backfillDueDates, promoteProposedActions,
-  supersedeStaleActions
+  supersedeStaleActions, repairCompletedActions
 } from "../db/insights.mjs";
 import { transcribe, summarise, interpretOfficerQuestion } from "./ai.mjs";
 import { AUDIO_DIR } from "./documents.mjs";
@@ -433,6 +433,7 @@ ${t.text || ""}
     // an officer gate, so leaving it there makes the item vanish from both
     // clients even though the visit summary visibly contains it.
     promoteProposedActions();
+    repairCompletedActions();
 
     /* Everything this person has to do, wherever it came from.
      *

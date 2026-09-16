@@ -349,6 +349,15 @@ export function promoteProposedActions() {
   return rows.length;
 }
 
+/** Repair rows written by the older officer-completion workflow. */
+export function repairCompletedActions() {
+  const r = run(`UPDATE visit_summary_actions
+                   SET status = 'done', done_at = COALESCE(done_at, decided_at),
+                       done_by = COALESCE(done_by, decided_by)
+                 WHERE status = 'accepted' AND decided_by IS NOT NULL`);
+  return r?.changes || 0;
+}
+
 /**
  * Tidy what the old append-everything rule left behind.
  *

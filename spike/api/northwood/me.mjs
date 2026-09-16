@@ -32,7 +32,7 @@ import { reentryBlocks, blocksToText as reentryToText } from "./reentry-doc.mjs"
 import { planFor, signItem, signPlan, itemById } from "../db/reentry.mjs";
 import { financialSummary, financialItemById } from "../db/financial.mjs";
 import { openActionsForSubject, completeAction, unseenActionCount,
-         markActionsSeen, promoteProposedActions } from "../db/insights.mjs";
+         markActionsSeen, promoteProposedActions, repairCompletedActions } from "../db/insights.mjs";
 import { recordPayment } from "./financial.mjs";
 import { datesSummary, dateById, acknowledgeDate, closeDate, saveDate, DATE_KINDS,
          unseenDateCount, markDateSeen } from "../db/dates.mjs";
@@ -118,6 +118,7 @@ export const routes = {
     // completed visit cannot disappear from the subject's list until a
     // restart happens to run the maintenance pass.
     promoteProposedActions();
+    repairCompletedActions();
     const subject = asProfile(subjectByKey(sid));
     if (ctx.url.searchParams.get("seen") === "1") markVisitsSeen(sid);
     // Opening the Goals tab is what marks them seen, and only that tab.

@@ -42,7 +42,7 @@ import { planFor } from "../db/reentry.mjs";
 import { goalsFor } from "../db/goals.mjs";
 import { financialSummary } from "../db/financial.mjs";
 import { datesSummary } from "../db/dates.mjs";
-import { actionsForSubject, promoteProposedActions } from "../db/insights.mjs";
+import { actionsForSubject, promoteProposedActions, repairCompletedActions } from "../db/insights.mjs";
 
 /**
  * Mark which subjects can actually sign in.
@@ -165,6 +165,7 @@ export const routes = {
     // Legacy proposed rows are promoted on read so they cannot disappear from
     // this profile until a maintenance restart happens to run.
     promoteProposedActions();
+    repairCompletedActions();
 
     /* Opening somebody's file is the read worth recording. It returns their
        address, their vehicles, their employment, their contacts and their
