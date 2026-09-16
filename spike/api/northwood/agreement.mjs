@@ -78,7 +78,7 @@ export const routes = {
         return saasJson(res, 409, {
           error: "Sign the agreement as the supervising officer before activating it." });
     }
-    return saasJson(res, 200, { agreement: saveAgreement(b), amended });
+    return saasJson(res, 200, { agreement: saveAgreement(b, { officer_id: ctx.session?.officer_id }), amended });
   },
 
   "POST /api/agreement/condition": async (req, res) => {
@@ -108,7 +108,8 @@ export const routes = {
 
   "POST /api/agreement/sign": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = signAgreement(Number(b.id), "officer", ctx.session?.name);
+    const r = signAgreement(Number(b.id), "officer", ctx.session?.name, null,
+                            { officer_id: ctx.session?.officer_id });
     return saasJson(res, r.error ? 404 : 200, r);
   },
 

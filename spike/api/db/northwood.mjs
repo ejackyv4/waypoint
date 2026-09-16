@@ -890,7 +890,7 @@ export const conditionsFor = agreement_id => all(
 const AGREEMENT_FIELDS = ["kind","supervision_level","start_date","end_date",
                           "office","officer_name","status","violation_text"];
 
-export function saveAgreement(a) {
+export function saveAgreement(a, identity = {}) {
   if (a.id) {
     // Merge, do not overwrite. A payload that omits a field must leave it
     // alone — a partial save should never blank the rest of the record.
@@ -903,11 +903,12 @@ export function saveAgreement(a) {
   }
   run(`INSERT INTO agreements
        (subject_id, kind, supervision_level, start_date, end_date, office,
-        officer_name, status, violation_text, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        officer_name, status, violation_text, created_by_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       a.subject_id, a.kind ?? "probation", a.supervision_level ?? null,
       a.start_date ?? null, a.end_date ?? null, a.office ?? null,
-      a.officer_name ?? null, a.status ?? "draft", a.violation_text ?? null, now());
+      a.officer_name ?? null, a.status ?? "draft", a.violation_text ?? null,
+      identity.officer_id ?? null, now());
   // The row just inserted — NOT agreementFor(), which prefers the active
   // agreement and so answered a "create a draft" with somebody's existing
   // executed one. A create that returns another record's id is the whole
@@ -974,7 +975,7 @@ export const acknowledgmentSnapshot = id => one(
  *   subject is the signer — an acceptance with nothing attached to it is not
  *   evidence of anything.
  */
-export function signAgreement(id, who, name, snapshot) {
+export function signAgreement(id, who, name, snapshot, identity = {}) {
   const col = who === "subject" ? "subject_signed_at" : "officer_signed_at";
   const a = one(`SELECT * FROM agreements WHERE id = ?`, id);
   if (!a) return { error: "no such agreement" };
@@ -986,8 +987,8 @@ export function signAgreement(id, who, name, snapshot) {
         id, a.subject_id, now(), snapshot);
   }
   if (who === "subject") run(`UPDATE agreements SET subject_signed_at = ? WHERE id = ?`, now(), id);
-  else run(`UPDATE agreements SET officer_signed_at = ?, officer_signed_by = ? WHERE id = ?`,
-           now(), name ?? null, id);
+  else run(`UPDATE agreements SET officer_signed_at = ?, officer_signed_by = ?, officer_signed_by_id = ? WHERE id = ?`,
+           now(), name ?? null, identity.officer_id ?? null, id);
   return { ok: true, agreement: agreementById(id) };
 }
 

@@ -5,7 +5,7 @@ import "./db/schema.mjs";
 import { db } from "./db/connect.mjs";
 import { setStepDone, saveGoal, completeGoal } from "./db/goals.mjs";
 import { addStandaloneAction, completeAction, decideAction } from "./db/insights.mjs";
-import { startVisit, completeVisit, addVisitNote, addCaseNote } from "./db/northwood.mjs";
+import { startVisit, completeVisit, addVisitNote, addCaseNote, saveAgreement, signAgreement } from "./db/northwood.mjs";
 
 let pass = 0, fail = 0;
 const ok = (condition, message) => {
@@ -77,6 +77,12 @@ ok(noteAudit.author_officer_id === officer.id, "visit note stores the officer ID
 addCaseNote({ subject_id: "cust-identity", body: "Identity case note", author: "Officer Test", author_officer_id: officer.id });
 const caseNoteAudit = db.prepare(`SELECT author_officer_id FROM case_notes WHERE subject_id = ? ORDER BY id DESC LIMIT 1`).get("cust-identity");
 ok(caseNoteAudit.author_officer_id === officer.id, "case note stores the officer ID");
+const agreement = saveAgreement({ subject_id: "cust-identity", kind: "probation" }, { officer_id: officer.id });
+const agreementAudit = db.prepare(`SELECT created_by_officer_id FROM agreements WHERE id = ?`).get(agreement.id);
+ok(agreementAudit.created_by_officer_id === officer.id, "agreement creation stores the officer ID");
+signAgreement(agreement.id, "officer", "Officer Test", null, { officer_id: officer.id });
+const signedAudit = db.prepare(`SELECT officer_signed_by_id FROM agreements WHERE id = ?`).get(agreement.id);
+ok(signedAudit.officer_signed_by_id === officer.id, "agreement signature stores the officer ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
