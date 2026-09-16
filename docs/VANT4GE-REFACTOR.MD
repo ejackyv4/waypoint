@@ -1,0 +1,177 @@
+# VANT4GE Refactor
+
+## Purpose
+
+This document captures the architectural options discussed for evolving Waypoint beyond the current proof-of-concept shape while protecting the working application.
+
+The goal is not to rewrite everything at once. The preferred approach is to keep the current system working, establish clean contracts, and replace or refactor one boundary at a time.
+
+## Current stack
+
+- Backend/API: Node.js ES modules.
+- Database: SQLite through Node's built-in `node:sqlite`.
+- Web applications: HTML, CSS, and vanilla JavaScript.
+- Mobile application: React Native with Expo, written in JavaScript.
+- Infrastructure: Bash scripts, SQLite files, and optional Docker.
+- Query layer: direct SQL wrapped by shared helpers and domain data-access functions.
+- TypeScript: not currently used.
+- ORM: not currently used.
+
+The backend and database are independent of the mobile framework. Changing the mobile client does not require changing the API or database.
+
+## Ionic, Capacitor, and Vue option
+
+Ionic + Capacitor + Vue could replace the current React Native/Expo mobile client.
+
+### What would stay the same
+
+- Node API routes and authentication contracts.
+- SQLite schema and data.
+- Subject and officer identity rules.
+- The web applications.
+- C# services, if introduced later.
+
+### What would need to be rebuilt
+
+- Mobile screens as Vue components.
+- Navigation and application state.
+- Styling using Ionic components and CSS.
+- Audio recording and playback.
+- Microphone permissions.
+- Camera and photo selection.
+- Secure token storage.
+- Date pickers and native dialogs.
+- Any push notifications or background behavior.
+- iOS signing, Capacitor configuration, and TestFlight build scripts.
+- Mobile tests.
+
+This is a mobile-client rewrite, not a switch in a configuration file. It is feasible, but should be treated as a medium-sized project.
+
+### Recommended migration approach
+
+Do not replace the Expo app immediately.
+
+1. Build a small Ionic/Vue proof of concept.
+2. Recreate one profile screen and one API-backed workflow.
+3. Recreate the visit recording flow, including permissions and upload.
+4. Compare reliability, performance, and TestFlight behavior with Expo.
+5. Migrate additional screens only if the prototype is clearly better.
+6. Keep the existing app available until the replacement passes the same end-to-end tests.
+
+## C# microservices
+
+The system can connect to C# services without changing the mobile framework.
+
+Recommended shape:
+
+```text
+Mobile app
+   ↓
+Waypoint API
+   ↓
+C# microservices
+```
+
+The mobile app should normally call the Waypoint API rather than calling individual C# services directly. The Waypoint API remains responsible for:
+
+- authentication and authorization;
+- subject and officer identity;
+- validating IDs and dates;
+- enforcing visibility rules;
+- combining data from multiple services;
+- presenting a stable client-facing contract.
+
+### Integration choices
+
+- REST/JSON over HTTPS: simplest default.
+- gRPC: useful for strongly typed internal service-to-service calls.
+- Message queues/events: useful for asynchronous processing.
+- SignalR/WebSockets: useful for real-time updates.
+
+The important part is a versioned, documented contract. The implementation language of the service is secondary.
+
+## ORM assessment
+
+Waypoint does not currently use an ORM. It uses explicit SQL through:
+
+- `one()`, `all()`, and `run()` helpers in `spike/api/db/connect.mjs`;
+- domain data-access functions in `spike/api/db/northwood.mjs`;
+- schema creation and additive migrations in `spike/api/db/schema.mjs`.
+
+This keeps dependencies small and makes queries, indexes, and migrations visible.
+
+### Potential ORM choices
+
+- Prisma: mature schema/model workflow, but adds a substantial runtime and migration layer.
+- Drizzle: lighter and closer to SQL, with useful TypeScript integration.
+- Sequelize: established, but more abstraction than this small SQLite service currently needs.
+
+### Recommendation
+
+Do not adopt an ORM solely to support C# services or a mobile rewrite. An ORM would be worth considering if:
+
+- the schema becomes much larger;
+- multiple developers need generated models and stronger typing;
+- database portability becomes important;
+- query and migration consistency becomes difficult to maintain.
+
+If an ORM is adopted, do it as a separate backend project with a migration plan. Do not mix an ORM introduction with identity normalization, a mobile rewrite, and service extraction in one change.
+
+## Refactor principles
+
+1. Preserve the current working demo and local development workflow.
+2. Keep subject and officer IDs canonical; names are display values only.
+3. Keep API contracts stable and version changes deliberately.
+4. Separate domain data access from route handlers.
+5. Keep native mobile behavior behind small, testable adapters.
+6. Prefer additive migrations and reversible changes.
+7. Test web, mobile, API, and reset workflows together.
+8. Avoid introducing infrastructure complexity without a concrete benefit.
+
+## Suggested phases
+
+### Phase 0 — Baseline
+
+- Document current API contracts and identity fields.
+- Add integration tests for the existing mobile workflows.
+- Capture build and deployment instructions.
+
+### Phase 1 — Boundary cleanup
+
+- Complete identity and audit normalization.
+- Centralize request validation.
+- Keep direct SQL behind domain data-access functions.
+- Add API contract tests.
+
+### Phase 2 — Ionic/Vue feasibility prototype
+
+- Create a separate Ionic/Vue/Capacitor client.
+- Implement authentication, one profile screen, and one read-only workflow.
+- Verify API origin handling in simulator and on a physical device.
+
+### Phase 3 — Native workflow prototype
+
+- Implement recording, permissions, photo selection, and secure storage.
+- Compare reliability and TestFlight builds with the Expo app.
+
+### Phase 4 — Service integration
+
+- Define versioned contracts for any C# service.
+- Add server-to-server authentication.
+- Integrate through the Waypoint API.
+- Add contract and failure-mode tests.
+
+### Phase 5 — Selective migration
+
+- Migrate screens incrementally only where the prototype demonstrates value.
+- Keep the Expo app as a fallback until feature parity and operational confidence are proven.
+
+### Phase 6 — ORM decision
+
+- Reassess whether direct SQL is still the simpler, safer choice.
+- If not, introduce an ORM in its own reviewed migration with generated models and tests.
+
+## Decision
+
+For now, keep the current Node + SQLite + Expo architecture. Store this refactor plan for future work, but do not start a full rewrite before the identity cleanup and current workflow tests are complete.
+
