@@ -457,7 +457,24 @@ function OfficerAssistantSheet({ auth, onClose }) {
         </View>
         {result?.error ? <Text style={{ color: C.err }}>{result.error}</Text> : null}
         {result?.transcript ? <Text style={{ color: C.muted }}>Heard: “{result.transcript}”</Text> : null}
-        {result?.kind === "action_items" ? <View style={{ gap: 8 }}><Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>{result.subject.name} · Action items</Text>{result.actions.length ? result.actions.map(a => <Text key={a.id} style={{ color: C.ink2 }}>• {a.body}{a.due_date ? ` · due ${a.due_date}` : ""}</Text>) : <Text style={{ color: C.muted }}>No open action items.</Text>}</View> : null}
+        {result?.kind === "action_items" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>
+              {result.subject.name} · {result.actions.length} action item{result.actions.length === 1 ? "" : "s"}
+            </Text>
+            <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ gap: 10 }} nestedScrollEnabled>
+              {result.actions.length ? result.actions.map(a => (
+                <View key={a.id} style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg }}>
+                  <Text style={{ color: C.ink, fontSize: 16, lineHeight: 21 }}>{a.body}</Text>
+                  <Text style={{ color: C.muted, marginTop: 4 }}>
+                    {a.owner === "subject" ? "Assigned to subject" : a.owner === "officer" ? "Assigned to officer" : "Owner to confirm"}
+                    {a.due_date ? ` · due ${a.due_date}` : " · no due date"}
+                  </Text>
+                </View>
+              )) : <Text style={{ color: C.muted }}>No open action items.</Text>}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
     </View>
   </Modal>;
