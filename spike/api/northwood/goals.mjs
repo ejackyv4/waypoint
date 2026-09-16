@@ -84,9 +84,10 @@ export const routes = {
 
   /* An officer may tick a step off too — they are the one who hears about it
      at a visit. Who did it is recorded either way. */
-  "POST /api/goals/step/done": async (req, res) => {
+  "POST /api/goals/step/done": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = setStepDone(Number(b.id), b.done !== false, "officer");
+    const r = setStepDone(Number(b.id), b.done !== false, ctx.session?.name || "officer",
+                           { officer_id: ctx.session?.officer_id });
     if (r.error) return saasJson(res, r.error === "no such action step" ? 404 : 409, r);
     return saasJson(res, 200, { ...r, goals: goalsFor(r.goal.subject_id) });
   }

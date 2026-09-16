@@ -174,23 +174,24 @@ export const deleteStep = id => run(`DELETE FROM goal_steps WHERE id = ?`, id);
  * did it is recorded, because "they said they did" and "I saw that they did"
  * are different claims and a case file should not blur them.
  */
-export function setStepDone(id, done, role) {
+export function setStepDone(id, done, role, identity = {}) {
   const st = stepById(id);
   if (!st) return { error: "no such action step" };
   if (role === "subject") {
-    if (done) run(`UPDATE goal_steps SET done_at = ?, done_by = ?, review_status = 'in_review',
+    if (done) run(`UPDATE goal_steps SET done_at = ?, done_by = ?, done_by_subject_id = ?, review_status = 'in_review',
                    confirmed_at = NULL, confirmed_by = NULL WHERE id = ?`,
-                  now(), role, id);
-    else      run(`UPDATE goal_steps SET done_at = NULL, done_by = NULL, review_status = 'open',
+                  now(), role, identity.subject_id ?? null, id);
+    else      run(`UPDATE goal_steps SET done_at = NULL, done_by = NULL, done_by_subject_id = NULL, review_status = 'open',
                    confirmed_at = NULL, confirmed_by = NULL WHERE id = ?`, id);
   } else if (done) {
     /* An officer may complete a step directly: they may be sitting with the
        subject and personally verify it. A subject report remains in_review,
        but officer authority is sufficient for this individual step. */
     run(`UPDATE goal_steps SET done_at = COALESCE(done_at, ?), review_status = 'done',
-           confirmed_at = ?, confirmed_by = ? WHERE id = ?`, now(), now(), role ?? null, id);
+           confirmed_at = ?, confirmed_by = ?, done_by_officer_id = ? WHERE id = ?`,
+        now(), now(), role ?? null, identity.officer_id ?? null, id);
   } else {
-    run(`UPDATE goal_steps SET done_at = NULL, done_by = NULL, review_status = 'open',
+    run(`UPDATE goal_steps SET done_at = NULL, done_by = NULL, done_by_officer_id = NULL, review_status = 'open',
            confirmed_at = NULL, confirmed_by = NULL WHERE id = ?`, id);
   }
   return { ok: true, step: stepById(id), goal: goalById(st.goal_id) };

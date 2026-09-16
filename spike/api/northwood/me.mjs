@@ -313,7 +313,8 @@ export const routes = {
     if (goal.status !== "open")
       return saasJson(res, 409, { error: "This goal is closed." });
 
-    const r = setStepDone(st.id, b.done !== false, "subject");
+    const r = setStepDone(st.id, b.done !== false, "subject",
+                          { subject_id: person.subject_id });
     return saasJson(res, 200, { ...r, goals: goalsFor(person.subject_id) });
   }),
 
