@@ -36,6 +36,77 @@ subject, action text, due date (if supplied), and owner:
 
 Only an explicit confirmation invokes the existing create-action API.
 
+## Capability and module map
+
+The assistant should grow by adding well-defined capabilities, not by trying to
+predict every possible sentence an officer might say. Each capability maps to a
+server-side tool with a typed request and response. The model interprets the
+question; the server resolves IDs, checks authorization, runs the module query,
+and returns structured data for the existing UI to render.
+
+The initial subject-facing module inventory is:
+
+| Module | Example read question |
+|---|---|
+| Action Items | “What are Dana Whitfield’s open action items?” |
+| Visits | “What upcoming visits does Dana have?” |
+| Financial Balance / fines | “What fines or other balances does Dana still owe?” |
+| Important Dates / appointments | “What appointments are coming up for Dana?” |
+| Goals | “What goals does Dana have, and how are they progressing?” |
+| Supervision Agreement | “What conditions are in Dana’s supervision agreement?” |
+| Reentry Plan | “What remains incomplete in Dana’s reentry plan?” |
+| Travel Permit / restrictions | “What are Dana’s travel restrictions?” |
+| Curfew | “What is Dana’s curfew, and when does it expire?” |
+| Vehicles | “What vehicles are on Dana’s record?” |
+| Family & Contacts | “Who are Dana’s listed contacts?” |
+| Employment | “Where is Dana employed?” |
+| Documents | “What documents does Dana have on file?” |
+| Community Service | “What community service does Dana have assigned?” |
+| Programs | “What programs is Dana enrolled in?” |
+| Case Notes | “What recent case notes should I review for Dana?” |
+
+For example, a travel-restriction response should be based on the Travel Permit
+records and preserve the distinction between a restriction and its expiration:
+
+```json
+{
+  "subject_id": "cust-1041",
+  "intent": "get_travel_restrictions",
+  "restrictions": [
+    {
+      "description": "No travel outside Utah without prior approval",
+      "expires_on": null
+    }
+  ]
+}
+```
+
+If no expiration is recorded, the response must say that it has no recorded
+expiration; it must not invent one. Financial answers should likewise return
+the underlying item IDs, labels, balances, due dates, and status rather than a
+single model-calculated sentence.
+
+The long-term tool registry should expose operations such as:
+
+```text
+list_action_items(subject_id, status, owner)
+list_visits(subject_id, from_date, to_date, status)
+list_financial_items(subject_id, status)
+list_important_dates(subject_id, from_date, to_date)
+get_travel_restrictions(subject_id)
+get_curfew(subject_id)
+list_goals(subject_id, status)
+get_supervision_agreement(subject_id)
+get_reentry_plan(subject_id)
+list_case_notes(subject_id, from_date, to_date)
+```
+
+The registry is also the boundary for scope. An officer-wide request such as
+“show me all upcoming visits” is a separate capability from
+`list_visits(subject_id, ...)`; it should be added deliberately with its own
+authorization, pagination, and response limits rather than inferred as a
+different spelling of the subject-specific tool.
+
 ## ID and identity rules
 
 - Names are for display and natural-language matching only.
@@ -116,7 +187,7 @@ time because a subject's assignment or an action's status may have changed.
 - Send a short question recording through a dedicated assistant endpoint; do not
   attach it to a visit or mix it into the visit recording history.
 - Support subject resolution and read-only intents for action items, visits,
-  goals, financials, and contact history.
+  goals, financials, important dates, travel restrictions, and contact history.
 - Render results using existing mobile components rather than model-generated
   HTML.
 - Require a subject selection when a name is ambiguous.
