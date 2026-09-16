@@ -254,7 +254,8 @@ export const routes = {
      nobody confirmed, and that is often the visit most worth making. */
   "POST /api/visits/start": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = startVisit(Number(b.id), b.officer || ctx.session?.name || null);
+    const r = startVisit(Number(b.id), b.officer || ctx.session?.name || null,
+                          { officer_id: ctx.session?.officer_id });
     return saasJson(res, r.error ? 409 : 200, r);
   },
 
@@ -273,7 +274,8 @@ export const routes = {
     if (b.note && String(b.note).trim())
       addVisitNote({ visit_id: id, body: String(b.note).trim(),
                      author: b.officer || ctx.session?.name || null });
-    const r = completeVisit(id, b.officer || ctx.session?.name || null, b.observations);
+    const r = completeVisit(id, b.officer || ctx.session?.name || null, b.observations,
+                            { officer_id: ctx.session?.officer_id });
     return saasJson(res, r.error ? 409 : 200,
       r.error ? r : { ...r, notes: notesForVisit(id) });
   },

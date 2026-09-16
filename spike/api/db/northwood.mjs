@@ -293,14 +293,14 @@ export const VISIT_OBSERVATIONS = {
  * acknowledgment, not permission: an officer may turn up to an appointment
  * nobody confirmed, and that is often exactly the visit worth making.
  */
-export function startVisit(id, officer) {
+export function startVisit(id, officer, identity = {}) {
   const v = visit(id);
   if (!v) return { error: "no such visit" };
   if (v.status === "cancelled") return { error: "this visit was cancelled" };
   if (v.completed_at) return { error: "this visit is already complete" };
   if (v.started_at) return { ok: true, visit: v };               // idempotent
-  run(`UPDATE visits SET started_at = ?, officer = COALESCE(officer, ?) WHERE id = ?`,
-      now(), officer ?? null, id);
+  run(`UPDATE visits SET started_at = ?, started_by_officer_id = ?, officer = COALESCE(officer, ?) WHERE id = ?`,
+      now(), identity.officer_id ?? null, officer ?? null, id);
   return { ok: true, visit: visit(id) };
 }
 
@@ -308,7 +308,7 @@ const OBSERVATION_FIELDS = ["subject_present", "location_safe", "contraband",
                             "contraband_detail", "demeanour", "others_present",
                             "concerns"];
 
-export function completeVisit(id, officer, observations = null) {
+export function completeVisit(id, officer, observations = null, identity = {}) {
   const v = visit(id);
   if (!v) return { error: "no such visit" };
   if (v.status === "cancelled") return { error: "this visit was cancelled" };
@@ -321,10 +321,11 @@ export function completeVisit(id, officer, observations = null) {
   const set = cols.map(c => `${c}=?`).join(", ");
 
   run(`UPDATE visits SET status = 'completed', completed_at = ?, completed_by = ?,
+                         completed_by_officer_id = ?,
                          ended_at = ?, started_at = COALESCE(started_at, ?)
                          ${set ? ", " + set : ""}
         WHERE id = ?`,
-      now(), officer ?? null, now(), now(), ...cols.map(c => observations[c]), id);
+      now(), officer ?? null, identity.officer_id ?? null, now(), now(), ...cols.map(c => observations[c]), id);
   return { ok: true, visit: visit(id) };
 }
 

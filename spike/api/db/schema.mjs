@@ -1281,6 +1281,8 @@ ensureColumn("goal_steps", "done_by_subject_id", "TEXT");
 ensureColumn("goal_steps", "done_by_officer_id", "INTEGER");
 ensureColumn("goals", "created_by_officer_id", "INTEGER");
 ensureColumn("goals", "completed_by_officer_id", "INTEGER");
+ensureColumn("visits", "started_by_officer_id", "INTEGER");
+ensureColumn("visits", "completed_by_officer_id", "INTEGER");
 db.exec(`UPDATE goal_steps SET review_status = 'done'
          WHERE done_at IS NOT NULL AND (review_status IS NULL OR review_status = 'open')`);
 

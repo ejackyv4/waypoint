@@ -50,6 +50,10 @@ Goal creation and completion now record the authenticated officer ID in
 addition to the legacy display value. The focused identity test passes 14/14
 checks. Remaining audit fields and authorization coverage are still open.
 
+Visit start and completion now record the authenticated officer ID in additive
+columns. The focused identity test passes 15/15 checks. Remaining visit notes,
+photos, and other audit fields are still open.
+
 Baseline note: the isolated session-sweeper test passed on 2026-09-16,
 including the assertion that the default database is `spike/data/waypoint.db`.
 The full HTTP smoke suite remains open because it requires a running test

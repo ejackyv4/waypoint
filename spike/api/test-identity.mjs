@@ -5,6 +5,7 @@ import "./db/schema.mjs";
 import { db } from "./db/connect.mjs";
 import { setStepDone, saveGoal, completeGoal } from "./db/goals.mjs";
 import { addStandaloneAction, completeAction, decideAction } from "./db/insights.mjs";
+import { startVisit, completeVisit } from "./db/northwood.mjs";
 
 let pass = 0, fail = 0;
 const ok = (condition, message) => {
@@ -61,6 +62,15 @@ const completedGoal = completeGoal(createdGoal.id, "Officer Test", true, { offic
 const completedGoalRow = db.prepare(`SELECT completed_by_officer_id FROM goals WHERE id = ?`).get(createdGoal.id);
 ok(completedGoal.ok && completedGoalRow.completed_by_officer_id === officer.id,
    "goal completion stores the officer ID");
+
+db.prepare(`INSERT INTO visits (subject_id, scheduled_at, status, created_at) VALUES (?, ?, 'scheduled', datetime('now'))`)
+  .run("cust-identity", "2026-09-16T10:00:00.000Z");
+const visit = db.prepare(`SELECT id FROM visits WHERE subject_id = ? ORDER BY id DESC LIMIT 1`).get("cust-identity");
+startVisit(visit.id, "Officer Test", { officer_id: officer.id });
+completeVisit(visit.id, "Officer Test", null, { officer_id: officer.id });
+const visitAudit = db.prepare(`SELECT started_by_officer_id, completed_by_officer_id FROM visits WHERE id = ?`).get(visit.id);
+ok(visitAudit.started_by_officer_id === officer.id && visitAudit.completed_by_officer_id === officer.id,
+   "visit start and completion store the officer ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
