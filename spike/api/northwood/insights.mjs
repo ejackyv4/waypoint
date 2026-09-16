@@ -202,7 +202,8 @@ export const routes = {
           kind: "goal_step", visit_id: null
         })))
       );
-      const wantsAll = intent.scope === "all" || /\b(all|every|everything)\b/i.test(t.text);
+      const wantsAll = (intent.scope === "all" || /\b(all|every|everything)\b/i.test(t.text))
+        && !/\b(open|outstanding|overdue)\b/i.test(t.text);
       const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
         : all.filter(a => ["accepted", "in_review"].includes(a.status));
       return saasJson(res, 200, { kind: "action_items", transcript: t.text,
@@ -233,7 +234,8 @@ export const routes = {
           kind: "goal_step", visit_id: null
         })))
       );
-      const wantsAll = intent.scope === "all" || /\b(all|every|everything)\b/i.test(prompt);
+      const wantsAll = (intent.scope === "all" || /\b(all|every|everything)\b/i.test(prompt))
+        && !/\b(open|outstanding|overdue)\b/i.test(prompt);
       const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
         : all.filter(a => ["accepted", "in_review"].includes(a.status));
       return saasJson(res, 200, { kind: "action_items", subject: { subject_id: subject.subject_id, name: subject.name }, actions });
