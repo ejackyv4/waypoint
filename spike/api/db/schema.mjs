@@ -1274,6 +1274,8 @@ db.exec(`UPDATE visit_summary_actions
 ensureColumn("goal_steps", "review_status", "TEXT NOT NULL DEFAULT 'open'");
 ensureColumn("goal_steps", "confirmed_by", "TEXT");
 ensureColumn("goal_steps", "confirmed_at", "TEXT");
+ensureColumn("goal_steps", "done_by_subject_id", "TEXT");
+ensureColumn("goal_steps", "done_by_officer_id", "INTEGER");
 db.exec(`UPDATE goal_steps SET review_status = 'done'
          WHERE done_at IS NOT NULL AND (review_status IS NULL OR review_status = 'open')`);
 
@@ -1281,6 +1283,14 @@ db.exec(`UPDATE goal_steps SET review_status = 'done'
 db.exec(`CREATE TABLE IF NOT EXISTS subject_action_items (
   id INTEGER PRIMARY KEY, subject_id TEXT NOT NULL, body TEXT NOT NULL,
   owner TEXT NOT NULL DEFAULT 'subject', due_date TEXT,
+  assigned_subject_id TEXT, assigned_officer_id INTEGER,
   status TEXT NOT NULL DEFAULT 'accepted', done_by TEXT, done_at TEXT,
-  decided_by TEXT, decided_at TEXT, created_at TEXT NOT NULL
+  done_by_subject_id TEXT, done_by_officer_id INTEGER,
+  decided_by TEXT, decided_at TEXT, decided_by_officer_id INTEGER,
+  created_at TEXT NOT NULL
 )`);
+ensureColumn("subject_action_items", "assigned_subject_id", "TEXT");
+ensureColumn("subject_action_items", "assigned_officer_id", "INTEGER");
+ensureColumn("subject_action_items", "done_by_subject_id", "TEXT");
+ensureColumn("subject_action_items", "done_by_officer_id", "INTEGER");
+ensureColumn("subject_action_items", "decided_by_officer_id", "INTEGER");

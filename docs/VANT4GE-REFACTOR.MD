@@ -29,6 +29,11 @@ The goal is not to rewrite everything at once. The preferred approach is to keep
 - [ ] Normalize subject and officer IDs using additive migrations.
 - [ ] Add authorization and identity-scope tests.
 
+Migration checkpoint: additive identity columns for goal-step completion and
+standalone action assignment/completion were added on 2026-09-16. The focused
+identity schema test passes 7/7 checks. Write-path population and authorization
+scope tests remain open.
+
 Baseline note: the isolated session-sweeper test passed on 2026-09-16,
 including the assertion that the default database is `spike/data/waypoint.db`.
 The full HTTP smoke suite remains open because it requires a running test
