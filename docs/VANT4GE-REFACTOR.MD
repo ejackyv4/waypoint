@@ -28,6 +28,11 @@ The goal is not to rewrite everything at once. The preferred approach is to keep
 - [ ] Normalize subject and officer IDs using additive migrations.
 - [ ] Add authorization and identity-scope tests.
 
+Baseline note: the isolated session-sweeper test passed on 2026-09-16,
+including the assertion that the default database is `spike/data/waypoint.db`.
+The full HTTP smoke suite remains open because it requires a running test
+server and seeded content.
+
 ## Current stack
 
 - Backend/API: Node.js ES modules.
