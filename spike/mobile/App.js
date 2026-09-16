@@ -416,6 +416,7 @@ function OfficerAssistantSheet({ auth, onClose }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [mode, setMode] = useState(null);
   const recorder = useAudioRecorder(SPEECH_RECORDING);
   const ask = async (path, body) => {
     setBusy(true); setResult(null);
@@ -439,22 +440,29 @@ function OfficerAssistantSheet({ auth, onClose }) {
   };
   return <Modal transparent visible animationType="slide" onRequestClose={onClose}>
     <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,.45)" }}>
-      <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, gap: 14 }}>
+      <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 26, gap: 16, maxHeight: "90%" }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ fontSize: 22, fontWeight: "800", color: C.ink }}>Ask Waypoint</Text>
+          <Text style={{ fontSize: 26, fontWeight: "800", color: C.ink }}>Ask Meridian</Text>
           <Pressable onPress={onClose}><Text style={{ fontSize: 28, color: C.faint }}>×</Text></Pressable>
         </View>
-        <Text style={{ color: C.muted }}>Ask about a subject’s action items. Your question is read-only.</Text>
-        <TextInput value={prompt} onChangeText={setPrompt} placeholder="Type a question or use the microphone" multiline
-          style={{ minHeight: 58, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 14, fontSize: 16, color: C.ink }} />
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <Pressable onPress={recording ? stop : start} style={{ flex: 1, backgroundColor: recording ? C.err : C.brand, borderRadius: 14, padding: 15, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontWeight: "800" }}>{recording ? "Stop & ask" : "🎙 Ask by voice"}</Text>
+        <Text style={{ color: C.muted, fontSize: 16, lineHeight: 22 }}>Ask about a subject’s action items. Choose how you want to ask.</Text>
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <Pressable onPress={recording ? stop : start} style={{ flex: 1, borderWidth: 1.5, borderColor: recording ? C.err : C.brand, backgroundColor: recording ? C.errSoft : C.brandSoft, borderRadius: 16, padding: 18, alignItems: "center", gap: 5 }}>
+            <Ionicons name={recording ? "stop-circle-outline" : "mic-outline"} size={28} color={recording ? C.err : C.brand} />
+            <Text style={{ color: recording ? C.err : C.brand, fontWeight: "800", fontSize: 16 }}>{recording ? "Stop" : "Voice"}</Text>
           </Pressable>
-          <Pressable disabled={!prompt.trim() || busy} onPress={() => ask("/api/assistant/query", { prompt })} style={{ flex: 1, backgroundColor: prompt.trim() && !busy ? C.brandDark : C.line, borderRadius: 14, padding: 15, alignItems: "center" }}>
-            <Text style={{ color: prompt.trim() && !busy ? "#fff" : C.faint, fontWeight: "800" }}>{busy ? "Thinking…" : "Ask"}</Text>
+          <Pressable onPress={() => setMode("text")} style={{ flex: 1, borderWidth: 1.5, borderColor: mode === "text" ? C.brand : C.line, backgroundColor: mode === "text" ? C.brandSoft : C.surface, borderRadius: 16, padding: 18, alignItems: "center", gap: 5 }}>
+            <Ionicons name="create-outline" size={28} color={mode === "text" ? C.brand : C.ink2} />
+            <Text style={{ color: mode === "text" ? C.brand : C.ink2, fontWeight: "800", fontSize: 16 }}>Text</Text>
           </Pressable>
         </View>
+        {mode === "text" ? <>
+          <TextInput value={prompt} onChangeText={setPrompt} placeholder="Type your question" multiline autoFocus
+            style={{ minHeight: 78, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 14, fontSize: 17, color: C.ink }} />
+          <Pressable disabled={!prompt.trim() || busy} onPress={() => ask("/api/assistant/query", { prompt })} style={{ backgroundColor: prompt.trim() && !busy ? C.brand : C.line, borderRadius: 14, padding: 16, alignItems: "center" }}>
+            <Text style={{ color: prompt.trim() && !busy ? "#fff" : C.faint, fontWeight: "800", fontSize: 16 }}>{busy ? "Thinking…" : "Send question"}</Text>
+          </Pressable>
+        </> : null}
         {result?.error ? <Text style={{ color: C.err }}>{result.error}</Text> : null}
         {result?.transcript ? <Text style={{ color: C.muted }}>Heard: “{result.transcript}”</Text> : null}
         {result?.kind === "action_items" ? (
