@@ -5,7 +5,7 @@ import "./db/schema.mjs";
 import { db } from "./db/connect.mjs";
 import { setStepDone, saveGoal, completeGoal } from "./db/goals.mjs";
 import { addStandaloneAction, completeAction, decideAction } from "./db/insights.mjs";
-import { startVisit, completeVisit } from "./db/northwood.mjs";
+import { startVisit, completeVisit, addVisitNote } from "./db/northwood.mjs";
 
 let pass = 0, fail = 0;
 const ok = (condition, message) => {
@@ -71,6 +71,9 @@ completeVisit(visit.id, "Officer Test", null, { officer_id: officer.id });
 const visitAudit = db.prepare(`SELECT started_by_officer_id, completed_by_officer_id FROM visits WHERE id = ?`).get(visit.id);
 ok(visitAudit.started_by_officer_id === officer.id && visitAudit.completed_by_officer_id === officer.id,
    "visit start and completion store the officer ID");
+addVisitNote({ visit_id: visit.id, body: "Identity note", author: "Officer Test", author_officer_id: officer.id });
+const noteAudit = db.prepare(`SELECT author_officer_id FROM visit_notes WHERE visit_id = ? ORDER BY id DESC LIMIT 1`).get(visit.id);
+ok(noteAudit.author_officer_id === officer.id, "visit note stores the officer ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

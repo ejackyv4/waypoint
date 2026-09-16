@@ -215,9 +215,9 @@ export function acceptVisit(id, subject_id) {
 
 /** The officer records that the visit happened. The timestamp is ours, taken
  *  at the moment of recording — not supplied by the caller. */
-export function addVisitNote({ visit_id, body, author }) {
-  run(`INSERT INTO visit_notes (visit_id, body, author, created_at) VALUES (?,?,?,?)`,
-      visit_id, body, author ?? null, now());
+export function addVisitNote({ visit_id, body, author, author_officer_id }) {
+  run(`INSERT INTO visit_notes (visit_id, body, author, author_officer_id, created_at) VALUES (?,?,?,?,?)`,
+      visit_id, body, author ?? null, author_officer_id ?? null, now());
   return one(`SELECT * FROM visit_notes WHERE visit_id = ? ORDER BY id DESC LIMIT 1`, visit_id);
 }
 
@@ -231,10 +231,10 @@ export const photoById = id => one(`SELECT * FROM visit_photos WHERE id = ?`, id
 /** Append only, deliberately. See the table comment. */
 export function addVisitPhoto(p) {
   run(`INSERT INTO visit_photos
-         (visit_id, filename, mime_type, byte_size, caption, author, created_at)
-       VALUES (?,?,?,?,?,?,?)`,
+         (visit_id, filename, mime_type, byte_size, caption, author, author_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
       p.visit_id, p.filename, p.mime_type, p.byte_size ?? null,
-      p.caption ?? null, p.author ?? null, now());
+      p.caption ?? null, p.author ?? null, p.author_officer_id ?? null, now());
   return one(`SELECT * FROM visit_photos WHERE visit_id = ? ORDER BY id DESC LIMIT 1`,
              p.visit_id);
 }
@@ -250,10 +250,10 @@ export const recordingById = id =>
 /** Append only, deliberately. See the table comment. */
 export function addVisitRecording(r) {
   run(`INSERT INTO visit_recordings
-         (visit_id, filename, mime_type, byte_size, duration_ms, note, author, created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
+         (visit_id, filename, mime_type, byte_size, duration_ms, note, author, author_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       r.visit_id, r.filename, r.mime_type, r.byte_size ?? null,
-      r.duration_ms ?? null, r.note ?? null, r.author ?? null, now());
+      r.duration_ms ?? null, r.note ?? null, r.author ?? null, r.author_officer_id ?? null, now());
   return one(`SELECT * FROM visit_recordings WHERE visit_id = ? ORDER BY id DESC LIMIT 1`,
              r.visit_id);
 }
@@ -622,9 +622,9 @@ export const caseNotesFor = subject_id => all(
   `SELECT * FROM case_notes WHERE subject_id = ? ORDER BY id DESC`, subject_id);
 
 /** Append only. There is deliberately no update and no delete. */
-export function addCaseNote({ subject_id, body, author }) {
-  run(`INSERT INTO case_notes (subject_id, body, author, created_at) VALUES (?,?,?,?)`,
-      subject_id, body, author ?? null, now());
+export function addCaseNote({ subject_id, body, author, author_officer_id }) {
+  run(`INSERT INTO case_notes (subject_id, body, author, author_officer_id, created_at) VALUES (?,?,?,?,?)`,
+      subject_id, body, author ?? null, author_officer_id ?? null, now());
   return one(`SELECT * FROM case_notes WHERE subject_id = ? ORDER BY id DESC LIMIT 1`,
              subject_id);
 }

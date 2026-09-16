@@ -54,6 +54,11 @@ Visit start and completion now record the authenticated officer ID in additive
 columns. The focused identity test passes 15/15 checks. Remaining visit notes,
 photos, and other audit fields are still open.
 
+Visit notes, photos, and recordings now have additive officer identity fields,
+and their upload/write routes populate the fields from the authenticated
+session. The focused identity test passes 16/16 checks. Case notes, agreements,
+reentry, and financial audit fields remain open.
+
 Baseline note: the isolated session-sweeper test passed on 2026-09-16,
 including the assertion that the default database is `spike/data/waypoint.db`.
 The full HTTP smoke suite remains open because it requires a running test
