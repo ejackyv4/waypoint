@@ -24,7 +24,8 @@ The goal is not to rewrite everything at once. The preferred approach is to keep
 
 - [ ] Capture the baseline test results for login, visits, action items,
       profiles, assistant queries, and demo resets.
-- [ ] Inventory every identity-bearing field and route.
+- [x] Inventory every identity-bearing field and route (see
+      `docs/IDENTITY-INVENTORY.md`).
 - [ ] Normalize subject and officer IDs using additive migrations.
 - [ ] Add authorization and identity-scope tests.
 
