@@ -417,6 +417,7 @@ function OfficerAssistantSheet({ auth, onClose }) {
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
   const [mode, setMode] = useState(null);
+  const [showExamples, setShowExamples] = useState(false);
   const recorder = useAudioRecorder(SPEECH_RECORDING);
   const ask = async (path, body) => {
     setBusy(true); setResult(null);
@@ -443,9 +444,21 @@ function OfficerAssistantSheet({ auth, onClose }) {
       <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 26, gap: 16, maxHeight: "90%" }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontSize: 26, fontWeight: "800", color: C.ink }}>Ask Meridian</Text>
-          <Pressable onPress={onClose}><Text style={{ fontSize: 28, color: C.faint }}>×</Text></Pressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+            <Pressable accessibilityLabel="Show question examples" onPress={() => setShowExamples(v => !v)}>
+              <Ionicons name="help-circle-outline" size={25} color={C.muted} />
+            </Pressable>
+            <Pressable accessibilityLabel="Close Ask Meridian" onPress={onClose}><Text style={{ fontSize: 28, color: C.faint }}>×</Text></Pressable>
+          </View>
         </View>
         <Text style={{ color: C.muted, fontSize: 16, lineHeight: 22 }}>Ask questions about a particular subject.</Text>
+        {showExamples ? <View style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg, gap: 6 }}>
+          <Text style={{ color: C.ink, fontWeight: "800" }}>Try asking…</Text>
+          {["What are Dana Whitfield’s open action items?", "What upcoming visits does Dana Whitfield have?", "What fines does Dana Whitfield still owe?", "What appointments are coming up for Dana Whitfield?", "What are Dana Whitfield’s travel restrictions?", "What is Dana Whitfield’s curfew?"]
+            .map(example => <Pressable key={example} accessibilityLabel={`Use example: ${example}`} onPress={() => { setPrompt(example); setMode("text"); setShowExamples(false); }}>
+              <Text style={{ color: C.brand, lineHeight: 21 }}>{example}</Text>
+            </Pressable>)}
+        </View> : null}
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable accessibilityLabel={recording ? "Stop voice question" : "Ask by voice"} onPress={recording ? stop : start} style={{ width: 52, height: 52, borderWidth: 1.5, borderColor: recording ? C.err : C.brand, backgroundColor: recording ? C.errSoft : C.brandSoft, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
             <Ionicons name={recording ? "stop-circle-outline" : "mic-outline"} size={23} color={recording ? C.err : C.brand} />
