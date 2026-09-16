@@ -290,6 +290,50 @@ export async function summarise(text, context = {}) {
   };
 }
 
+const OFFICER_ASSISTANT_TOOL = {
+  name: "officer_question",
+  description: "Interpret a read-only officer question.",
+  input_schema: { type: "object", properties: {
+    intent: { type: "string", enum: ["list_action_items", "unsupported"] },
+    subject_name: { type: "string" },
+    scope: { type: "string", enum: ["open", "all"] }
+  }, required: ["intent"] }
+};
+
+/** Convert an officer's natural-language question into a constrained intent. */
+export async function interpretOfficerQuestion(prompt) {
+  if (!LLM_KEY) fail("The officer assistant is not configured. Set WAYPOINT_LLM_KEY.");
+  const body = {
+    model: LLM_MODEL,
+    tools: [{ type: "function", function: {
+      name: OFFICER_ASSISTANT_TOOL.name,
+      description: OFFICER_ASSISTANT_TOOL.description,
+      parameters: OFFICER_ASSISTANT_TOOL.input_schema
+    } }],
+    tool_choice: { type: "function", function: { name: OFFICER_ASSISTANT_TOOL.name } },
+    messages: [
+      { role: "system", content: "You are an officer assistant. Interpret the request only. For action-item questions return list_action_items, extract the subject's full display name, and default scope to open. Never invent an ID. For anything else return unsupported." },
+      { role: "user", content: String(prompt || "").trim() }
+    ]
+  };
+  const r = await withTimeout("Officer assistant", signal => fetch(LLM_URL, {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${LLM_KEY}` },
+    body: JSON.stringify(body)
+  }));
+  const response = await r.json().catch(() => ({}));
+  if (!r.ok) fail(`Officer assistant failed — ${messageFrom(response, r.status)}`);
+  const call = response.choices?.[0]?.message?.tool_calls?.[0];
+  let out;
+  try { out = call && JSON.parse(call.function.arguments); } catch { out = null; }
+  if (!out) fail("The assistant did not return a structured answer.");
+  return {
+    intent: out.intent === "list_action_items" ? "list_action_items" : "unsupported",
+    subject_name: String(out.subject_name || "").trim(),
+    scope: out.scope === "all" ? "all" : "open"
+  };
+}
+
 const PROGRAM_ANALYSIS_TOOL = {
   name: "program_completion_analysis",
   description: "Analyze a course response evidence bundle for an officer review draft.",

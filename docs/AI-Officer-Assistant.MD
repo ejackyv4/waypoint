@@ -8,8 +8,9 @@ Northwood's existing APIs; it is not a second database, an unrestricted chatbot,
 or a replacement for the normal screens.
 
 The first example is a question-mark button in the officer mobile app's main
-bottom navigation bar. Tapping it opens a prompt sheet where the officer can
-ask a question in ordinary language.
+bottom navigation bar. Tapping it opens a prompt sheet whose primary control
+is a microphone. The officer asks a question verbally in ordinary language;
+typed input remains available as a fallback for accessibility or noisy rooms.
 
 ## Example interaction
 
@@ -107,10 +108,13 @@ time because a subject's assignment or an action's status may have changed.
 - Add feature flags and a provider capability check so the assistant can be
   disabled without affecting normal app operation.
 
-### Phase 1 — read-only mobile assistant
+### Phase 1 — read-only voice-first mobile assistant
 
 - Add the question-mark button to the officer mobile bottom bar.
-- Add a keyboard-friendly prompt sheet with loading, retry, and empty states.
+- Add a voice-first prompt sheet with recording, transcription, loading, retry,
+  cancellation, and empty states. Keep a text field as a fallback.
+- Send a short question recording through a dedicated assistant endpoint; do not
+  attach it to a visit or mix it into the visit recording history.
 - Support subject resolution and read-only intents for action items, visits,
   goals, financials, and contact history.
 - Render results using existing mobile components rather than model-generated

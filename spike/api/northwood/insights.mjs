@@ -15,7 +15,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { visit, recordingById, subjectByKey } from "../db/northwood.mjs";
+import { visit, recordingById, subjectByKey, officerCaseload } from "../db/northwood.mjs";
 import { goalsFor } from "../db/goals.mjs";
 import {
   claimTranscript, transcriptById, transcriptFor, transcriptsForVisit,
@@ -27,7 +27,7 @@ import {
   actionsForSubject, addStandaloneAction, backfillDueDates, promoteProposedActions,
   supersedeStaleActions
 } from "../db/insights.mjs";
-import { transcribe, summarise } from "./ai.mjs";
+import { transcribe, summarise, interpretOfficerQuestion } from "./ai.mjs";
 import { AUDIO_DIR } from "./documents.mjs";
 import { STT_READY, LLM_READY } from "../config.mjs";
 import { saasJson } from "./shared.mjs";
@@ -177,6 +177,27 @@ function startSummary(visit_id, requested_by) {
 /* ------------------------------------------------------------------ */
 
 export const routes = {
+
+  "POST /api/assistant/query": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const prompt = String(b.prompt || "").trim();
+    if (!prompt) return saasJson(res, 400, { error: "Ask a question first." });
+    try {
+      const intent = await interpretOfficerQuestion(prompt);
+      if (intent.intent !== "list_action_items" || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", message: "I can currently list a subject's action items. Try: list Dana Whitfield's action items." });
+      const allowed = officerCaseload(ctx.session.officer_id);
+      const matches = allowed.filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
+      if (matches.length !== 1)
+        return saasJson(res, 200, { kind: "choose_subject", subjects: matches.map(s => ({ subject_id: s.subject_id, name: s.name })) });
+      const subject = matches[0];
+      const all = actionsForSubject(subject.subject_id);
+      const actions = intent.scope === "all" ? all : all.filter(a => ["accepted", "in_review"].includes(a.status));
+      return saasJson(res, 200, { kind: "action_items", subject: { subject_id: subject.subject_id, name: subject.name }, actions });
+    } catch (e) {
+      return saasJson(res, 502, { error: e?.message || "The assistant could not answer that." });
+    }
+  },
 
   /**
    * Turn one recording into text.
