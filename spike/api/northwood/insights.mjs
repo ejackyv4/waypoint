@@ -15,7 +15,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { visit, recordingById, subjectByKey, officerCaseload } from "../db/northwood.mjs";
+import { visit, recordingById, subjectByKey, officerCaseload, visitsFor } from "../db/northwood.mjs";
 import { goalsFor } from "../db/goals.mjs";
 import {
   claimTranscript, transcriptById, transcriptFor, transcriptsForVisit,
@@ -186,17 +186,22 @@ export const routes = {
     try {
       const t = await transcribe(bytes, "officer-question.m4a", "audio/m4a");
       const intent = await interpretOfficerQuestion(t.text);
-      if (intent.intent !== "list_action_items" || !intent.subject_name)
-        return saasJson(res, 200, { kind: "unsupported", transcript: t.text, message: "I can currently list a subject's action items." });
+      if (!["list_action_items", "list_upcoming_visits"].includes(intent.intent) || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", transcript: t.text, message: "I can currently list action items or upcoming visits for a subject." });
       const matches = officerCaseload(ctx.session.officer_id)
         .filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
       if (matches.length !== 1)
         return saasJson(res, 200, { kind: "choose_subject", transcript: t.text, subjects: matches.map(s => ({ subject_id: s.subject_id, name: s.name })) });
       const subject = matches[0];
+      if (intent.intent === "list_upcoming_visits")
+        return saasJson(res, 200, { kind: "visits", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
       const all = actionsForSubject(subject.subject_id);
+      const wantsAll = intent.scope === "all" || /\b(all|every|everything)\b/i.test(t.text);
+      const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
+        : all.filter(a => ["accepted", "in_review"].includes(a.status));
       return saasJson(res, 200, { kind: "action_items", transcript: t.text,
         subject: { subject_id: subject.subject_id, name: subject.name },
-        actions: intent.scope === "all" ? all : all.filter(a => ["accepted", "in_review"].includes(a.status)) });
+        actions });
     } catch (e) { return saasJson(res, 502, { error: e?.message || "The assistant could not answer that." }); }
   },
 
@@ -206,15 +211,19 @@ export const routes = {
     if (!prompt) return saasJson(res, 400, { error: "Ask a question first." });
     try {
       const intent = await interpretOfficerQuestion(prompt);
-      if (intent.intent !== "list_action_items" || !intent.subject_name)
-        return saasJson(res, 200, { kind: "unsupported", message: "I can currently list a subject's action items. Try: list Dana Whitfield's action items." });
+      if (!["list_action_items", "list_upcoming_visits"].includes(intent.intent) || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", message: "I can currently list action items or upcoming visits for a subject." });
       const allowed = officerCaseload(ctx.session.officer_id);
       const matches = allowed.filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
       if (matches.length !== 1)
         return saasJson(res, 200, { kind: "choose_subject", subjects: matches.map(s => ({ subject_id: s.subject_id, name: s.name })) });
       const subject = matches[0];
+      if (intent.intent === "list_upcoming_visits")
+        return saasJson(res, 200, { kind: "visits", subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
       const all = actionsForSubject(subject.subject_id);
-      const actions = intent.scope === "all" ? all : all.filter(a => ["accepted", "in_review"].includes(a.status));
+      const wantsAll = intent.scope === "all" || /\b(all|every|everything)\b/i.test(prompt);
+      const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
+        : all.filter(a => ["accepted", "in_review"].includes(a.status));
       return saasJson(res, 200, { kind: "action_items", subject: { subject_id: subject.subject_id, name: subject.name }, actions });
     } catch (e) {
       return saasJson(res, 502, { error: e?.message || "The assistant could not answer that." });
