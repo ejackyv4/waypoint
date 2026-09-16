@@ -447,12 +447,12 @@ function OfficerAssistantSheet({ auth, onClose }) {
         </View>
         <Text style={{ color: C.muted, fontSize: 16, lineHeight: 22 }}>Ask about a subject’s action items. Choose how you want to ask.</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
-          <Pressable onPress={recording ? stop : start} style={{ flex: 1, borderWidth: 1.5, borderColor: recording ? C.err : C.brand, backgroundColor: recording ? C.errSoft : C.brandSoft, borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}>
-            <Ionicons name={recording ? "stop-circle-outline" : "mic-outline"} size={24} color={recording ? C.err : C.brand} />
+          <Pressable onPress={recording ? stop : start} style={{ flex: 1, height: 76, borderWidth: 1.5, borderColor: recording ? C.err : C.brand, backgroundColor: recording ? C.errSoft : C.brandSoft, borderRadius: 12, padding: 8, alignItems: "center", gap: 2 }}>
+            <Ionicons name={recording ? "stop-circle-outline" : "mic-outline"} size={21} color={recording ? C.err : C.brand} />
             <Text style={{ color: recording ? C.err : C.brand, fontWeight: "800", fontSize: 16 }}>{recording ? "Stop" : "Voice"}</Text>
           </Pressable>
-          <Pressable onPress={() => setMode("text")} style={{ flex: 1, borderWidth: 1.5, borderColor: mode === "text" ? C.brand : C.line, backgroundColor: mode === "text" ? C.brandSoft : C.surface, borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}>
-            <Ionicons name="create-outline" size={24} color={mode === "text" ? C.brand : C.ink2} />
+          <Pressable onPress={() => setMode("text")} style={{ flex: 1, height: 76, borderWidth: 1.5, borderColor: mode === "text" ? C.brand : C.line, backgroundColor: mode === "text" ? C.brandSoft : C.surface, borderRadius: 12, padding: 8, alignItems: "center", gap: 2 }}>
+            <Ionicons name="create-outline" size={21} color={mode === "text" ? C.brand : C.ink2} />
             <Text style={{ color: mode === "text" ? C.brand : C.ink2, fontWeight: "800", fontSize: 16 }}>Text</Text>
           </Pressable>
         </View>

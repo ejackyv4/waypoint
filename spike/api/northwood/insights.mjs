@@ -195,7 +195,13 @@ export const routes = {
       const subject = matches[0];
       if (intent.intent === "list_upcoming_visits")
         return saasJson(res, 200, { kind: "visits", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
-      const all = actionsForSubject(subject.subject_id);
+      const all = actionsForSubject(subject.subject_id).concat(
+        goalsFor(subject.subject_id).flatMap(g => (g.steps || []).map(st => ({
+          id: `goal-${st.id}`, body: st.body, owner: "subject",
+          due_date: g.due_date || null, status: st.review_status || (st.done_at ? "done" : "accepted"),
+          kind: "goal_step", visit_id: null
+        })))
+      );
       const wantsAll = intent.scope === "all" || /\b(all|every|everything)\b/i.test(t.text);
       const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
         : all.filter(a => ["accepted", "in_review"].includes(a.status));
@@ -220,7 +226,13 @@ export const routes = {
       const subject = matches[0];
       if (intent.intent === "list_upcoming_visits")
         return saasJson(res, 200, { kind: "visits", subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
-      const all = actionsForSubject(subject.subject_id);
+      const all = actionsForSubject(subject.subject_id).concat(
+        goalsFor(subject.subject_id).flatMap(g => (g.steps || []).map(st => ({
+          id: `goal-${st.id}`, body: st.body, owner: "subject",
+          due_date: g.due_date || null, status: st.review_status || (st.done_at ? "done" : "accepted"),
+          kind: "goal_step", visit_id: null
+        })))
+      );
       const wantsAll = intent.scope === "all" || /\b(all|every|everything)\b/i.test(prompt);
       const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
         : all.filter(a => ["accepted", "in_review"].includes(a.status));
