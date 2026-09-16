@@ -117,6 +117,47 @@ Do not adopt an ORM solely to support C# services or a mobile rewrite. An ORM wo
 
 If an ORM is adopted, do it as a separate backend project with a migration plan. Do not mix an ORM introduction with identity normalization, a mobile rewrite, and service extraction in one change.
 
+## MVC assessment
+
+Waypoint uses the ideas behind MVC, but it does not currently implement a
+strict MVC framework with explicitly named controller, model, and DTO layers.
+
+### What exists today
+
+- **Controllers:** route modules such as `spike/api/northwood/profile.mjs` and
+  `spike/api/northwood/insights.mjs` receive HTTP requests, authenticate them,
+  validate inputs, call domain functions, and write responses. These are
+  controller-like responsibilities, although route handlers and business
+  logic are sometimes close together.
+- **Models:** the SQLite schema in `spike/api/db/schema.mjs` is the database
+  model, while functions in `spike/api/db/northwood.mjs` are the model/data
+  access layer. They are not ORM classes or generated models.
+- **Views:** the web HTML files and React Native screens are views. JSON
+  response objects serve as the API's view data for web and mobile clients.
+- **DTOs:** response objects act as informal DTOs, but there is not yet a
+  centralized DTO definition or runtime schema for every endpoint.
+
+### Target boundary
+
+For a more maintainable application, each external endpoint should follow this
+shape:
+
+`request → controller → service/use case → model/data access → DTO → response`
+
+Controllers should handle HTTP concerns only. Services should contain workflow
+rules. Models/data-access functions should own database queries. DTO builders
+should define the stable shape sent to web, mobile, or another service. This
+keeps database columns from leaking directly into client contracts and makes a
+future C# service or ORM easier to introduce safely.
+
+### Refactor guidance
+
+Do not rewrite the application into a framework solely to obtain MVC labels.
+First extract the highest-risk workflows—identity, action-item completion,
+visits, and assistant queries—into clear controller/service/data-access/DTO
+boundaries. Add validation and contract tests at those boundaries, then apply
+the same structure to new modules.
+
 ## Refactor principles
 
 1. Preserve the current working demo and local development workflow.
@@ -174,4 +215,3 @@ If an ORM is adopted, do it as a separate backend project with a migration plan.
 ## Decision
 
 For now, keep the current Node + SQLite + Expo architecture. Store this refactor plan for future work, but do not start a full rewrite before the identity cleanup and current workflow tests are complete.
-
