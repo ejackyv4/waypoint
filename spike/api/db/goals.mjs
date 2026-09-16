@@ -102,7 +102,7 @@ export const markGoalsSeen = subject_id => run(
 
 const GOAL_FIELDS = ["title", "detail", "due_date", "status"];
 
-export function saveGoal(g, author) {
+export function saveGoal(g, author, identity = {}) {
   if (g.id) {
     // Merge, never overwrite: a payload that omits a field leaves it alone.
     const patch = GOAL_FIELDS.filter(f => g[f] !== undefined);
@@ -111,9 +111,10 @@ export function saveGoal(g, author) {
             WHERE id = ?`, ...patch.map(f => g[f]), now(), g.id);
     return goalById(g.id);
   }
-  run(`INSERT INTO goals (subject_id, title, detail, due_date, created_at, created_by)
-       VALUES (?,?,?,?,?,?)`,
-      g.subject_id, g.title, g.detail ?? null, g.due_date ?? null, now(), author ?? null);
+  run(`INSERT INTO goals (subject_id, title, detail, due_date, created_at, created_by, created_by_officer_id)
+       VALUES (?,?,?,?,?,?,?)`,
+      g.subject_id, g.title, g.detail ?? null, g.due_date ?? null, now(), author ?? null,
+      identity.officer_id ?? null);
   // The row just inserted, not "the subject's newest goal by some other
   // ordering" — a create that returns a different record's id is how a client
   // ends up editing the wrong thing.
@@ -128,7 +129,7 @@ export function saveGoal(g, author) {
  * that closed the goal the moment the last box was ticked would be asserting
  * something only a person can know.
  */
-export function completeGoal(id, author, complete = true) {
+export function completeGoal(id, author, complete = true, identity = {}) {
   const g = one(`SELECT * FROM goals WHERE id = ?`, id);
   if (!g) return { error: "no such goal" };
   if (complete) {
@@ -138,9 +139,11 @@ export function completeGoal(id, author, complete = true) {
   }
   if (complete)
     run(`UPDATE goals SET status = 'complete', completed_at = ?, completed_by = ?,
-                          updated_at = ? WHERE id = ?`, now(), author ?? null, now(), id);
+                          completed_by_officer_id = ?, updated_at = ? WHERE id = ?`,
+        now(), author ?? null, identity.officer_id ?? null, now(), id);
   else
     run(`UPDATE goals SET status = 'open', completed_at = NULL, completed_by = NULL,
+                          completed_by_officer_id = NULL,
                           updated_at = ? WHERE id = ?`, now(), id);
   return { ok: true, goal: goalById(id) };
 }

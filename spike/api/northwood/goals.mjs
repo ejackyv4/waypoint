@@ -42,7 +42,8 @@ export const routes = {
     if (bad) return saasJson(res, 400, { error: bad });
 
     const goal = saveGoal({ ...b, title: b.title === undefined ? undefined : title },
-                          ctx.session?.name || null);
+                          ctx.session?.name || null,
+                          { officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { goal, goals: goalsFor(goal.subject_id) });
   },
 
@@ -50,7 +51,8 @@ export const routes = {
      steps; whether the goal is met is a judgement about the world. */
   "POST /api/goals/complete": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = completeGoal(Number(b.id), ctx.session?.name || null, b.complete !== false);
+    const r = completeGoal(Number(b.id), ctx.session?.name || null, b.complete !== false,
+                           { officer_id: ctx.session?.officer_id });
     if (r.error) return saasJson(res, r.error === "no such goal" ? 404 : 409, r);
     return saasJson(res, 200, { ...r, goals: goalsFor(r.goal.subject_id) });
   },

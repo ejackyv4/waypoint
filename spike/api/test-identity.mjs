@@ -3,7 +3,7 @@
 import "./test-isolate.mjs";
 import "./db/schema.mjs";
 import { db } from "./db/connect.mjs";
-import { setStepDone } from "./db/goals.mjs";
+import { setStepDone, saveGoal, completeGoal } from "./db/goals.mjs";
 import { addStandaloneAction, completeAction, decideAction } from "./db/insights.mjs";
 
 let pass = 0, fail = 0;
@@ -53,6 +53,14 @@ decideAction(`standalone-${action.id}`, "done", "Officer Test", { officer_id: of
 const decided = db.prepare(`SELECT decided_by_officer_id, done_by_officer_id FROM subject_action_items WHERE id = ?`).get(action.id);
 ok(decided.decided_by_officer_id === officer.id && decided.done_by_officer_id === officer.id,
    "officer decision and completion store the officer ID");
+
+const createdGoal = saveGoal({ subject_id: "cust-identity", title: "Created identity goal" }, "Officer Test", { officer_id: officer.id });
+const createdGoalRow = db.prepare(`SELECT created_by_officer_id FROM goals WHERE id = ?`).get(createdGoal.id);
+ok(createdGoalRow.created_by_officer_id === officer.id, "goal creation stores the officer ID");
+const completedGoal = completeGoal(createdGoal.id, "Officer Test", true, { officer_id: officer.id });
+const completedGoalRow = db.prepare(`SELECT completed_by_officer_id FROM goals WHERE id = ?`).get(createdGoal.id);
+ok(completedGoal.ok && completedGoalRow.completed_by_officer_id === officer.id,
+   "goal completion stores the officer ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
