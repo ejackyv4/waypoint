@@ -1240,6 +1240,9 @@ db.exec(`UPDATE visit_summary_actions
    list that cannot tell them apart cannot answer how long anything took. */
 ensureColumn("visit_summary_actions", "done_by", "TEXT");
 ensureColumn("visit_summary_actions", "done_at", "TEXT");
+ensureColumn("visit_summary_actions", "done_by_subject_id", "TEXT");
+ensureColumn("visit_summary_actions", "done_by_officer_id", "INTEGER");
+ensureColumn("visit_summary_actions", "decided_by_officer_id", "INTEGER");
 
 /* A real date, beside the phrase that was actually said.
  *

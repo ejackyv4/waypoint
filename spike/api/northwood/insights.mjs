@@ -417,7 +417,8 @@ ${t.text || ""}
     }
 
     const actionId = String(b.id).startsWith("standalone-") ? String(b.id) : Number(b.id);
-    const r = decideAction(actionId, String(b.status || ""), who);
+    const r = decideAction(actionId, String(b.status || ""), who,
+      { officer_id: ctx.session?.officer_id });
     if (r.error) return bad(r.error);
     return saasJson(res, 200, r);
   },

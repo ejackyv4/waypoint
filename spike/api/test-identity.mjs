@@ -4,7 +4,7 @@ import "./test-isolate.mjs";
 import "./db/schema.mjs";
 import { db } from "./db/connect.mjs";
 import { setStepDone } from "./db/goals.mjs";
-import { addStandaloneAction, completeAction } from "./db/insights.mjs";
+import { addStandaloneAction, completeAction, decideAction } from "./db/insights.mjs";
 
 let pass = 0, fail = 0;
 const ok = (condition, message) => {
@@ -49,6 +49,10 @@ const subjectRow = db.prepare(`SELECT * FROM subject_action_items WHERE id = las
 completeAction(`standalone-${subjectRow.id}`, "Identity Test", { subject_id: "cust-identity" });
 const completed = db.prepare(`SELECT done_by_subject_id FROM subject_action_items WHERE id = ?`).get(subjectRow.id);
 ok(completed.done_by_subject_id === "cust-identity", "subject completion stores the subject ID");
+decideAction(`standalone-${action.id}`, "done", "Officer Test", { officer_id: officer.id });
+const decided = db.prepare(`SELECT decided_by_officer_id, done_by_officer_id FROM subject_action_items WHERE id = ?`).get(action.id);
+ok(decided.decided_by_officer_id === officer.id && decided.done_by_officer_id === officer.id,
+   "officer decision and completion store the officer ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -514,7 +514,7 @@ export function setActionOwner(id, owner, who) {
  * Recorded with a name and a time, because "who decided this did not need
  * doing" is exactly the question asked afterwards.
  */
-export function decideAction(id, status, who) {
+export function decideAction(id, status, who, identity = {}) {
   if (String(id).startsWith("standalone-")) {
     const n = Number(String(id).slice("standalone-".length));
     const a = one(`SELECT * FROM subject_action_items WHERE id = ?`, n);
@@ -522,8 +522,10 @@ export function decideAction(id, status, who) {
     if (status === "done" && ["accepted", "in_review"].includes(a.status)) {
       run(`UPDATE subject_action_items
               SET status='done', done_by=COALESCE(done_by, ?),
-                  done_at=COALESCE(done_at, ?), decided_by=?, decided_at=?
-            WHERE id=?`, who ?? null, now(), who ?? null, now(), n);
+                  done_at=COALESCE(done_at, ?), done_by_officer_id=COALESCE(done_by_officer_id, ?),
+                  decided_by=?, decided_at=?, decided_by_officer_id=?
+            WHERE id=?`, who ?? null, now(), identity.officer_id ?? null,
+          who ?? null, now(), identity.officer_id ?? null, n);
       return { ok: true, action: { ...a, id, status: "done",
         done_by: a.done_by || who || null, done_at: a.done_at || now(),
         decided_by: who ?? null } };
@@ -531,11 +533,11 @@ export function decideAction(id, status, who) {
     if (status === "archived" || status === "dismissed" || status === "accepted") {
       const next = status === "dismissed" ? "archived" : status;
       run(`UPDATE subject_action_items
-              SET status=?, done_by=?, done_at=?, decided_by=?, decided_at=? WHERE id=?`,
+              SET status=?, done_by=?, done_at=?, decided_by=?, decided_at=?, decided_by_officer_id=? WHERE id=?`,
           next, next === "accepted" ? null : a.done_by,
           next === "accepted" ? null : a.done_at,
           next === "accepted" ? null : (who ?? null),
-          next === "accepted" ? null : now(), n);
+          next === "accepted" ? null : now(), next === "accepted" ? null : (identity.officer_id ?? null), n);
       return { ok: true, action: { ...one(`SELECT * FROM subject_action_items WHERE id = ?`, n), id } };
     }
     return { error: "Only an item reported by the subject can be confirmed." };
@@ -547,9 +549,10 @@ export function decideAction(id, status, who) {
       return { error: "Only an accepted or subject-reported item can be completed." };
     run(`UPDATE visit_summary_actions
             SET status = 'done', done_by = COALESCE(done_by, ?),
-                done_at = COALESCE(done_at, ?), decided_by = ?, decided_at = ?
+                done_at = COALESCE(done_at, ?), done_by_officer_id = COALESCE(done_by_officer_id, ?),
+                decided_by = ?, decided_at = ?, decided_by_officer_id = ?
           WHERE id = ?`,
-        who ?? null, now(), who ?? null, now(), id);
+        who ?? null, now(), identity.officer_id ?? null, who ?? null, now(), identity.officer_id ?? null, id);
     return { ok: true, action: one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id) };
   }
   /* `proposed` is gone as a gate but stays reachable, so an item dismissed by
@@ -560,11 +563,11 @@ export function decideAction(id, status, who) {
   if (!a) return { error: "no such action item" };
   const next = status === "dismissed" ? "archived" : status;
   run(`UPDATE visit_summary_actions
-      SET status = ?, done_by = ?, done_at = ?, decided_by = ?, decided_at = ? WHERE id = ?`,
+      SET status = ?, done_by = ?, done_at = ?, decided_by = ?, decided_at = ?, decided_by_officer_id = ? WHERE id = ?`,
       next, next === "accepted" ? null : a.done_by,
       next === "accepted" ? null : a.done_at,
       status === "proposed" ? null : (who ?? null),
-      status === "proposed" ? null : now(), id);
+      status === "proposed" ? null : now(), status === "proposed" ? null : (identity.officer_id ?? null), id);
 
   /* Accepting is the moment it becomes work somebody owes, so that is when the
      spoken phrase is turned into a date. Derived, not guessed — and only if

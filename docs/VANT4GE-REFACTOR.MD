@@ -41,6 +41,11 @@ subject completion records the authenticated subject ID. The focused identity
 test passes 11/11 checks. Officer action decisions and older audit fields remain
 open.
 
+Officer decisions for standalone and visit-derived actions now record the
+authenticated officer ID as well. The focused identity test passes 12/12
+checks. Remaining work is to populate IDs for older audit fields and enforce
+scope/authorization tests across every route.
+
 Baseline note: the isolated session-sweeper test passed on 2026-09-16,
 including the assertion that the default database is `spike/data/waypoint.db`.
 The full HTTP smoke suite remains open because it requires a running test
