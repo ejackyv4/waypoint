@@ -1197,7 +1197,7 @@ function paintDashboard() {
     ${DASH_FILTER_OPEN ? `<section class="panel" style="margin-bottom:16px;padding:14px">
       <label for="dashSubjectSearch">Subject</label>
       <input id="dashSubjectSearch" placeholder="Search subjects" value="${esc(DASH_SUBJECT_QUERY)}">
-      <div style="max-height:180px;overflow:auto">${[...new Map([...stale, ...days.flatMap(x => x.stops)].map(v => [v.subject_id, v.subject_name || v.subject_id])).entries()].filter(([,n]) => n.toLowerCase().includes(DASH_SUBJECT_QUERY.toLowerCase())).map(([id,n]) => `<label style="display:block;padding:6px"><input type="checkbox" data-dash-subject="${esc(id)}" ${DASH_SUBJECTS.has(id) ? "checked" : ""}> ${esc(n)}</label>`).join("")}</div>
+      <div style="max-height:180px;overflow:auto">${[...new Map([...stale, ...days.flatMap(x => x.stops), ...DASH.attention, ...DASH.upcoming, ...DASH.requests].map(v => [v.subject_id, v.subject_name || v.subject_id])).entries()].filter(([,n]) => n.toLowerCase().includes(DASH_SUBJECT_QUERY.toLowerCase())).map(([id,n]) => `<label style="display:block;padding:6px"><input type="checkbox" data-dash-subject="${esc(id)}" ${DASH_SUBJECTS.has(id) ? "checked" : ""}> ${esc(n)}</label>`).join("")}</div>
       ${DASH_SUBJECTS.size ? `<button class="linkbtn" id="dashClearSubjects">Clear selection</button>` : ""}
     </section>` : ""}
 
