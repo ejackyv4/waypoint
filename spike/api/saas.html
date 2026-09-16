@@ -1083,6 +1083,7 @@ function mapsTrip(start, addresses) {
 }
 
 let DAY = null, DASH = null;
+let DASH_SUBJECTS = new Set(), DASH_FILTER_OPEN = false, DASH_SUBJECT_QUERY = "";
 /* Which visits the officer has ticked for one trip. Held for the page, because
    it is a decision about right now rather than a fact about the caseload. */
 let PICKED = new Set();
@@ -1152,7 +1153,11 @@ const dayHeading = d => {
 
 function paintDashboard() {
   const { from, to, today, days, stale, offices } = DAY;
-  const d = DASH;
+  const source = DASH;
+  const visible = v => !DASH_SUBJECTS.size || DASH_SUBJECTS.has(v.subject_id);
+  const filteredDays = days.map(day => ({ ...day, stops: day.stops.filter(visible) }));
+  const filteredStale = stale.filter(visible);
+  const d = { ...source, attention: source.attention.filter(visible), upcoming: source.upcoming.filter(visible), requests: source.requests.filter(visible) };
   const thisWeek = from === today;
   const start = localStorage.getItem(DAY_START_KEY) ?? DAY.base?.address ?? "";
 
@@ -1161,7 +1166,7 @@ function paintDashboard() {
      [[v.city, v.state].filter(Boolean).join(", "), v.postal_code]
        .filter(Boolean).join(" ")].filter(Boolean).join("\n") });
 
-  const all = [...stale, ...days.flatMap(x => x.stops)];
+  const all = [...filteredStale, ...filteredDays.flatMap(x => x.stops)];
   const picked = all.filter(v => PICKED.has(v.id));
   const routable = picked.filter(v => addressOf(v));
   const span = `${longDate(from)} – ${longDate(to)}`;
@@ -1182,7 +1187,15 @@ function paintDashboard() {
              <dd class="${d.requests.length ? "warn" : ""}">${d.requests.length}</dd></div>
         <div><dt>Next ${d.horizon_days} days</dt><dd>${d.upcoming.length}</dd></div>
       </div>
+      <button class="btn small" id="dashFilter" aria-label="Filter dashboard by subject">⚲ Filter${DASH_SUBJECTS.size ? ` (${DASH_SUBJECTS.size})` : ""}</button>
     </div>
+
+    ${DASH_FILTER_OPEN ? `<section class="panel" style="margin-bottom:16px;padding:14px">
+      <label for="dashSubjectSearch">Subject</label>
+      <input id="dashSubjectSearch" placeholder="Search subjects" value="${esc(DASH_SUBJECT_QUERY)}">
+      <div style="max-height:180px;overflow:auto">${[...new Map([...stale, ...days.flatMap(x => x.stops)].map(v => [v.subject_id, v.subject_name || v.subject_id])).entries()].filter(([,n]) => n.toLowerCase().includes(DASH_SUBJECT_QUERY.toLowerCase())).map(([id,n]) => `<label style="display:block;padding:6px"><input type="checkbox" data-dash-subject="${esc(id)}" ${DASH_SUBJECTS.has(id) ? "checked" : ""}> ${esc(n)}</label>`).join("")}</div>
+      ${DASH_SUBJECTS.size ? `<button class="linkbtn" id="dashClearSubjects">Clear selection</button>` : ""}
+    </section>` : ""}
 
     <section class="panel">
       <div class="panelHead">
@@ -1204,10 +1217,10 @@ function paintDashboard() {
         </div>
       </div>
 
-      ${stale.length ? `
+      ${filteredStale.length ? `
         <div class="weekDay stale">
-          <div class="weekLabel">Not closed out &middot; ${stale.length}</div>
-          ${stale.map(v => weekStop(v, addressOf(v))).join("")}
+          <div class="weekLabel">Not closed out &middot; ${filteredStale.length}</div>
+          ${filteredStale.map(v => weekStop(v, addressOf(v))).join("")}
         </div>` : ""}
 
       ${(() => {
@@ -1216,7 +1229,7 @@ function paintDashboard() {
            list an officer has to read past rather than one that answers where
            they are going. Today is kept even when empty — "you have nothing on
            today" is itself the answer to the question the page exists for. */
-        const shown = days.filter(day => day.stops.length || day.date === today);
+        const shown = filteredDays.filter(day => day.stops.length || day.date === today);
         if (!shown.length) return `
           <div class="weekEmpty">Nothing scheduled this week.</div>`;
         return shown.map(day => `
@@ -1283,6 +1296,13 @@ function paintDashboard() {
   };
   el("weekPrev").onclick = () => shiftWeek(-1);
   el("weekNext").onclick = () => shiftWeek(1);
+  el("dashFilter").onclick = () => { DASH_FILTER_OPEN = !DASH_FILTER_OPEN; paintDashboard(); };
+  if (el("dashSubjectSearch")) el("dashSubjectSearch").oninput = e => { DASH_SUBJECT_QUERY = e.target.value; paintDashboard(); };
+  view.querySelectorAll("[data-dash-subject]").forEach(c => c.onchange = () => {
+    c.checked ? DASH_SUBJECTS.add(c.dataset.dashSubject) : DASH_SUBJECTS.delete(c.dataset.dashSubject);
+    paintDashboard();
+  });
+  if (el("dashClearSubjects")) el("dashClearSubjects").onclick = () => { DASH_SUBJECTS.clear(); paintDashboard(); };
   if (el("weekNow")) el("weekNow").onclick = () => { location.hash = ""; };
 
   /* Ticking is the whole point of the week view: an officer decides which
