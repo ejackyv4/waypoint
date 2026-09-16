@@ -178,6 +178,28 @@ function startSummary(visit_id, requested_by) {
 
 export const routes = {
 
+  "POST /api/assistant/voice": async (req, res, ctx) => {
+    const b = await readJson(req, 12 * 1024 * 1024);
+    let bytes;
+    try { bytes = Buffer.from(String(b.data || ""), "base64"); } catch { bytes = null; }
+    if (!bytes?.length) return saasJson(res, 400, { error: "That question could not be recorded." });
+    try {
+      const t = await transcribe(bytes, "officer-question.m4a", "audio/m4a");
+      const intent = await interpretOfficerQuestion(t.text);
+      if (intent.intent !== "list_action_items" || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", transcript: t.text, message: "I can currently list a subject's action items." });
+      const matches = officerCaseload(ctx.session.officer_id)
+        .filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
+      if (matches.length !== 1)
+        return saasJson(res, 200, { kind: "choose_subject", transcript: t.text, subjects: matches.map(s => ({ subject_id: s.subject_id, name: s.name })) });
+      const subject = matches[0];
+      const all = actionsForSubject(subject.subject_id);
+      return saasJson(res, 200, { kind: "action_items", transcript: t.text,
+        subject: { subject_id: subject.subject_id, name: subject.name },
+        actions: intent.scope === "all" ? all : all.filter(a => ["accepted", "in_review"].includes(a.status)) });
+    } catch (e) { return saasJson(res, 502, { error: e?.message || "The assistant could not answer that." }); }
+  },
+
   "POST /api/assistant/query": async (req, res, ctx) => {
     const b = await readJson(req);
     const prompt = String(b.prompt || "").trim();

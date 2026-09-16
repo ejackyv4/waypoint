@@ -411,6 +411,58 @@ const dayLabel = t => {
 const timeLabel = t => new Date(t)
   .toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
+function OfficerAssistantSheet({ auth, onClose }) {
+  const [prompt, setPrompt] = useState("");
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recorder = useAudioRecorder(SPEECH_RECORDING);
+  const ask = async (path, body) => {
+    setBusy(true); setResult(null);
+    try {
+      const r = await authed(`${SAAS_BASE}${path}`, auth.token, { method: "POST", body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "The assistant could not answer that.");
+      setResult(d);
+    } catch (e) { setResult({ error: e.message }); }
+    finally { setBusy(false); }
+  };
+  const start = async () => {
+    const p = await requestRecordingPermissionsAsync();
+    if (!p.granted) return Alert.alert("Microphone access is off", "Enable it in Settings to ask by voice.");
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await recorder.prepareToRecordAsync(); recorder.record(); setRecording(true);
+  };
+  const stop = async () => {
+    await recorder.stop(); await setAudioModeAsync({ allowsRecording: false }); setRecording(false);
+    if (recorder.uri) await ask("/api/assistant/voice", { data: await new File(recorder.uri).base64() });
+  };
+  return <Modal transparent visible animationType="slide" onRequestClose={onClose}>
+    <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,.45)" }}>
+      <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, gap: 14 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ fontSize: 22, fontWeight: "800", color: C.ink }}>Ask Waypoint</Text>
+          <Pressable onPress={onClose}><Text style={{ fontSize: 28, color: C.faint }}>×</Text></Pressable>
+        </View>
+        <Text style={{ color: C.muted }}>Ask about a subject’s action items. Your question is read-only.</Text>
+        <TextInput value={prompt} onChangeText={setPrompt} placeholder="Type a question or use the microphone" multiline
+          style={{ minHeight: 58, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 14, fontSize: 16, color: C.ink }} />
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <Pressable onPress={recording ? stop : start} style={{ flex: 1, backgroundColor: recording ? C.err : C.brand, borderRadius: 14, padding: 15, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontWeight: "800" }}>{recording ? "Stop & ask" : "🎙 Ask by voice"}</Text>
+          </Pressable>
+          <Pressable disabled={!prompt.trim() || busy} onPress={() => ask("/api/assistant/query", { prompt })} style={{ flex: 1, backgroundColor: prompt.trim() && !busy ? C.brandDark : C.line, borderRadius: 14, padding: 15, alignItems: "center" }}>
+            <Text style={{ color: prompt.trim() && !busy ? "#fff" : C.faint, fontWeight: "800" }}>{busy ? "Thinking…" : "Ask"}</Text>
+          </Pressable>
+        </View>
+        {result?.error ? <Text style={{ color: C.err }}>{result.error}</Text> : null}
+        {result?.transcript ? <Text style={{ color: C.muted }}>Heard: “{result.transcript}”</Text> : null}
+        {result?.kind === "action_items" ? <View style={{ gap: 8 }}><Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>{result.subject.name} · Action items</Text>{result.actions.length ? result.actions.map(a => <Text key={a.id} style={{ color: C.ink2 }}>• {a.body}{a.due_date ? ` · due ${a.due_date}` : ""}</Text>) : <Text style={{ color: C.muted }}>No open action items.</Text>}</View> : null}
+      </View>
+    </View>
+  </Modal>;
+}
+
 function OfficerHome({ auth, onSignOut }) {
   const [tab, setTab] = useState("schedule");
   const [data, setData] = useState(null);
@@ -420,6 +472,7 @@ function OfficerHome({ auth, onSignOut }) {
   const [openVisitId, setOpenVisitId] = useState(null);   // a visit being conducted
   const [previewVisit, setPreviewVisit] = useState(null);
   const [viewing, setViewing] = useState(null);   // a subject's file
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -603,6 +656,9 @@ function OfficerHome({ auth, onSignOut }) {
         <Pressable onPress={onSignOut} hitSlop={10}>
           <Text style={s.signOut}>Sign out</Text>
         </Pressable>
+        <Pressable onPress={() => setAssistantOpen(true)} hitSlop={10} style={{ marginLeft: 12 }}>
+          <Text style={{ color: C.brand, fontSize: 24, fontWeight: "800" }}>?</Text>
+        </Pressable>
       </View>
 
       <View style={s.tabs}>
@@ -647,6 +703,7 @@ function OfficerHome({ auth, onSignOut }) {
         <VisitPreview auth={auth} visit={previewVisit} onClose={() => setPreviewVisit(null)}
                       onStart={v => { setPreviewVisit(null); v.started_at ? setOpenVisitId(v.id) : startVisit(v); }} />
       )}
+      {assistantOpen && <OfficerAssistantSheet auth={auth} onClose={() => setAssistantOpen(false)} />}
     </SafeAreaView>
   );
 }
