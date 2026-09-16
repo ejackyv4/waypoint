@@ -4,6 +4,7 @@ import "./test-isolate.mjs";
 import "./db/schema.mjs";
 import { db } from "./db/connect.mjs";
 import { setStepDone } from "./db/goals.mjs";
+import { addStandaloneAction, completeAction } from "./db/insights.mjs";
 
 let pass = 0, fail = 0;
 const ok = (condition, message) => {
@@ -37,6 +38,17 @@ const step = db.prepare(`SELECT id FROM goal_steps WHERE goal_id = ?`).get(goal.
 setStepDone(step.id, true, "Officer Test", { officer_id: officer.id });
 const saved = db.prepare(`SELECT done_by, done_by_officer_id FROM goal_steps WHERE id = ?`).get(step.id);
 ok(saved.done_by_officer_id === officer.id, "officer completion stores the officer ID");
+
+const created = addStandaloneAction("cust-identity", { body: "Identity action", owner: "officer", assigned_officer_id: officer.id });
+ok(created.ok, "standalone action accepts a validated officer assignment");
+const action = db.prepare(`SELECT * FROM subject_action_items WHERE subject_id = ? ORDER BY id DESC LIMIT 1`).get("cust-identity");
+ok(action.assigned_officer_id === officer.id && action.assigned_subject_id === null,
+   "standalone action stores the assigned officer ID only");
+const subjectAction = addStandaloneAction("cust-identity", { body: "Subject action", owner: "subject" });
+const subjectRow = db.prepare(`SELECT * FROM subject_action_items WHERE id = last_insert_rowid()`).get();
+completeAction(`standalone-${subjectRow.id}`, "Identity Test", { subject_id: "cust-identity" });
+const completed = db.prepare(`SELECT done_by_subject_id FROM subject_action_items WHERE id = ?`).get(subjectRow.id);
+ok(completed.done_by_subject_id === "cust-identity", "subject completion stores the subject ID");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

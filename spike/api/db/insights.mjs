@@ -203,7 +203,7 @@ export const standaloneActionsForSubject = subject_id => all(
           NULL AS headline
      FROM subject_action_items WHERE subject_id = ?`, subject_id);
 
-export const addStandaloneAction = (subject_id, { body, due_date, owner = "subject" } = {}) => {
+export const addStandaloneAction = (subject_id, { body, due_date, owner = "subject", assigned_subject_id = null, assigned_officer_id = null } = {}) => {
   const sid = String(subject_id || "").trim();
   if (!sid) return { error: "subject_id is required" };
   if (!one(`SELECT subject_id FROM subjects WHERE subject_id = ?`, sid))
@@ -212,7 +212,12 @@ export const addStandaloneAction = (subject_id, { body, due_date, owner = "subje
   if (!text) return { error: "An action item cannot be empty." };
   const d = due_date ? String(due_date).slice(0, 10) : null;
   if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return { error: "A due date looks like 2026-09-04." };
-  run(`INSERT INTO subject_action_items (subject_id, body, owner, due_date, created_at) VALUES (?,?,?,?,?)`, sid, text, owner, d, now());
+  const assignedSubject = owner === "subject" ? (assigned_subject_id || sid) : null;
+  const assignedOfficer = owner === "officer" ? (assigned_officer_id || null) : null;
+  if (owner === "officer" && !assignedOfficer) return { error: "assigned officer is required" };
+  run(`INSERT INTO subject_action_items
+       (subject_id, body, owner, due_date, assigned_subject_id, assigned_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?)`, sid, text, owner, d, assignedSubject, assignedOfficer, now());
   return { ok: true };
 };
 
@@ -459,14 +464,17 @@ export const markActionsSeen = subject_id => run(
   now(), subject_id);
 
 /** The subject reports completion; the officer remains the confirmer. */
-export function completeAction(id, who) {
+export function completeAction(id, who, identity = {}) {
   if (String(id).startsWith("standalone-")) {
     const n = Number(String(id).slice("standalone-".length));
     const a = one(`SELECT * FROM subject_action_items WHERE id = ?`, n);
     if (!a) return { error: "no such action item" };
     if (a.status !== "accepted") return { error: "Only an accepted action item can be reported." };
-    run(`UPDATE subject_action_items SET status='in_review', done_by=?, done_at=? WHERE id=?`, who ?? null, now(), n);
-    return { ok: true, action: { ...a, id, status: "in_review", done_by: who ?? null, done_at: now() } };
+    const completedAt = now();
+    run(`UPDATE subject_action_items SET status='in_review', done_by=?, done_by_subject_id=?, done_at=? WHERE id=?`,
+        who ?? null, identity.subject_id ?? null, completedAt, n);
+    return { ok: true, action: { ...a, id, status: "in_review", done_by: who ?? null,
+      done_by_subject_id: identity.subject_id ?? null, done_at: completedAt } };
   }
   const a = one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id);
   if (!a) return { error: "no such action item" };

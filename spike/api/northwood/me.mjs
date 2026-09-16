@@ -106,7 +106,8 @@ export const routes = {
     const mine = openActionsForSubject(person.subject_id)
                    .find(a => String(a.id) === String(actionId) && a.owner === "subject");
     if (!mine) return saasJson(res, 404, { error: "no such action item" });
-    const r = completeAction(mine.id, person.name || "the subject");
+    const r = completeAction(mine.id, person.name || "the subject",
+                             { subject_id: person.subject_id });
     if (r.error) return saasJson(res, 409, { error: r.error });
     return saasJson(res, 200, r);
   }),

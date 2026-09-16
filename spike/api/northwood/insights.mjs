@@ -435,7 +435,9 @@ ${t.text || ""}
   "POST /api/subject/action": async (req, res, ctx) => {
     const b = await readJson(req), subject_id = String(b.subject_id || "");
     const owner = ["subject", "officer"].includes(String(b.owner)) ? String(b.owner) : "subject";
-    const r = addStandaloneAction(subject_id, { body: b.body, due_date: b.due_date, owner });
+    const r = addStandaloneAction(subject_id, { body: b.body, due_date: b.due_date, owner,
+      assigned_subject_id: owner === "subject" ? subject_id : null,
+      assigned_officer_id: owner === "officer" ? ctx.session?.officer_id : null });
     return saasJson(res, r.error ? (r.error === "no such subject" ? 404 : 400) : 200, r);
   },
 

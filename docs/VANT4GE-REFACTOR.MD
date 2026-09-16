@@ -36,8 +36,10 @@ scope tests remain open.
 
 The officer goal-step completion write path now records the authenticated
 officer ID, and the subject write path records the authenticated subject ID.
-The focused identity test covers the officer path; standalone action write
-paths remain open.
+Standalone action creation now records the assigned subject/officer ID, and
+subject completion records the authenticated subject ID. The focused identity
+test passes 11/11 checks. Officer action decisions and older audit fields remain
+open.
 
 Baseline note: the isolated session-sweeper test passed on 2026-09-16,
 including the assertion that the default database is `spike/data/waypoint.db`.
