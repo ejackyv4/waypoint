@@ -6,6 +6,16 @@ This document captures the architectural options discussed for evolving Waypoint
 
 The goal is not to rewrite everything at once. The preferred approach is to keep the current system working, establish clean contracts, and replace or refactor one boundary at a time.
 
+## Target backend direction
+
+Express is now the planned HTTP foundation for the refactor. The current API
+intentionally uses Node's built-in `node:http`; it remains the working baseline
+until an Express migration is implemented behind tests. When we migrate, keep
+controllers responsible for external endpoints, move business rules into
+services, keep database access in repositories, and preserve the existing API
+contracts during the transition. Do not combine the Express migration with a
+mobile rewrite or database replacement.
+
 ## Progress
 
 ### Completed — 2026-09-16
@@ -86,6 +96,15 @@ server and seeded content.
 - Web applications: HTML, CSS, and vanilla JavaScript.
 - Mobile application: React Native with Expo, written in JavaScript.
 - Infrastructure: Bash scripts, SQLite files, and optional Docker.
+
+### Runtime version note
+
+The mobile `package-lock.json` locks JavaScript dependencies, but it does not
+pin the Node.js runtime. The backend Dockerfile currently specifies
+`node:24-bookworm-slim`, which pins the Node major line but not an exact patch
+version; Docker resolves the current Node 24 patch release when the image is
+built. For reproducible production builds, pin the image by digest (or an exact
+`24.x.y-bookworm-slim` tag) and record that choice here.
 - Query layer: direct SQL wrapped by shared helpers and domain data-access functions.
 - TypeScript: not currently used.
 - ORM: not currently used.
