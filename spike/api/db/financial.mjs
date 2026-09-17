@@ -127,20 +127,20 @@ export const financialSummary = subject_id => {
 
 const FIELDS = ["kind", "description", "amount_cents", "due_date"];
 
-export function saveFinancialItem(f, author) {
+export function saveFinancialItem(f, author, identity = {}) {
   if (f.id) {
     // Merge, never overwrite: a payload that omits a field leaves it alone.
     const patch = FIELDS.filter(k => f[k] !== undefined);
     if (patch.length)
-      run(`UPDATE financial_items SET ${patch.map(k => `${k}=?`).join(", ")}, updated_at=?
-            WHERE id = ?`, ...patch.map(k => f[k]), now(), f.id);
+      run(`UPDATE financial_items SET ${patch.map(k => `${k}=?`).join(", ")}, updated_at=?, updated_by_officer_id=?
+            WHERE id = ?`, ...patch.map(k => f[k]), now(), identity.officer_id ?? null, f.id);
     return financialItemById(f.id);
   }
   run(`INSERT INTO financial_items
-         (subject_id, kind, description, amount_cents, due_date, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?)`,
+         (subject_id, kind, description, amount_cents, due_date, created_at, created_by, created_by_officer_id)
+       VALUES (?,?,?,?,?,?,?,?)`,
       f.subject_id, f.kind, f.description ?? null, f.amount_cents,
-      f.due_date ?? null, now(), author ?? null);
+      f.due_date ?? null, now(), author ?? null, identity.officer_id ?? null);
   return financialItemById(
     one(`SELECT id FROM financial_items WHERE subject_id = ? ORDER BY id DESC LIMIT 1`,
         f.subject_id).id);
@@ -162,13 +162,13 @@ export function deleteFinancialItem(id) {
  * subject paid at an office and is entering the transaction, or the officer
  * took the money. Those are different claims and the record keeps both apart.
  */
-export function addPayment(p, author, role = "officer") {
+export function addPayment(p, author, role = "officer", identity = {}) {
   run(`INSERT INTO financial_payments
          (item_id, amount_cents, paid_on, method, note,
-          recorded_by, recorded_role, created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
+          recorded_by, recorded_role, recorded_by_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       p.item_id, p.amount_cents, p.paid_on || today(),
-      p.method ?? null, p.note ?? null, author ?? null, role, now());
+      p.method ?? null, p.note ?? null, author ?? null, role, identity.officer_id ?? null, now());
   return financialItemById(p.item_id);
 }
 
@@ -187,13 +187,13 @@ export const paymentById = id =>
  * "they paid it" and "we stopped requiring it" are different facts about a
  * case, and a report that cannot tell them apart is worth nothing.
  */
-export function waiveItem(id, author, note, waive = true) {
+export function waiveItem(id, author, note, waive = true, identity = {}) {
   if (waive)
-    run(`UPDATE financial_items SET waived_at = ?, waived_by = ?, waived_note = ?,
+    run(`UPDATE financial_items SET waived_at = ?, waived_by = ?, waived_by_officer_id = ?, waived_note = ?,
                                     updated_at = ? WHERE id = ?`,
-        now(), author ?? null, note ?? null, now(), id);
+        now(), author ?? null, identity.officer_id ?? null, note ?? null, now(), id);
   else
-    run(`UPDATE financial_items SET waived_at = NULL, waived_by = NULL,
+    run(`UPDATE financial_items SET waived_at = NULL, waived_by = NULL, waived_by_officer_id = NULL,
                                     waived_note = NULL, updated_at = ? WHERE id = ?`,
         now(), id);
   return financialItemById(id);

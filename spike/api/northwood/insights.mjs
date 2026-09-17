@@ -15,7 +15,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { visit, recordingById, subjectByKey } from "../db/northwood.mjs";
+import { visit, recordingById, subjectByKey, officerCaseload, visitsFor,
+         curfewFor, travelPermitFor } from "../db/northwood.mjs";
+import { financialSummary } from "../db/financial.mjs";
+import { datesFor } from "../db/dates.mjs";
 import { goalsFor } from "../db/goals.mjs";
 import {
   claimTranscript, transcriptById, transcriptFor, transcriptsForVisit,
@@ -25,9 +28,9 @@ import {
   decideAction, setActionOwner, setActionDue, setActionBody, staleRunning,
   addManualAction,
   actionsForSubject, addStandaloneAction, backfillDueDates, promoteProposedActions,
-  supersedeStaleActions
+  supersedeStaleActions, repairCompletedActions
 } from "../db/insights.mjs";
-import { transcribe, summarise } from "./ai.mjs";
+import { transcribe, summarise, interpretOfficerQuestion } from "./ai.mjs";
 import { AUDIO_DIR } from "./documents.mjs";
 import { STT_READY, LLM_READY } from "../config.mjs";
 import { saasJson } from "./shared.mjs";
@@ -177,6 +180,88 @@ function startSummary(visit_id, requested_by) {
 /* ------------------------------------------------------------------ */
 
 export const routes = {
+
+  "POST /api/assistant/voice": async (req, res, ctx) => {
+    const b = await readJson(req, 12 * 1024 * 1024);
+    let bytes;
+    try { bytes = Buffer.from(String(b.data || ""), "base64"); } catch { bytes = null; }
+    if (!bytes?.length) return saasJson(res, 400, { error: "That question could not be recorded." });
+    try {
+      const t = await transcribe(bytes, "officer-question.m4a", "audio/m4a");
+      const intent = await interpretOfficerQuestion(t.text);
+      if (!["list_action_items", "list_upcoming_visits", "get_financial_balance", "list_appointments", "get_travel_restrictions", "get_curfew"].includes(intent.intent) || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", transcript: t.text, message: "I can currently answer questions about a subject's action items, visits, finances, appointments, travel restrictions, and curfew." });
+      const matches = officerCaseload(ctx.session.officer_id)
+        .filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
+      if (matches.length !== 1)
+        return saasJson(res, 200, { kind: "choose_subject", transcript: t.text, subjects: matches.map(s => ({ subject_id: s.subject_id, name: s.name })) });
+      const subject = matches[0];
+      if (intent.intent === "list_upcoming_visits")
+        return saasJson(res, 200, { kind: "visits", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
+      if (intent.intent === "get_financial_balance")
+        return saasJson(res, 200, { kind: "financial", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, ...financialSummary(subject.subject_id) });
+      if (intent.intent === "list_appointments")
+        return saasJson(res, 200, { kind: "appointments", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, dates: datesFor(subject.subject_id).filter(d => d.status === "scheduled") });
+      if (intent.intent === "get_travel_restrictions")
+        return saasJson(res, 200, { kind: "travel", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, travel_permit: travelPermitFor(subject.subject_id) });
+      if (intent.intent === "get_curfew")
+        return saasJson(res, 200, { kind: "curfew", transcript: t.text, subject: { subject_id: subject.subject_id, name: subject.name }, curfew: curfewFor(subject.subject_id) });
+      const all = actionsForSubject(subject.subject_id).concat(
+        goalsFor(subject.subject_id).flatMap(g => (g.steps || []).map(st => ({
+          id: `goal-${st.id}`, body: st.body, owner: "subject",
+          due_date: g.due_date || null, status: st.review_status || (st.done_at ? "done" : "accepted"),
+          kind: "goal_step", visit_id: null
+        })))
+      );
+      const wantsAll = (intent.scope === "all" || /\b(all|every|everything)\b/i.test(t.text))
+        && !/\b(open|outstanding|overdue)\b/i.test(t.text);
+      const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
+        : all.filter(a => ["accepted", "in_review"].includes(a.status));
+      return saasJson(res, 200, { kind: "action_items", transcript: t.text,
+        subject: { subject_id: subject.subject_id, name: subject.name },
+        actions });
+    } catch (e) { return saasJson(res, 502, { error: e?.message || "The assistant could not answer that." }); }
+  },
+
+  "POST /api/assistant/query": async (req, res, ctx) => {
+    const b = await readJson(req);
+    const prompt = String(b.prompt || "").trim();
+    if (!prompt) return saasJson(res, 400, { error: "Ask a question first." });
+    try {
+      const intent = await interpretOfficerQuestion(prompt);
+      if (!["list_action_items", "list_upcoming_visits", "get_financial_balance", "list_appointments", "get_travel_restrictions", "get_curfew"].includes(intent.intent) || !intent.subject_name)
+        return saasJson(res, 200, { kind: "unsupported", message: "I can currently answer questions about a subject's action items, visits, finances, appointments, travel restrictions, and curfew." });
+      const allowed = officerCaseload(ctx.session.officer_id);
+      const matches = allowed.filter(s => s.name.toLowerCase() === intent.subject_name.toLowerCase());
+      if (matches.length !== 1)
+        return saasJson(res, 200, { kind: "choose_subject", subjects: matches.map(s => ({ subject_id: s.subject_id, name: s.name })) });
+      const subject = matches[0];
+      if (intent.intent === "list_upcoming_visits")
+        return saasJson(res, 200, { kind: "visits", subject: { subject_id: subject.subject_id, name: subject.name }, visits: visitsFor(subject.subject_id).filter(v => v.status !== "cancelled" && v.status !== "completed" && v.scheduled_at) });
+      if (intent.intent === "get_financial_balance")
+        return saasJson(res, 200, { kind: "financial", subject: { subject_id: subject.subject_id, name: subject.name }, ...financialSummary(subject.subject_id) });
+      if (intent.intent === "list_appointments")
+        return saasJson(res, 200, { kind: "appointments", subject: { subject_id: subject.subject_id, name: subject.name }, dates: datesFor(subject.subject_id).filter(d => d.status === "scheduled") });
+      if (intent.intent === "get_travel_restrictions")
+        return saasJson(res, 200, { kind: "travel", subject: { subject_id: subject.subject_id, name: subject.name }, travel_permit: travelPermitFor(subject.subject_id) });
+      if (intent.intent === "get_curfew")
+        return saasJson(res, 200, { kind: "curfew", subject: { subject_id: subject.subject_id, name: subject.name }, curfew: curfewFor(subject.subject_id) });
+      const all = actionsForSubject(subject.subject_id).concat(
+        goalsFor(subject.subject_id).flatMap(g => (g.steps || []).map(st => ({
+          id: `goal-${st.id}`, body: st.body, owner: "subject",
+          due_date: g.due_date || null, status: st.review_status || (st.done_at ? "done" : "accepted"),
+          kind: "goal_step", visit_id: null
+        })))
+      );
+      const wantsAll = (intent.scope === "all" || /\b(all|every|everything)\b/i.test(prompt))
+        && !/\b(open|outstanding|overdue)\b/i.test(prompt);
+      const actions = wantsAll ? all.filter(a => !["archived", "dismissed", "superseded"].includes(a.status))
+        : all.filter(a => ["accepted", "in_review"].includes(a.status));
+      return saasJson(res, 200, { kind: "action_items", subject: { subject_id: subject.subject_id, name: subject.name }, actions });
+    } catch (e) {
+      return saasJson(res, 502, { error: e?.message || "The assistant could not answer that." });
+    }
+  },
 
   /**
    * Turn one recording into text.
@@ -332,7 +417,8 @@ ${t.text || ""}
     }
 
     const actionId = String(b.id).startsWith("standalone-") ? String(b.id) : Number(b.id);
-    const r = decideAction(actionId, String(b.status || ""), who);
+    const r = decideAction(actionId, String(b.status || ""), who,
+      { officer_id: ctx.session?.officer_id });
     if (r.error) return bad(r.error);
     return saasJson(res, 200, r);
   },
@@ -350,7 +436,9 @@ ${t.text || ""}
   "POST /api/subject/action": async (req, res, ctx) => {
     const b = await readJson(req), subject_id = String(b.subject_id || "");
     const owner = ["subject", "officer"].includes(String(b.owner)) ? String(b.owner) : "subject";
-    const r = addStandaloneAction(subject_id, { body: b.body, due_date: b.due_date, owner });
+    const r = addStandaloneAction(subject_id, { body: b.body, due_date: b.due_date, owner,
+      assigned_subject_id: owner === "subject" ? subject_id : null,
+      assigned_officer_id: owner === "officer" ? ctx.session?.officer_id : null });
     return saasJson(res, r.error ? (r.error === "no such subject" ? 404 : 400) : 200, r);
   },
 
@@ -369,6 +457,7 @@ ${t.text || ""}
     // an officer gate, so leaving it there makes the item vanish from both
     // clients even though the visit summary visibly contains it.
     promoteProposedActions();
+    repairCompletedActions();
 
     /* Everything this person has to do, wherever it came from.
      *

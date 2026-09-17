@@ -254,7 +254,7 @@ export function saveItem(patch, author, role = "officer") {
  * something still in progress would make the signature meaningless. Signing
  * twice is idempotent — a repeated tap is not a second approval.
  */
-export function signItem(id, role, author) {
+export function signItem(id, role, author, identity = {}) {
   const cur = itemById(id);
   if (!cur) return { error: "no such checkpoint" };
   if (cur.status !== "ready")
@@ -262,8 +262,8 @@ export function signItem(id, role, author) {
 
   if (role === "officer") {
     if (!cur.officer_signed_at)
-      run(`UPDATE reentry_items SET officer_signed_at = ?, officer_signed_by = ?
-            WHERE id = ?`, now(), author ?? null, id);
+      run(`UPDATE reentry_items SET officer_signed_at = ?, officer_signed_by = ?, officer_signed_by_id = ?
+            WHERE id = ?`, now(), author ?? null, identity.officer_id ?? null, id);
   } else {
     if (!cur.subject_signed_at)
       run(`UPDATE reentry_items SET subject_signed_at = ? WHERE id = ?`, now(), id);
@@ -285,7 +285,7 @@ export function signItem(id, role, author) {
  * same arithmetic the screen shows, so an officer is never told they can
  * certify by one thing and refused by another.
  */
-export function certifyPlan(id, author) {
+export function certifyPlan(id, author, identity = {}) {
   const p = one(`SELECT * FROM reentry_plans WHERE id = ?`, id);
   if (!p) return { error: "no such plan" };
   if (p.status !== "active")
@@ -303,8 +303,8 @@ export function certifyPlan(id, author) {
         + "the plan." };
 
   if (p.certified_at) return { ok: true, plan: planById(id) };   // idempotent
-  run(`UPDATE reentry_plans SET certified_at = ?, certified_by = ? WHERE id = ?`,
-      now(), author ?? null, id);
+  run(`UPDATE reentry_plans SET certified_at = ?, certified_by = ?, certified_by_officer_id = ? WHERE id = ?`,
+      now(), author ?? null, identity.officer_id ?? null, id);
   logEvent({ plan_id: id, kind: "plan", body: "Plan certified complete",
              author, actor_role: "officer" });
   return { ok: true, plan: planById(id) };
@@ -319,7 +319,7 @@ export function certifyPlan(id, author) {
 function withdrawCertification(plan_id, author) {
   const p = one(`SELECT certified_at FROM reentry_plans WHERE id = ?`, plan_id);
   if (!p?.certified_at) return false;
-  run(`UPDATE reentry_plans SET certified_at = NULL, certified_by = NULL WHERE id = ?`,
+  run(`UPDATE reentry_plans SET certified_at = NULL, certified_by = NULL, certified_by_officer_id = NULL WHERE id = ?`,
       plan_id);
   logEvent({ plan_id, kind: "plan",
              body: "Certification withdrawn — a checkpoint was reopened",
@@ -327,13 +327,13 @@ function withdrawCertification(plan_id, author) {
   return true;
 }
 
-export function signPlan(id, role, author, snapshot) {
+export function signPlan(id, role, author, snapshot, identity = {}) {
   const p = one(`SELECT * FROM reentry_plans WHERE id = ?`, id);
   if (!p) return { error: "no such plan" };
 
   if (role === "officer") {
-    run(`UPDATE reentry_plans SET officer_signed_at = ?, officer_signed_by = ? WHERE id = ?`,
-        now(), author ?? null, id);
+    run(`UPDATE reentry_plans SET officer_signed_at = ?, officer_signed_by = ?, officer_signed_by_id = ? WHERE id = ?`,
+        now(), author ?? null, identity.officer_id ?? null, id);
   } else {
     run(`UPDATE reentry_plans SET subject_signed_at = ? WHERE id = ?`, now(), id);
     // The snapshot is the evidence. Without it, what they accepted is

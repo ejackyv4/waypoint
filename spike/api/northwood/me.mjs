@@ -32,7 +32,7 @@ import { reentryBlocks, blocksToText as reentryToText } from "./reentry-doc.mjs"
 import { planFor, signItem, signPlan, itemById } from "../db/reentry.mjs";
 import { financialSummary, financialItemById } from "../db/financial.mjs";
 import { openActionsForSubject, completeAction, unseenActionCount,
-         markActionsSeen, promoteProposedActions } from "../db/insights.mjs";
+         markActionsSeen, promoteProposedActions, repairCompletedActions } from "../db/insights.mjs";
 import { recordPayment } from "./financial.mjs";
 import { datesSummary, dateById, acknowledgeDate, closeDate, saveDate, DATE_KINDS,
          unseenDateCount, markDateSeen } from "../db/dates.mjs";
@@ -106,7 +106,8 @@ export const routes = {
     const mine = openActionsForSubject(person.subject_id)
                    .find(a => String(a.id) === String(actionId) && a.owner === "subject");
     if (!mine) return saasJson(res, 404, { error: "no such action item" });
-    const r = completeAction(mine.id, person.name || "the subject");
+    const r = completeAction(mine.id, person.name || "the subject",
+                             { subject_id: person.subject_id });
     if (r.error) return saasJson(res, 409, { error: r.error });
     return saasJson(res, 200, r);
   }),
@@ -118,6 +119,7 @@ export const routes = {
     // completed visit cannot disappear from the subject's list until a
     // restart happens to run the maintenance pass.
     promoteProposedActions();
+    repairCompletedActions();
     const subject = asProfile(subjectByKey(sid));
     if (ctx.url.searchParams.get("seen") === "1") markVisitsSeen(sid);
     // Opening the Goals tab is what marks them seen, and only that tab.
@@ -312,7 +314,8 @@ export const routes = {
     if (goal.status !== "open")
       return saasJson(res, 409, { error: "This goal is closed." });
 
-    const r = setStepDone(st.id, b.done !== false, "subject");
+    const r = setStepDone(st.id, b.done !== false, "subject",
+                          { subject_id: person.subject_id });
     return saasJson(res, 200, { ...r, goals: goalsFor(person.subject_id) });
   }),
 

@@ -250,7 +250,7 @@ function employmentSummary(e) {
 const TRAVEL_LABEL = { none: "None", local: "Local only",
                        interstate: "Interstate", international: "International" };
 const asDate = d => d ? new Date(d + "T00:00:00")
-  .toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "numeric" }) : "";
+  .toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
 /* A full timestamp, for things that are a matter of record. */
 const asDateTime = t => t ? new Date(t).toLocaleString(undefined,
   { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
@@ -411,6 +411,143 @@ const dayLabel = t => {
 const timeLabel = t => new Date(t)
   .toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
+function OfficerAssistantSheet({ auth, onClose }) {
+  const [prompt, setPrompt] = useState("");
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [mode, setMode] = useState(null);
+  const [showExamples, setShowExamples] = useState(false);
+  const recorder = useAudioRecorder(SPEECH_RECORDING);
+  const ask = async (path, body) => {
+    setBusy(true); setResult(null);
+    try {
+      const r = await authed(`${SAAS_BASE}${path}`, auth.token, { method: "POST", body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "The assistant could not answer that.");
+      setResult(d);
+    } catch (e) { setResult({ error: e.message }); }
+    finally { setBusy(false); }
+  };
+  const start = async () => {
+    const p = await requestRecordingPermissionsAsync();
+    if (!p.granted) return Alert.alert("Microphone access is off", "Enable it in Settings to ask by voice.");
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await recorder.prepareToRecordAsync(); recorder.record(); setRecording(true);
+  };
+  const stop = async () => {
+    await recorder.stop(); await setAudioModeAsync({ allowsRecording: false }); setRecording(false);
+    if (recorder.uri) await ask("/api/assistant/voice", { data: await new File(recorder.uri).base64() });
+  };
+  return <Modal transparent visible animationType="slide" onRequestClose={onClose}>
+    <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,.45)" }}>
+      <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 26, gap: 16, maxHeight: "90%" }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ fontSize: 26, fontWeight: "800", color: C.ink }}>Ask Meridian</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+            <Pressable accessibilityLabel="Show question examples" onPress={() => setShowExamples(v => !v)}>
+              <Ionicons name="help-circle-outline" size={25} color={C.muted} />
+            </Pressable>
+            <Pressable accessibilityLabel="Close Ask Meridian" onPress={onClose}><Text style={{ fontSize: 28, color: C.faint }}>×</Text></Pressable>
+          </View>
+        </View>
+        <Text style={{ color: C.muted, fontSize: 16, lineHeight: 22 }}>Ask questions about a particular subject.</Text>
+        {showExamples ? <View style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg, gap: 6 }}>
+          <Text style={{ color: C.ink, fontWeight: "800" }}>Try asking…</Text>
+          {["What are Dana Whitfield’s open action items?", "What upcoming visits does Dana Whitfield have?", "What fines does Dana Whitfield still owe?", "What appointments are coming up for Dana Whitfield?", "What are Dana Whitfield’s travel restrictions?", "What is Dana Whitfield’s curfew?"]
+            .map(example => <Pressable key={example} accessibilityLabel={`Use example: ${example}`} onPress={() => { setPrompt(example); setMode("text"); setShowExamples(false); }}>
+              <Text style={{ color: C.brand, lineHeight: 21 }}>{example}</Text>
+            </Pressable>)}
+        </View> : null}
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <Pressable accessibilityLabel={recording ? "Stop voice question" : "Ask by voice"} onPress={recording ? stop : start} style={{ width: 52, height: 52, borderWidth: 1.5, borderColor: recording ? C.err : C.brand, backgroundColor: recording ? C.errSoft : C.brandSoft, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name={recording ? "stop-circle-outline" : "mic-outline"} size={23} color={recording ? C.err : C.brand} />
+          </Pressable>
+          <Pressable accessibilityLabel="Ask by text" onPress={() => setMode("text")} style={{ width: 52, height: 52, borderWidth: 1.5, borderColor: mode === "text" ? C.brand : C.line, backgroundColor: mode === "text" ? C.brandSoft : C.surface, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="create-outline" size={23} color={mode === "text" ? C.brand : C.ink2} />
+          </Pressable>
+        </View>
+        {mode === "text" ? <>
+          <TextInput value={prompt} onChangeText={setPrompt} placeholder="Type your question" multiline autoFocus
+            style={{ minHeight: 78, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 14, fontSize: 17, color: C.ink }} />
+          <Pressable disabled={!prompt.trim() || busy} onPress={() => ask("/api/assistant/query", { prompt })} style={{ backgroundColor: prompt.trim() && !busy ? C.brand : C.line, borderRadius: 14, padding: 16, alignItems: "center" }}>
+            <Text style={{ color: prompt.trim() && !busy ? "#fff" : C.faint, fontWeight: "800", fontSize: 16 }}>{busy ? "Thinking…" : "Send question"}</Text>
+          </Pressable>
+        </> : null}
+        {result?.error ? <Text style={{ color: C.err }}>{result.error}</Text> : null}
+        {result?.transcript ? <Text style={{ color: C.muted }}>Heard: “{result.transcript}”</Text> : null}
+        {result?.kind === "action_items" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>
+              {result.subject.name} · {result.actions.length} action item{result.actions.length === 1 ? "" : "s"}
+            </Text>
+            <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ gap: 10 }} nestedScrollEnabled>
+              {result.actions.length ? result.actions.map(a => (
+                <View key={a.id} style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg }}>
+                  <Text style={{ color: C.ink, fontSize: 16, lineHeight: 21 }}>{a.body}</Text>
+                  <Text style={{ color: C.muted, marginTop: 4 }}>
+                    {a.owner === "subject" ? "Assigned to subject" : a.owner === "officer" ? "Assigned to officer" : "Owner to confirm"}
+                    {a.due_date ? ` · due ${asDate(a.due_date)}` : " · no due date"}
+                  </Text>
+                </View>
+              )) : <Text style={{ color: C.muted }}>No open action items.</Text>}
+            </ScrollView>
+          </View>
+        ) : null}
+        {result?.kind === "visits" || result?.kind === "appointments" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>
+              {result.subject.name} · {result.kind === "visits" ? "Upcoming visits" : "Appointments"}
+            </Text>
+            <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ gap: 10 }} nestedScrollEnabled>
+              {(result.visits || result.dates || []).length ? (result.visits || result.dates).map(item => (
+                <View key={item.id} style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg }}>
+                  <Text style={{ color: C.ink, fontSize: 16, lineHeight: 21 }}>
+                    {item.title || item.kind_label || "Visit"}
+                  </Text>
+                  <Text style={{ color: C.muted, marginTop: 4 }}>
+                    {item.scheduled_at ? new Date(item.scheduled_at).toLocaleString() : "Date not set"}
+                    {item.location ? ` · ${item.location}` : ""}
+                  </Text>
+                </View>
+              )) : <Text style={{ color: C.muted }}>None found.</Text>}
+            </ScrollView>
+          </View>
+        ) : null}
+        {result?.kind === "financial" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>{result.subject.name} · Financial balance</Text>
+            <Text style={{ color: C.muted }}>Outstanding: {((result.totals?.balance_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}</Text>
+            <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: 8 }} nestedScrollEnabled>
+              {(result.items || []).map(item => <View key={item.id} style={{ padding: 12, borderRadius: 12, backgroundColor: C.bg }}>
+                <Text style={{ color: C.ink, fontSize: 16 }}>{item.description || item.kind_label || "Financial item"}</Text>
+                <Text style={{ color: C.muted, marginTop: 4 }}>{item.state} · balance {((item.balance_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}{item.due_date ? ` · due ${asDate(item.due_date)}` : ""}</Text>
+              </View>)}
+            </ScrollView>
+          </View>
+        ) : null}
+        {result?.kind === "travel" || result?.kind === "curfew" ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>{result.subject.name} · {result.kind === "travel" ? "Travel restrictions" : "Curfew"}</Text>
+            <Text style={{ color: C.muted }}>
+              {result.kind === "travel"
+                ? result.travel_permit
+                  ? result.travel_permit.level === "none"
+                    ? "No travel permitted."
+                    : `${result.travel_permit.level} travel permitted${result.travel_permit.expires_on ? `\nExpires ${asDate(result.travel_permit.expires_on)}` : "\nNo expiration recorded"}`
+                  : "No travel restriction record found."
+                : result.curfew?.active
+                  ? `${to12h(result.curfew.start_time).replace(":00", "")}–${to12h(result.curfew.end_time).replace(":00", "")}${result.curfew.expires_on ? ` · Expires ${asDate(result.curfew.expires_on)}` : ""}`
+                  : "No active curfew recorded."}
+            </Text>
+            {(result.travel_permit?.notes || result.curfew?.notes) ? <Text style={{ color: C.ink2 }}>{result.travel_permit?.notes || result.curfew?.notes}</Text> : null}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  </Modal>;
+}
+
 function OfficerHome({ auth, onSignOut }) {
   const [tab, setTab] = useState("schedule");
   const [data, setData] = useState(null);
@@ -420,6 +557,7 @@ function OfficerHome({ auth, onSignOut }) {
   const [openVisitId, setOpenVisitId] = useState(null);   // a visit being conducted
   const [previewVisit, setPreviewVisit] = useState(null);
   const [viewing, setViewing] = useState(null);   // a subject's file
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -600,8 +738,11 @@ function OfficerHome({ auth, onSignOut }) {
           <Text style={s.profileName}>{auth.user?.name}</Text>
           <Text style={s.profileMeta}>Northwood Corrections · {auth.user?.role}</Text>
         </View>
-        <Pressable onPress={onSignOut} hitSlop={10}>
-          <Text style={s.signOut}>Sign out</Text>
+        <Pressable onPress={onSignOut} hitSlop={10} accessibilityLabel="Sign out">
+          <Ionicons name="log-out-outline" size={25} color={C.brand} />
+        </Pressable>
+        <Pressable onPress={() => setAssistantOpen(true)} hitSlop={10} style={{ marginLeft: 14 }} accessibilityLabel="Ask Waypoint">
+          <Ionicons name="help-circle-outline" size={28} color={C.brand} />
         </Pressable>
       </View>
 
@@ -647,6 +788,7 @@ function OfficerHome({ auth, onSignOut }) {
         <VisitPreview auth={auth} visit={previewVisit} onClose={() => setPreviewVisit(null)}
                       onStart={v => { setPreviewVisit(null); v.started_at ? setOpenVisitId(v.id) : startVisit(v); }} />
       )}
+      {assistantOpen && <OfficerAssistantSheet auth={auth} onClose={() => setAssistantOpen(false)} />}
     </SafeAreaView>
   );
 }
@@ -1071,7 +1213,7 @@ function VisitInProgress({ auth, visit, onAddNote, onAddPhoto, onAddRecording,
             <View key={a.id} style={s.detailRow}>
               <View style={{ flex: 1 }}>
                 <Text style={s.detailTitle}>{a.body}</Text>
-                <Text style={s.cardMeta}>Assigned to {a.owner === "officer" ? "officer" : a.owner === "subject" ? "subject" : "decide later"}{a.due_date ? ` · due ${a.due_date}` : ""}</Text>
+                <Text style={s.cardMeta}>Assigned to {a.owner === "officer" ? "officer" : a.owner === "subject" ? "subject" : "decide later"}{a.due_date ? ` · due ${asDate(a.due_date)}` : ""}</Text>
               </View>
             </View>
           )) : <Text style={s.cardMeta}>No action items yet.</Text>}
@@ -2210,6 +2352,7 @@ function OfficerSubject({ auth, subject, onBack }) {
                        : "No curfew set"}>
               <Detail label="Hours" value={cur?.active
                 ? `${to12h(cur.start_time)} to ${to12h(cur.end_time)}` : "No curfew set"} />
+              <Detail label="Expires" value={cur?.expires_on ? asDate(cur.expires_on) : "No expiration date"} />
               <Detail label="Notes" value={cur?.notes} />
               <Pressable style={({ pressed }) => [s.cta, pressed && { backgroundColor: C.brandDark }]}
                          onPress={() => setSheet({ mode: "curfew" })}>
@@ -2221,7 +2364,7 @@ function OfficerSubject({ auth, subject, onBack }) {
                      chip={travExpired ? "Expired" : travAllowed ? TRAVEL_LABEL[trav.level] : "None"}
                      tone={travExpired ? "warn" : travAllowed ? "ok" : "muted"}
                      summary={travAllowed
-                       ? `${TRAVEL_LABEL[trav.level]}${trav.expires_on ? ` until ${asDate(trav.expires_on)}` : ", no expiry"}`
+                       ? `${TRAVEL_LABEL[trav.level]}${trav.expires_on ? `\nExpires ${asDate(trav.expires_on)}` : "\nNo expiration date"}`
                        : travExpired ? `Expired ${asDate(trav.expires_on)}` : "No travel permitted"}>
               <Detail label="Level" value={trav ? TRAVEL_LABEL[trav.level] : "None permitted"} />
               <Detail label="Expires" value={trav?.expires_on ? asDate(trav.expires_on) : "No expiry"} />
@@ -2566,11 +2709,12 @@ function CurfewSheet({ value, onCancel, onSave }) {
   const [active, setActive] = useState(!!value.active);
   const [start, setStart] = useState(hhmmToDate(value.start_time || "21:00"));
   const [end, setEnd] = useState(hhmmToDate(value.end_time || "06:00"));
+  const [expires, setExpires] = useState(value.expires_on ? new Date(value.expires_on + "T00:00:00") : null);
   const [show, setShow] = useState(null);
   return (
     <Sheet title="Curfew" onCancel={onCancel} saveLabel="Save"
            onSave={() => onSave({ active, start_time: dateToHhmm(start),
-                                  end_time: dateToHhmm(end) })}>
+                                  end_time: dateToHhmm(end), expires_on: expires ? isoDay(expires) : null })}>
       <Choice options={[["yes","Has a curfew"],["no","No curfew"]]}
               value={active ? "yes" : "no"} onChange={v => setActive(v === "yes")} />
       {active && (
@@ -2593,10 +2737,18 @@ function CurfewSheet({ value, onCancel, onSave }) {
           </View>
         </View>
       )}
+      {active && <View style={{ marginTop: 12 }}>
+        <Text style={s.label}>Expiration date (optional)</Text>
+        {Platform.OS === "ios"
+          ? <DateTimePicker value={expires || new Date()} mode="date" display="compact" minimumDate={new Date()}
+              onChange={(_, d) => d && setExpires(d)} />
+          : <Pressable style={s.input} onPress={() => setShow("expires")}>
+              <Text style={{ fontSize: 16 }}>{expires ? asDate(isoDay(expires)) : "No expiration date"}</Text></Pressable>}
+      </View>}
       {show && Platform.OS === "android" && (
-        <DateTimePicker value={show === "start" ? start : end} mode="time"
+        <DateTimePicker value={show === "expires" ? (expires || new Date()) : show === "start" ? start : end} mode={show === "expires" ? "date" : "time"}
           onChange={(e, d) => { setShow(null);
-            if (e.type === "set" && d) (show === "start" ? setStart : setEnd)(d); }} />
+            if (e.type === "set" && d) (show === "expires" ? setExpires : show === "start" ? setStart : setEnd)(d); }} />
       )}
     </Sheet>
   );
@@ -3658,6 +3810,7 @@ function MyDetails({ auth, caseData, onRefresh, onOpenAgreement, onOpenReentry }
             {cur?.active ? (
               <>
                 <Text style={s.bigTime}>{to12h(cur.start_time)} to {to12h(cur.end_time)}</Text>
+                {cur.expires_on ? <Text style={s.noteLine}>Expires {asDate(cur.expires_on)}</Text> : null}
                 {cur.notes ? <Text style={s.noteLine}>{cur.notes}</Text> : null}
               </>
             ) : (
@@ -3769,7 +3922,7 @@ function MyDetails({ auth, caseData, onRefresh, onOpenAgreement, onOpenReentry }
               <>
                 <Text style={s.bigTime}>{TRAVEL_LABEL[trav.level]}</Text>
                 <Text style={s.cardMeta}>
-                  {trav.expires_on ? `Valid until ${asDate(trav.expires_on)}` : "No expiry date"}
+                  {trav.expires_on ? `Expires ${asDate(trav.expires_on)}` : "No expiration date"}
                 </Text>
                 {trav.notes ? <Text style={s.noteLine}>{trav.notes}</Text> : null}
               </>

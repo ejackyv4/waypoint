@@ -254,7 +254,8 @@ export const routes = {
      nobody confirmed, and that is often the visit most worth making. */
   "POST /api/visits/start": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = startVisit(Number(b.id), b.officer || ctx.session?.name || null);
+    const r = startVisit(Number(b.id), b.officer || ctx.session?.name || null,
+                          { officer_id: ctx.session?.officer_id });
     return saasJson(res, r.error ? 409 : 200, r);
   },
 
@@ -272,8 +273,10 @@ export const routes = {
     // append-only log per visit, whoever wrote it and whenever.
     if (b.note && String(b.note).trim())
       addVisitNote({ visit_id: id, body: String(b.note).trim(),
-                     author: b.officer || ctx.session?.name || null });
-    const r = completeVisit(id, b.officer || ctx.session?.name || null, b.observations);
+                     author: b.officer || ctx.session?.name || null,
+                     author_officer_id: ctx.session?.officer_id });
+    const r = completeVisit(id, b.officer || ctx.session?.name || null, b.observations,
+                            { officer_id: ctx.session?.officer_id });
     return saasJson(res, r.error ? 409 : 200,
       r.error ? r : { ...r, notes: notesForVisit(id) });
   },
@@ -312,7 +315,8 @@ export const routes = {
     const photo = addVisitPhoto({
       visit_id: v.id, filename, mime_type: b.mime_type, byte_size: bytes.length,
       caption: String(b.caption || "").trim() || null,
-      author: b.officer || ctx.session?.name || null
+      author: b.officer || ctx.session?.name || null,
+      author_officer_id: ctx.session?.officer_id
     });
     return saasJson(res, 200, { photo, photos: photosForVisit(v.id) });
   },
@@ -377,7 +381,8 @@ export const routes = {
       visit_id: v.id, filename, mime_type: b.mime_type, byte_size: bytes.length,
       duration_ms: Number.isFinite(duration) && duration > 0 ? Math.round(duration) : null,
       note: String(b.note || "").trim() || null,
-      author: b.officer || ctx.session?.name || null
+      author: b.officer || ctx.session?.name || null,
+      author_officer_id: ctx.session?.officer_id
     });
     /* Transcribing follows the upload rather than waiting for a button. A step
        that has to be remembered is a step that gets skipped, and audio nobody

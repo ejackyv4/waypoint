@@ -2291,7 +2291,7 @@ function renderTiles(s) {
            v.length ? v.map(x => [x.year, x.make, x.model].filter(Boolean).join(" ")).join(", ")
                     : "None on record", v.length)
     + tile("curfew", "Curfew",
-           c?.active ? `${esc(c.start_time)} – ${esc(c.end_time)}` : "No curfew", "")
+           c?.active ? `${esc(to12h(c.start_time).replace(":00", "").replace(" ", "").toLowerCase())}-${esc(to12h(c.end_time).replace(":00", "").replace(" ", "").toLowerCase())}${c.expires_on ? `<br>Expires ${esc(asDate(c.expires_on))}` : ""}` : "No curfew", "")
     + tile("contacts", "Family & Contacts",
            kin.length
              ? kin.slice(0, 2).map(c => `${c.name} (${c.relationship})`).join(", ")
@@ -2306,7 +2306,7 @@ function renderTiles(s) {
     + tile("travel", "Travel Permit",
            !tp || tp.level === "none" ? "None permitted"
              : isExpired(tp) ? `${travelLabel(tp.level)} — expired ${asDate(tp.expires_on)}`
-             : `${travelLabel(tp.level)}${tp.expires_on ? ` until ${asDate(tp.expires_on)}` : ""}`, "")
+             : `${travelLabel(tp.level)}${tp.expires_on ? `<br>Expires ${asDate(tp.expires_on)}` : ""}`, "")
     + tile("docs", "Documents",
            docs.length ? `${docs.length} on file · latest ${asDate((docs[0].created_at || "").slice(0,10))}`
                        : "None on file", docs.length)
@@ -4819,6 +4819,8 @@ function renderCurfew(body, s) {
         <div><label>From</label><input type="time" id="c_start" value="${esc(c.start_time || "21:00")}"></div>
         <div><label>Until</label><input type="time" id="c_end" value="${esc(c.end_time || "06:00")}"></div>
       </div>
+      <label>Expiration date <span class="opt">(optional)</span></label>
+      <input type="date" id="c_expires" value="${esc(c.expires_on || "")}">
       <label>Notes <span class="opt">(optional)</span></label>
       <input id="c_notes" value="${esc(c.notes || "")}" placeholder="e.g. except for approved work shifts">
       <p class="mnote" id="c_preview"></p>
@@ -4835,11 +4837,12 @@ function renderCurfew(body, s) {
                    && el("c_end").value <= el("c_start").value;
     el("c_preview").innerHTML = !on
       ? "No curfew in effect."
-      : `Curfew runs <b>${esc(a)} to ${esc(b)}</b>${overnight ? " the following morning" : ""}.`;
+      : `Curfew runs <b>${esc(a)} to ${esc(b)}</b>${overnight ? " the following morning" : ""}${el("c_expires").value ? ` until <b>${esc(asDate(el("c_expires").value))}</b>` : ""}.`;
   };
   preview();
   el("c_start").onchange = preview;
   el("c_end").onchange = preview;
+  el("c_expires").onchange = preview;
 
   el("c_active").onchange = e => {
     const box = el("c_times");
@@ -4850,6 +4853,7 @@ function renderCurfew(body, s) {
   el("c_save").onclick = () => saveAndRefresh("/api/curfew", {
     subject_id: s.subject_id, active: el("c_active").checked,
     start_time: el("c_start").value, end_time: el("c_end").value,
+    expires_on: el("c_expires").value || null,
     notes: el("c_notes").value.trim()
   }, s, body, renderCurfew, { close: true });
 }
@@ -6191,8 +6195,8 @@ const dobLine = d => {
   return longDate(d) + (a === null ? "" : ` (${a})`);
 };
 
-const asDate = d => d ? new Date(d + "T00:00:00").toLocaleDateString(undefined,
-  { month:"numeric", day:"numeric", year:"numeric" }) : "";
+const asDate = d => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US",
+  { month:"2-digit", day:"2-digit", year:"numeric" }) : "";
 /* An expired permit is not a permit — say so rather than showing a level
    that no longer applies. */
 const isExpired = t => !!(t?.expires_on && new Date(t.expires_on + "T23:59:59") < new Date());

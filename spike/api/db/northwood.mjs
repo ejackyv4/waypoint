@@ -215,9 +215,9 @@ export function acceptVisit(id, subject_id) {
 
 /** The officer records that the visit happened. The timestamp is ours, taken
  *  at the moment of recording — not supplied by the caller. */
-export function addVisitNote({ visit_id, body, author }) {
-  run(`INSERT INTO visit_notes (visit_id, body, author, created_at) VALUES (?,?,?,?)`,
-      visit_id, body, author ?? null, now());
+export function addVisitNote({ visit_id, body, author, author_officer_id }) {
+  run(`INSERT INTO visit_notes (visit_id, body, author, author_officer_id, created_at) VALUES (?,?,?,?,?)`,
+      visit_id, body, author ?? null, author_officer_id ?? null, now());
   return one(`SELECT * FROM visit_notes WHERE visit_id = ? ORDER BY id DESC LIMIT 1`, visit_id);
 }
 
@@ -231,10 +231,10 @@ export const photoById = id => one(`SELECT * FROM visit_photos WHERE id = ?`, id
 /** Append only, deliberately. See the table comment. */
 export function addVisitPhoto(p) {
   run(`INSERT INTO visit_photos
-         (visit_id, filename, mime_type, byte_size, caption, author, created_at)
-       VALUES (?,?,?,?,?,?,?)`,
+         (visit_id, filename, mime_type, byte_size, caption, author, author_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
       p.visit_id, p.filename, p.mime_type, p.byte_size ?? null,
-      p.caption ?? null, p.author ?? null, now());
+      p.caption ?? null, p.author ?? null, p.author_officer_id ?? null, now());
   return one(`SELECT * FROM visit_photos WHERE visit_id = ? ORDER BY id DESC LIMIT 1`,
              p.visit_id);
 }
@@ -250,10 +250,10 @@ export const recordingById = id =>
 /** Append only, deliberately. See the table comment. */
 export function addVisitRecording(r) {
   run(`INSERT INTO visit_recordings
-         (visit_id, filename, mime_type, byte_size, duration_ms, note, author, created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
+         (visit_id, filename, mime_type, byte_size, duration_ms, note, author, author_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       r.visit_id, r.filename, r.mime_type, r.byte_size ?? null,
-      r.duration_ms ?? null, r.note ?? null, r.author ?? null, now());
+      r.duration_ms ?? null, r.note ?? null, r.author ?? null, r.author_officer_id ?? null, now());
   return one(`SELECT * FROM visit_recordings WHERE visit_id = ? ORDER BY id DESC LIMIT 1`,
              r.visit_id);
 }
@@ -293,14 +293,14 @@ export const VISIT_OBSERVATIONS = {
  * acknowledgment, not permission: an officer may turn up to an appointment
  * nobody confirmed, and that is often exactly the visit worth making.
  */
-export function startVisit(id, officer) {
+export function startVisit(id, officer, identity = {}) {
   const v = visit(id);
   if (!v) return { error: "no such visit" };
   if (v.status === "cancelled") return { error: "this visit was cancelled" };
   if (v.completed_at) return { error: "this visit is already complete" };
   if (v.started_at) return { ok: true, visit: v };               // idempotent
-  run(`UPDATE visits SET started_at = ?, officer = COALESCE(officer, ?) WHERE id = ?`,
-      now(), officer ?? null, id);
+  run(`UPDATE visits SET started_at = ?, started_by_officer_id = ?, officer = COALESCE(officer, ?) WHERE id = ?`,
+      now(), identity.officer_id ?? null, officer ?? null, id);
   return { ok: true, visit: visit(id) };
 }
 
@@ -308,7 +308,7 @@ const OBSERVATION_FIELDS = ["subject_present", "location_safe", "contraband",
                             "contraband_detail", "demeanour", "others_present",
                             "concerns"];
 
-export function completeVisit(id, officer, observations = null) {
+export function completeVisit(id, officer, observations = null, identity = {}) {
   const v = visit(id);
   if (!v) return { error: "no such visit" };
   if (v.status === "cancelled") return { error: "this visit was cancelled" };
@@ -321,10 +321,11 @@ export function completeVisit(id, officer, observations = null) {
   const set = cols.map(c => `${c}=?`).join(", ");
 
   run(`UPDATE visits SET status = 'completed', completed_at = ?, completed_by = ?,
+                         completed_by_officer_id = ?,
                          ended_at = ?, started_at = COALESCE(started_at, ?)
                          ${set ? ", " + set : ""}
         WHERE id = ?`,
-      now(), officer ?? null, now(), now(), ...cols.map(c => observations[c]), id);
+      now(), officer ?? null, identity.officer_id ?? null, now(), now(), ...cols.map(c => observations[c]), id);
   return { ok: true, visit: visit(id) };
 }
 
@@ -621,9 +622,9 @@ export const caseNotesFor = subject_id => all(
   `SELECT * FROM case_notes WHERE subject_id = ? ORDER BY id DESC`, subject_id);
 
 /** Append only. There is deliberately no update and no delete. */
-export function addCaseNote({ subject_id, body, author }) {
-  run(`INSERT INTO case_notes (subject_id, body, author, created_at) VALUES (?,?,?,?)`,
-      subject_id, body, author ?? null, now());
+export function addCaseNote({ subject_id, body, author, author_officer_id }) {
+  run(`INSERT INTO case_notes (subject_id, body, author, author_officer_id, created_at) VALUES (?,?,?,?,?)`,
+      subject_id, body, author ?? null, author_officer_id ?? null, now());
   return one(`SELECT * FROM case_notes WHERE subject_id = ? ORDER BY id DESC LIMIT 1`,
              subject_id);
 }
@@ -679,15 +680,15 @@ export const curfewFor = subject_id =>
 export function saveCurfew(c) {
   const existing = curfewFor(c.subject_id);
   if (existing) {
-    run(`UPDATE curfews SET active=?, start_time=?, end_time=?, notes=?, updated_at=?
+    run(`UPDATE curfews SET active=?, start_time=?, end_time=?, expires_on=?, notes=?, updated_at=?
           WHERE subject_id = ?`,
         c.active ? 1 : 0, c.start_time ?? null, c.end_time ?? null,
-        c.notes ?? null, now(), c.subject_id);
+        c.expires_on ?? null, c.notes ?? null, now(), c.subject_id);
   } else {
-    run(`INSERT INTO curfews (subject_id, active, start_time, end_time, notes, created_at)
-         VALUES (?,?,?,?,?,?)`,
+    run(`INSERT INTO curfews (subject_id, active, start_time, end_time, expires_on, notes, created_at)
+         VALUES (?,?,?,?,?,?,?)`,
         c.subject_id, c.active ? 1 : 0, c.start_time ?? null, c.end_time ?? null,
-        c.notes ?? null, now());
+        c.expires_on ?? null, c.notes ?? null, now());
   }
   return curfewFor(c.subject_id);
 }
@@ -889,7 +890,7 @@ export const conditionsFor = agreement_id => all(
 const AGREEMENT_FIELDS = ["kind","supervision_level","start_date","end_date",
                           "office","officer_name","status","violation_text"];
 
-export function saveAgreement(a) {
+export function saveAgreement(a, identity = {}) {
   if (a.id) {
     // Merge, do not overwrite. A payload that omits a field must leave it
     // alone — a partial save should never blank the rest of the record.
@@ -902,11 +903,12 @@ export function saveAgreement(a) {
   }
   run(`INSERT INTO agreements
        (subject_id, kind, supervision_level, start_date, end_date, office,
-        officer_name, status, violation_text, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        officer_name, status, violation_text, created_by_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       a.subject_id, a.kind ?? "probation", a.supervision_level ?? null,
       a.start_date ?? null, a.end_date ?? null, a.office ?? null,
-      a.officer_name ?? null, a.status ?? "draft", a.violation_text ?? null, now());
+      a.officer_name ?? null, a.status ?? "draft", a.violation_text ?? null,
+      identity.officer_id ?? null, now());
   // The row just inserted — NOT agreementFor(), which prefers the active
   // agreement and so answered a "create a draft" with somebody's existing
   // executed one. A create that returns another record's id is the whole
@@ -973,7 +975,7 @@ export const acknowledgmentSnapshot = id => one(
  *   subject is the signer — an acceptance with nothing attached to it is not
  *   evidence of anything.
  */
-export function signAgreement(id, who, name, snapshot) {
+export function signAgreement(id, who, name, snapshot, identity = {}) {
   const col = who === "subject" ? "subject_signed_at" : "officer_signed_at";
   const a = one(`SELECT * FROM agreements WHERE id = ?`, id);
   if (!a) return { error: "no such agreement" };
@@ -985,8 +987,8 @@ export function signAgreement(id, who, name, snapshot) {
         id, a.subject_id, now(), snapshot);
   }
   if (who === "subject") run(`UPDATE agreements SET subject_signed_at = ? WHERE id = ?`, now(), id);
-  else run(`UPDATE agreements SET officer_signed_at = ?, officer_signed_by = ? WHERE id = ?`,
-           now(), name ?? null, id);
+  else run(`UPDATE agreements SET officer_signed_at = ?, officer_signed_by = ?, officer_signed_by_id = ? WHERE id = ?`,
+           now(), name ?? null, identity.officer_id ?? null, id);
   return { ok: true, agreement: agreementById(id) };
 }
 

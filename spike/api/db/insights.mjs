@@ -203,7 +203,7 @@ export const standaloneActionsForSubject = subject_id => all(
           NULL AS headline
      FROM subject_action_items WHERE subject_id = ?`, subject_id);
 
-export const addStandaloneAction = (subject_id, { body, due_date, owner = "subject" } = {}) => {
+export const addStandaloneAction = (subject_id, { body, due_date, owner = "subject", assigned_subject_id = null, assigned_officer_id = null } = {}) => {
   const sid = String(subject_id || "").trim();
   if (!sid) return { error: "subject_id is required" };
   if (!one(`SELECT subject_id FROM subjects WHERE subject_id = ?`, sid))
@@ -212,7 +212,12 @@ export const addStandaloneAction = (subject_id, { body, due_date, owner = "subje
   if (!text) return { error: "An action item cannot be empty." };
   const d = due_date ? String(due_date).slice(0, 10) : null;
   if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return { error: "A due date looks like 2026-09-04." };
-  run(`INSERT INTO subject_action_items (subject_id, body, owner, due_date, created_at) VALUES (?,?,?,?,?)`, sid, text, owner, d, now());
+  const assignedSubject = owner === "subject" ? (assigned_subject_id || sid) : null;
+  const assignedOfficer = owner === "officer" ? (assigned_officer_id || null) : null;
+  if (owner === "officer" && !assignedOfficer) return { error: "assigned officer is required" };
+  run(`INSERT INTO subject_action_items
+       (subject_id, body, owner, due_date, assigned_subject_id, assigned_officer_id, created_at)
+       VALUES (?,?,?,?,?,?,?)`, sid, text, owner, d, assignedSubject, assignedOfficer, now());
   return { ok: true };
 };
 
@@ -349,6 +354,15 @@ export function promoteProposedActions() {
   return rows.length;
 }
 
+/** Repair rows written by the older officer-completion workflow. */
+export function repairCompletedActions() {
+  const r = run(`UPDATE visit_summary_actions
+                   SET status = 'done', done_at = COALESCE(done_at, decided_at),
+                       done_by = COALESCE(done_by, decided_by)
+                 WHERE status = 'accepted' AND decided_by IS NOT NULL`);
+  return r?.changes || 0;
+}
+
 /**
  * Tidy what the old append-everything rule left behind.
  *
@@ -450,14 +464,17 @@ export const markActionsSeen = subject_id => run(
   now(), subject_id);
 
 /** The subject reports completion; the officer remains the confirmer. */
-export function completeAction(id, who) {
+export function completeAction(id, who, identity = {}) {
   if (String(id).startsWith("standalone-")) {
     const n = Number(String(id).slice("standalone-".length));
     const a = one(`SELECT * FROM subject_action_items WHERE id = ?`, n);
     if (!a) return { error: "no such action item" };
     if (a.status !== "accepted") return { error: "Only an accepted action item can be reported." };
-    run(`UPDATE subject_action_items SET status='in_review', done_by=?, done_at=? WHERE id=?`, who ?? null, now(), n);
-    return { ok: true, action: { ...a, id, status: "in_review", done_by: who ?? null, done_at: now() } };
+    const completedAt = now();
+    run(`UPDATE subject_action_items SET status='in_review', done_by=?, done_by_subject_id=?, done_at=? WHERE id=?`,
+        who ?? null, identity.subject_id ?? null, completedAt, n);
+    return { ok: true, action: { ...a, id, status: "in_review", done_by: who ?? null,
+      done_by_subject_id: identity.subject_id ?? null, done_at: completedAt } };
   }
   const a = one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id);
   if (!a) return { error: "no such action item" };
@@ -497,7 +514,7 @@ export function setActionOwner(id, owner, who) {
  * Recorded with a name and a time, because "who decided this did not need
  * doing" is exactly the question asked afterwards.
  */
-export function decideAction(id, status, who) {
+export function decideAction(id, status, who, identity = {}) {
   if (String(id).startsWith("standalone-")) {
     const n = Number(String(id).slice("standalone-".length));
     const a = one(`SELECT * FROM subject_action_items WHERE id = ?`, n);
@@ -505,8 +522,10 @@ export function decideAction(id, status, who) {
     if (status === "done" && ["accepted", "in_review"].includes(a.status)) {
       run(`UPDATE subject_action_items
               SET status='done', done_by=COALESCE(done_by, ?),
-                  done_at=COALESCE(done_at, ?), decided_by=?, decided_at=?
-            WHERE id=?`, who ?? null, now(), who ?? null, now(), n);
+                  done_at=COALESCE(done_at, ?), done_by_officer_id=COALESCE(done_by_officer_id, ?),
+                  decided_by=?, decided_at=?, decided_by_officer_id=?
+            WHERE id=?`, who ?? null, now(), identity.officer_id ?? null,
+          who ?? null, now(), identity.officer_id ?? null, n);
       return { ok: true, action: { ...a, id, status: "done",
         done_by: a.done_by || who || null, done_at: a.done_at || now(),
         decided_by: who ?? null } };
@@ -514,11 +533,11 @@ export function decideAction(id, status, who) {
     if (status === "archived" || status === "dismissed" || status === "accepted") {
       const next = status === "dismissed" ? "archived" : status;
       run(`UPDATE subject_action_items
-              SET status=?, done_by=?, done_at=?, decided_by=?, decided_at=? WHERE id=?`,
+              SET status=?, done_by=?, done_at=?, decided_by=?, decided_at=?, decided_by_officer_id=? WHERE id=?`,
           next, next === "accepted" ? null : a.done_by,
           next === "accepted" ? null : a.done_at,
           next === "accepted" ? null : (who ?? null),
-          next === "accepted" ? null : now(), n);
+          next === "accepted" ? null : now(), next === "accepted" ? null : (identity.officer_id ?? null), n);
       return { ok: true, action: { ...one(`SELECT * FROM subject_action_items WHERE id = ?`, n), id } };
     }
     return { error: "Only an item reported by the subject can be confirmed." };
@@ -530,9 +549,10 @@ export function decideAction(id, status, who) {
       return { error: "Only an accepted or subject-reported item can be completed." };
     run(`UPDATE visit_summary_actions
             SET status = 'done', done_by = COALESCE(done_by, ?),
-                done_at = COALESCE(done_at, ?), decided_by = ?, decided_at = ?
+                done_at = COALESCE(done_at, ?), done_by_officer_id = COALESCE(done_by_officer_id, ?),
+                decided_by = ?, decided_at = ?, decided_by_officer_id = ?
           WHERE id = ?`,
-        who ?? null, now(), who ?? null, now(), id);
+        who ?? null, now(), identity.officer_id ?? null, who ?? null, now(), identity.officer_id ?? null, id);
     return { ok: true, action: one(`SELECT * FROM visit_summary_actions WHERE id = ?`, id) };
   }
   /* `proposed` is gone as a gate but stays reachable, so an item dismissed by
@@ -543,11 +563,11 @@ export function decideAction(id, status, who) {
   if (!a) return { error: "no such action item" };
   const next = status === "dismissed" ? "archived" : status;
   run(`UPDATE visit_summary_actions
-      SET status = ?, done_by = ?, done_at = ?, decided_by = ?, decided_at = ? WHERE id = ?`,
+      SET status = ?, done_by = ?, done_at = ?, decided_by = ?, decided_at = ?, decided_by_officer_id = ? WHERE id = ?`,
       next, next === "accepted" ? null : a.done_by,
       next === "accepted" ? null : a.done_at,
       status === "proposed" ? null : (who ?? null),
-      status === "proposed" ? null : now(), id);
+      status === "proposed" ? null : now(), status === "proposed" ? null : (identity.officer_id ?? null), id);
 
   /* Accepting is the moment it becomes work somebody owes, so that is when the
      spoken phrase is turned into a date. Derived, not guessed — and only if

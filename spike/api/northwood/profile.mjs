@@ -42,7 +42,7 @@ import { planFor } from "../db/reentry.mjs";
 import { goalsFor } from "../db/goals.mjs";
 import { financialSummary } from "../db/financial.mjs";
 import { datesSummary } from "../db/dates.mjs";
-import { actionsForSubject, promoteProposedActions } from "../db/insights.mjs";
+import { actionsForSubject, promoteProposedActions, repairCompletedActions } from "../db/insights.mjs";
 
 /**
  * Mark which subjects can actually sign in.
@@ -73,7 +73,7 @@ export const routes = {
     if (!r.unchanged)
       addCaseNote({ subject_id: b.subject_id,
         body: `Supervision transferred${r.from ? ` from ${r.from}` : ""} to ${r.officer}.`,
-        author: ctx.session?.name || null });
+        author: ctx.session?.name || null, author_officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { ...r, subject: asProfile(subjectByKey(b.subject_id)) });
   },
 
@@ -165,6 +165,7 @@ export const routes = {
     // Legacy proposed rows are promoted on read so they cannot disappear from
     // this profile until a maintenance restart happens to run.
     promoteProposedActions();
+    repairCompletedActions();
 
     /* Opening somebody's file is the read worth recording. It returns their
        address, their vehicles, their employment, their contacts and their
@@ -330,7 +331,8 @@ export const routes = {
       return saasJson(res, 400, { error: "A note cannot be empty." });
 
     const note = addCaseNote({ subject_id: b.subject_id, body: String(b.body).trim(),
-                               author: b.author || ctx.session?.name || null });
+                               author: b.author || ctx.session?.name || null,
+                               author_officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { note, notes: caseNotesFor(b.subject_id) });
   },
 

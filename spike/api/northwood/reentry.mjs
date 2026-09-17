@@ -96,7 +96,8 @@ export const routes = {
      behalf. */
   "POST /api/reentry/item/sign": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = signItem(Number(b.id), "officer", ctx.session?.name || null);
+    const r = signItem(Number(b.id), "officer", ctx.session?.name || null,
+                       { officer_id: ctx.session?.officer_id });
     if (r.error) return saasJson(res, r.error === "no such checkpoint" ? 404 : 409, r);
     return saasJson(res, 200, { ...r, plan: planById(r.item.plan_id) });
   },
@@ -108,13 +109,15 @@ export const routes = {
      says "the whole thing is complete". Only the officer gives it. */
   "POST /api/reentry/certify": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = certifyPlan(Number(b.id), ctx.session?.name || null);
+    const r = certifyPlan(Number(b.id), ctx.session?.name || null,
+                          { officer_id: ctx.session?.officer_id });
     return saasJson(res, r.error ? 409 : 200, r);
   },
 
   "POST /api/reentry/sign": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = signPlan(Number(b.id), "officer", ctx.session?.name || null);
+    const r = signPlan(Number(b.id), "officer", ctx.session?.name || null, null,
+                       { officer_id: ctx.session?.officer_id });
     return saasJson(res, r.error ? 404 : 200, r);
   },
 

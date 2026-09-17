@@ -370,6 +370,7 @@ CREATE TABLE IF NOT EXISTS curfews (
   active     INTEGER NOT NULL DEFAULT 0,
   start_time TEXT,                       -- "21:00"
   end_time   TEXT,                       -- "06:00"
+  expires_on TEXT,                       -- ISO date, optional
   notes      TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT
@@ -571,6 +572,8 @@ CREATE INDEX IF NOT EXISTS ix_reg_person ON registrations(person_id);
 CREATE INDEX IF NOT EXISTS ix_cred_ident ON credentials(kind, identifier);
 CREATE INDEX IF NOT EXISTS ix_ticket_token ON launch_tickets(token);
 `);
+
+ensureColumn("curfews", "expires_on", "TEXT");
 
 ensureColumn("agreements", "amended_at", "TEXT");
 /* cmi.core.session_time is the elapsed time of the CURRENT session, rewritten
@@ -946,6 +949,10 @@ CREATE INDEX IF NOT EXISTS ix_fin_payments ON financial_payments(item_id, id);
  * steps, and a case file that cannot tell them apart has lost the part
  * anybody would dispute. */
 ensureColumn("financial_payments", "recorded_role", "TEXT");
+ensureColumn("financial_items", "created_by_officer_id", "INTEGER");
+ensureColumn("financial_items", "updated_by_officer_id", "INTEGER");
+ensureColumn("financial_items", "waived_by_officer_id", "INTEGER");
+ensureColumn("financial_payments", "recorded_by_officer_id", "INTEGER");
 
 /* ================================================================
    Important dates
@@ -1237,6 +1244,9 @@ db.exec(`UPDATE visit_summary_actions
    list that cannot tell them apart cannot answer how long anything took. */
 ensureColumn("visit_summary_actions", "done_by", "TEXT");
 ensureColumn("visit_summary_actions", "done_at", "TEXT");
+ensureColumn("visit_summary_actions", "done_by_subject_id", "TEXT");
+ensureColumn("visit_summary_actions", "done_by_officer_id", "INTEGER");
+ensureColumn("visit_summary_actions", "decided_by_officer_id", "INTEGER");
 
 /* A real date, beside the phrase that was actually said.
  *
@@ -1271,6 +1281,22 @@ db.exec(`UPDATE visit_summary_actions
 ensureColumn("goal_steps", "review_status", "TEXT NOT NULL DEFAULT 'open'");
 ensureColumn("goal_steps", "confirmed_by", "TEXT");
 ensureColumn("goal_steps", "confirmed_at", "TEXT");
+ensureColumn("goal_steps", "done_by_subject_id", "TEXT");
+ensureColumn("goal_steps", "done_by_officer_id", "INTEGER");
+ensureColumn("goals", "created_by_officer_id", "INTEGER");
+ensureColumn("goals", "completed_by_officer_id", "INTEGER");
+ensureColumn("visits", "started_by_officer_id", "INTEGER");
+ensureColumn("visits", "completed_by_officer_id", "INTEGER");
+ensureColumn("visit_notes", "author_officer_id", "INTEGER");
+ensureColumn("visit_photos", "author_officer_id", "INTEGER");
+ensureColumn("visit_recordings", "author_officer_id", "INTEGER");
+ensureColumn("case_notes", "author_officer_id", "INTEGER");
+ensureColumn("agreements", "created_by_officer_id", "INTEGER");
+ensureColumn("agreements", "officer_signed_by_id", "INTEGER");
+ensureColumn("reentry_plans", "officer_signed_by_id", "INTEGER");
+ensureColumn("reentry_plans", "certified_by_officer_id", "INTEGER");
+ensureColumn("reentry_items", "officer_signed_by_id", "INTEGER");
+ensureColumn("reentry_events", "author_officer_id", "INTEGER");
 db.exec(`UPDATE goal_steps SET review_status = 'done'
          WHERE done_at IS NOT NULL AND (review_status IS NULL OR review_status = 'open')`);
 
@@ -1278,6 +1304,14 @@ db.exec(`UPDATE goal_steps SET review_status = 'done'
 db.exec(`CREATE TABLE IF NOT EXISTS subject_action_items (
   id INTEGER PRIMARY KEY, subject_id TEXT NOT NULL, body TEXT NOT NULL,
   owner TEXT NOT NULL DEFAULT 'subject', due_date TEXT,
+  assigned_subject_id TEXT, assigned_officer_id INTEGER,
   status TEXT NOT NULL DEFAULT 'accepted', done_by TEXT, done_at TEXT,
-  decided_by TEXT, decided_at TEXT, created_at TEXT NOT NULL
+  done_by_subject_id TEXT, done_by_officer_id INTEGER,
+  decided_by TEXT, decided_at TEXT, decided_by_officer_id INTEGER,
+  created_at TEXT NOT NULL
 )`);
+ensureColumn("subject_action_items", "assigned_subject_id", "TEXT");
+ensureColumn("subject_action_items", "assigned_officer_id", "INTEGER");
+ensureColumn("subject_action_items", "done_by_subject_id", "TEXT");
+ensureColumn("subject_action_items", "done_by_officer_id", "INTEGER");
+ensureColumn("subject_action_items", "decided_by_officer_id", "INTEGER");

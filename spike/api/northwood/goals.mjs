@@ -42,7 +42,8 @@ export const routes = {
     if (bad) return saasJson(res, 400, { error: bad });
 
     const goal = saveGoal({ ...b, title: b.title === undefined ? undefined : title },
-                          ctx.session?.name || null);
+                          ctx.session?.name || null,
+                          { officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { goal, goals: goalsFor(goal.subject_id) });
   },
 
@@ -50,7 +51,8 @@ export const routes = {
      steps; whether the goal is met is a judgement about the world. */
   "POST /api/goals/complete": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = completeGoal(Number(b.id), ctx.session?.name || null, b.complete !== false);
+    const r = completeGoal(Number(b.id), ctx.session?.name || null, b.complete !== false,
+                           { officer_id: ctx.session?.officer_id });
     if (r.error) return saasJson(res, r.error === "no such goal" ? 404 : 409, r);
     return saasJson(res, 200, { ...r, goals: goalsFor(r.goal.subject_id) });
   },
@@ -84,9 +86,10 @@ export const routes = {
 
   /* An officer may tick a step off too — they are the one who hears about it
      at a visit. Who did it is recorded either way. */
-  "POST /api/goals/step/done": async (req, res) => {
+  "POST /api/goals/step/done": async (req, res, ctx) => {
     const b = await readJson(req);
-    const r = setStepDone(Number(b.id), b.done !== false, "officer");
+    const r = setStepDone(Number(b.id), b.done !== false, ctx.session?.name || "officer",
+                           { officer_id: ctx.session?.officer_id });
     if (r.error) return saasJson(res, r.error === "no such action step" ? 404 : 409, r);
     return saasJson(res, 200, { ...r, goals: goalsFor(r.goal.subject_id) });
   }

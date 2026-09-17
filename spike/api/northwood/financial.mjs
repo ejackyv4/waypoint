@@ -25,7 +25,7 @@ const isDate = d => /^\d{4}-\d{2}-\d{2}$/.test(d);
  * separate implementations — the same rule as the employment validator, and
  * for the same reason: neither side gets to be the lenient one.
  */
-export function recordPayment(item, b, author, role) {
+export function recordPayment(item, b, author, role, identity = {}) {
   const amount_cents = toCents(b.amount);
   if (amount_cents === null || amount_cents <= 0)
     return { error: "Enter a payment amount, like 50 or 50.00." };
@@ -40,7 +40,7 @@ export function recordPayment(item, b, author, role) {
                   + `outstanding on this item.` };
 
   return { ok: true, item: addPayment({ item_id: item.id, amount_cents,
-             paid_on: b.paid_on, method: b.method, note: b.note }, author, role) };
+             paid_on: b.paid_on, method: b.method, note: b.note }, author, role, identity) };
 }
 
 export const routes = {
@@ -78,7 +78,7 @@ export const routes = {
     const item = saveFinancialItem({
       id: b.id, subject_id: b.subject_id, kind: b.kind,
       description: b.description, due_date: b.due_date, amount_cents
-    }, ctx.session?.name || null);
+    }, ctx.session?.name || null, { officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { item, ...financialSummary(item.subject_id) });
   },
 
@@ -94,7 +94,7 @@ export const routes = {
     const b = await readJson(req);
     const item = financialItemById(Number(b.item_id));
     if (!item) return saasJson(res, 404, { error: "no such obligation" });
-    const r = recordPayment(item, b, ctx.session?.name || null, "officer");
+    const r = recordPayment(item, b, ctx.session?.name || null, "officer", { officer_id: ctx.session?.officer_id });
     if (r.error) return saasJson(res, 400, r);
     return saasJson(res, 200, { item: r.item, ...financialSummary(item.subject_id) });
   },
@@ -118,7 +118,7 @@ export const routes = {
     if (waive && !String(b.note ?? "").trim())
       return saasJson(res, 400, {
         error: "Say why this is being waived — it stays on the record." });
-    const updated = waiveItem(item.id, ctx.session?.name || null, b.note, waive);
+    const updated = waiveItem(item.id, ctx.session?.name || null, b.note, waive, { officer_id: ctx.session?.officer_id });
     return saasJson(res, 200, { item: updated, ...financialSummary(item.subject_id) });
   }
 };
